@@ -1,16 +1,10 @@
-/**
- * Root layout for Next.js app
- * 
- * ⚠️ Before making changes, read: ../../docs/workflow/BEST_PRACTICES.md
- * Always check with the user before modifying this file.
- */
-
 import type { Metadata } from 'next';
 import './globals.css';
+import { Nav } from '@/components/Nav';
 
 export const metadata: Metadata = {
-  title: 'Template Project',
-  description: 'Template Next.js application',
+  title: 'LGC — Compta SASU',
+  description: 'Suivi cashflow SASU : tréso, forecast & facturation.',
 };
 
 export default function RootLayout({
@@ -19,12 +13,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="fr">
+      <body>
+        <div className="flex min-h-screen">
+          <Nav />
+          <main className="flex-1 px-6 py-6 lg:px-10">{children}</main>
+        </div>
+      </body>
     </html>
   );
 }
-
-
-
-

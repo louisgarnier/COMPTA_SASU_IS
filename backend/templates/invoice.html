@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Facture {{ invoice.number }}</title>
+  <style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: "Helvetica", "Arial", sans-serif; color: #1a1a1a; font-size: 12px; }
+    h1 { font-size: 22px; margin: 0 0 4px 0; }
+    .muted { color: #666; }
+    .row { display: flex; justify-content: space-between; }
+    .box { width: 48%; }
+    .box h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin: 0 0 6px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; }
+    th { background: #f4f4f4; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+    td.num, th.num { text-align: right; }
+    tfoot td { font-weight: bold; font-size: 14px; border-top: 2px solid #333; border-bottom: none; }
+    .mention { margin-top: 28px; padding: 10px 12px; background: #f9f9f9; border-left: 3px solid #999; font-size: 11px; color: #444; }
+    .meta { margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <div class="box">
+      <h1>{{ company.company_name }}</h1>
+      <div class="muted meta">SIRET : {{ company.siret }}</div>
+      {% if company.tva_intracom %}<div class="muted meta">TVA intracom : {{ company.tva_intracom }}</div>{% endif %}
+      <div class="muted meta">{{ company.address }}</div>
+    </div>
+    <div class="box" style="text-align: right;">
+      <h1>FACTURE</h1>
+      <div class="meta"><strong>N° {{ invoice.number }}</strong></div>
+      {% if invoice.issue_date %}<div class="muted meta">Date : {{ invoice.issue_date }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="row" style="margin-top: 28px;">
+    <div class="box">
+      <h2>Prestataire</h2>
+      <div>{{ company.company_name }}</div>
+      <div class="muted">{{ company.address }}</div>
+    </div>
+    <div class="box">
+      <h2>Client</h2>
+      <div>{{ client.legal_name }}</div>
+      <div class="muted">{{ client.address }}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Prestation</th>
+        <th class="num">Heures</th>
+        <th class="num">Taux ({{ invoice.currency }})</th>
+        <th class="num">Montant ({{ invoice.currency }})</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Prestation de services{% if invoice.period_label %} — {{ invoice.period_label }}{% endif %}
+          {% if invoice.period_start and invoice.period_end %}<br /><span class="muted">du {{ invoice.period_start }} au {{ invoice.period_end }}</span>{% endif %}
+        </td>
+        <td class="num">{{ invoice.hours }}</td>
+        <td class="num">{{ invoice.rate }}</td>
+        <td class="num">{{ invoice.amount }}</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3">Total à régler</td>
+        <td class="num">{{ invoice.amount }} {{ invoice.currency }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="mention">
+    TVA non applicable, art. 293 B du CGI.
+  </div>
+</body>
+</html>

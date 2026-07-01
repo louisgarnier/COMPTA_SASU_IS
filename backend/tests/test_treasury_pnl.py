@@ -1,0 +1,246 @@
+"""
+Tests Trésorerie consolidée + Compte de résultat mensuel.
+
+SQLite en mémoire, données semées : un compte EUR, un compte USD (avec
+amount_eur), un placement, et des transactions réparties sur plusieurs mois
+(un produit en février, une charge en février, un investissement + une
+conversion qui doivent être exclus du P&L).
+"""
+
+from decimal import Decimal
+from datetime import date
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import sessionmaker
+
+from backend.db.base import Base, get_db
+from backend.db import models
+from backend.services.pnl import monthly_pnl
+from backend.services.treasury import (
+    consolidated_treasury,
+    eur_amount,
+    link_fx_conversion,
+)
+
+
+# --- Fixtures -------------------------------------------------------------
+
+
+@pytest.fixture()
+def session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, future=True)()
+    _seed(db)
+    yield db
+    db.close()
+
+
+def _seed(db):
+    # Paramètres (taux de conversion par défaut).
+    db.add(models.Settings(id=1, default_fx_usd=Decimal("0.90"), default_fx_cad=Decimal("0.68")))
+
+    # Compte EUR : ouverture 1000, +500 (janv) -300 (fév) = 1200 EUR.
+    db.add(models.BankAccount(
+        provider="qonto", account_uid="eur-1", currency="EUR", name="Qonto EUR",
+        opening_balance=Decimal("1000.00"), opening_balance_date=date(2026, 1, 1),
+    ))
+    # Compte USD : ouverture 0, +1000 USD (amount_eur=900) = 1000 USD / 900 EUR.
+    db.add(models.BankAccount(
+        provider="revolut", account_uid="usd-1", currency="USD", name="Revolut USD",
+        opening_balance=Decimal("0.00"), opening_balance_date=date(2026, 1, 1),
+    ))
+
+    # Catégories.
+    cat_rev = models.Category(id=1, name="Prestations", type="revenue")
+    cat_chg = models.Category(id=2, name="Frais", type="charge")
+    cat_conv = models.Category(id=3, name="Conversion", type="conversion")
+    db.add_all([cat_rev, cat_chg, cat_conv])
+
+    # --- Transactions compte EUR ---
+    # Produit janvier +500 EUR.
+    db.add(models.Transaction(
+        account_uid="eur-1", external_id="e1", booked_date=date(2026, 1, 15),
+        amount=Decimal("500.00"), currency="EUR", kind="revenue", category_id=1,
+        amount_eur=Decimal("500.00"),
+    ))
+    # Produit février +800 EUR.
+    db.add(models.Transaction(
+        account_uid="eur-1", external_id="e2", booked_date=date(2026, 2, 10),
+        amount=Decimal("800.00"), currency="EUR", kind="revenue", category_id=1,
+        amount_eur=Decimal("800.00"),
+    ))
+    # Charge février -300 EUR.
+    db.add(models.Transaction(
+        account_uid="eur-1", external_id="e3", booked_date=date(2026, 2, 20),
+        amount=Decimal("-300.00"), currency="EUR", kind="charge", category_id=2,
+        amount_eur=Decimal("-300.00"),
+    ))
+    # Conversion (à exclure du P&L), catégorie type conversion.
+    db.add(models.Transaction(
+        account_uid="eur-1", external_id="e4", booked_date=date(2026, 2, 25),
+        amount=Decimal("900.00"), currency="EUR", kind="conversion", category_id=3,
+        amount_eur=Decimal("900.00"),
+    ))
+
+    # --- Transactions compte USD ---
+    # Crédit +1000 USD, amount_eur=900 (kind revenue, mais devise USD).
+    db.add(models.Transaction(
+        account_uid="usd-1", external_id="u1", booked_date=date(2026, 3, 5),
+        amount=Decimal("1000.00"), currency="USD", kind="revenue", category_id=1,
+        amount_eur=Decimal("900.00"),
+    ))
+    # Ligne investissement (à exclure du P&L).
+    db.add(models.Transaction(
+        account_uid="usd-1", external_id="u2", booked_date=date(2026, 2, 5),
+        amount=Decimal("-200.00"), currency="USD", kind="investment",
+        amount_eur=Decimal("-180.00"),
+    ))
+
+    # Placement : valeur courante EUR = 5000.
+    db.add(models.Investment(
+        label="PEA", type="bourse", currency="EUR",
+        current_value=Decimal("5000.00"), current_value_eur=Decimal("5000.00"),
+    ))
+
+    db.commit()
+
+
+# --- Tests service : trésorerie ------------------------------------------
+
+
+def test_consolidated_balances(session):
+    result = consolidated_treasury(session)
+
+    balances = {a["account_uid"]: a["balance"] for a in result["accounts"]}
+    # EUR : 1000 + 500 + 800 - 300 + 900 (conversion compte, incluse au solde) = 2900.
+    assert balances["eur-1"] == Decimal("2900.00")
+    # USD : 0 + 1000 - 200 = 800 USD (solde en devise du compte).
+    assert balances["usd-1"] == Decimal("800.00")
+
+
+def test_consolidated_eur_totals(session):
+    result = consolidated_treasury(session)
+
+    # Bank EUR total :
+    #   compte EUR = 2900 EUR
+    #   compte USD (équiv EUR) = amount_eur 900 + (-180) = 720 EUR
+    assert result["bank_total_eur"] == Decimal("3620.00")
+    assert result["investments_total_eur"] == Decimal("5000.00")
+    assert result["total_eur"] == Decimal("8620.00")
+
+
+def test_eur_amount_fallbacks(session):
+    settings = session.get(models.Settings, 1)
+    # amount_eur présent -> prioritaire.
+    tx = models.Transaction(account_uid="x", external_id="z", amount=Decimal("100"),
+                            currency="USD", amount_eur=Decimal("88"))
+    assert eur_amount(tx, settings) == Decimal("88")
+    # Pas d'amount_eur, devise EUR -> amount.
+    tx2 = models.Transaction(account_uid="x", external_id="z2", amount=Decimal("50"),
+                             currency="EUR")
+    assert eur_amount(tx2, settings) == Decimal("50")
+    # Pas d'amount_eur, fx_rate figé.
+    tx3 = models.Transaction(account_uid="x", external_id="z3", amount=Decimal("100"),
+                             currency="USD", fx_rate=Decimal("0.95"))
+    assert eur_amount(tx3, settings) == Decimal("95.00")
+    # Pas d'amount_eur ni fx -> taux défaut USD 0.90.
+    tx4 = models.Transaction(account_uid="x", external_id="z4", amount=Decimal("100"),
+                             currency="USD")
+    assert eur_amount(tx4, settings) == Decimal("90.00")
+
+
+def test_link_fx_conversion(session):
+    credit = session.query(models.Transaction).filter_by(external_id="u1").one()
+    # On crée une conversion EUR appariée : 1000 USD -> 920 EUR.
+    conv = models.Transaction(
+        account_uid="eur-1", external_id="c1", booked_date=date(2026, 3, 6),
+        amount=Decimal("920.00"), currency="EUR", kind="conversion",
+    )
+    session.add(conv)
+    session.commit()
+
+    updated = link_fx_conversion(session, credit.id, conv.id)
+    assert updated.linked_conversion_id == conv.id
+    assert updated.amount_eur == Decimal("920.00")
+    assert updated.fx_rate == Decimal("0.920000")
+
+
+# --- Tests service : P&L --------------------------------------------------
+
+
+def test_monthly_pnl_twelve_months(session):
+    result = monthly_pnl(session, 2026)
+    assert result["year"] == 2026
+    assert len(result["months"]) == 12
+    assert result["months"][0]["month"] == "2026-01"
+    assert result["months"][11]["month"] == "2026-12"
+
+
+def test_monthly_pnl_february(session):
+    result = monthly_pnl(session, 2026)
+    feb = next(m for m in result["months"] if m["month"] == "2026-02")
+    # Fév : produit 800, charge -300, résultat 500.
+    # L'investissement (-180) et la conversion (900) sont exclus.
+    assert feb["revenue_eur"] == Decimal("800.00")
+    assert feb["charges_eur"] == Decimal("-300.00")
+    assert feb["result_eur"] == Decimal("500.00")
+
+
+def test_monthly_pnl_totals(session):
+    result = monthly_pnl(session, 2026)
+    # Produits : janv 500 + fév 800 + mars 900 (USD amount_eur) = 2200.
+    # Charges : fév -300.
+    assert result["totals"]["revenue_eur"] == Decimal("2200.00")
+    assert result["totals"]["charges_eur"] == Decimal("-300.00")
+    assert result["totals"]["result_eur"] == Decimal("1900.00")
+
+
+# --- Tests routes ---------------------------------------------------------
+
+
+def _client(session):
+    from backend.api.routes.treasury import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db] = lambda: session
+    return TestClient(app)
+
+
+def test_route_treasury(session):
+    client = _client(session)
+    resp = client.get("/api/treasury")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_eur"] == "8620.00"
+    assert len(body["accounts"]) == 2
+
+
+def test_route_pnl_default_year(session):
+    client = _client(session)
+    resp = client.get("/api/pnl")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["year"] == 2026
+    assert len(body["months"]) == 12
+    assert body["totals"]["result_eur"] == "1900.00"
+
+
+def test_route_pnl_explicit_year(session):
+    client = _client(session)
+    resp = client.get("/api/pnl?year=2025")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["year"] == 2025
+    # Aucune transaction en 2025 -> tout à zéro.
+    assert body["totals"]["result_eur"] == "0.00"

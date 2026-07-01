@@ -6,14 +6,22 @@ PY      := $(VENV)/bin/python
 UVICORN := $(VENV)/bin/uvicorn
 PYTEST  := $(VENV)/bin/pytest
 
-.PHONY: help install dev back front test test-back test-front
+.PHONY: help install dev back front test test-back test-front seed seed-reset
 
 help:
 	@echo "make install    - installe les deps back (venv) + front (npm)"
 	@echo "make dev        - lance back (:8000) + front (:3000) en parallele"
 	@echo "make back       - lance uniquement le back (:8000)"
 	@echo "make front      - lance uniquement le front (:3000)"
+	@echo "make seed       - remplit la base avec des donnees de demo (si vide)"
+	@echo "make seed-reset - vide puis reseed la base de demo"
 	@echo "make test       - lance les tests back + front"
+
+seed:
+	$(PY) -m backend.seed
+
+seed-reset:
+	$(PY) -m backend.seed --reset
 
 install:
 	$(PY) -m pip install -r backend/requirements.txt
