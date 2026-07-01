@@ -11,7 +11,36 @@
 ## ADR Index
 | ID | Title | Status | Date | Epic |
 |---|---|---|---|---|
-| ADR-001 | [Decision title] | Accepted / Superseded | [DATE] | EPIC-X |
+| ADR-001 | SQLite local (portable Postgres) comme base | Accepted | 2026-07-01 | Pre-epic |
+| ADR-002 | Synchro bancaire par pull à la demande (pas de webhook) | Accepted | 2026-07-01 | Pre-epic |
+| ADR-003 | WeasyPrint (HTML+CSS) pour la génération des factures | Accepted | 2026-07-01 | Pre-epic |
+| ADR-004 | Pas d'auth en v1 (local mono-utilisateur non exposé) | Accepted | 2026-07-01 | Pre-epic |
+| ADR-005 | Catégorisation par règles éditables (pas de LLM en v1) | Accepted | 2026-07-01 | Pre-epic |
+
+### ADR-001 — SQLite local, schéma portable Postgres
+**Context :** outil perso mono-utilisateur, local-first (PRD Constraints §9), migration cloud possible plus tard.
+**Décision :** SQLite via SQLAlchemy + Alembic ; montants en `Decimal`/NUMERIC ; FK activées.
+**Conséquences :** zéro infra ; un seul writer (OK 1 user) ; migration Postgres = changer l'URL + review types.
+
+### ADR-002 — Synchro par pull à la demande
+**Context :** local, pas d'endpoint HTTPS public → webhook Enable Banking impossible sans hosting.
+**Décision :** bouton « Synchroniser » → pull transactions + soldes ; pas de webhook en v1.
+**Conséquences :** simple, suffisant pour un tableau de bord consulté ; pas de temps réel (acceptable).
+
+### ADR-003 — WeasyPrint pour les factures
+**Context :** reproduire fidèlement la mise en page des factures Word (mentions légales, IBAN par devise).
+**Décision :** template Jinja2 HTML/CSS → PDF via WeasyPrint.
+**Conséquences :** haute fidélité ; dépendance libs système (`brew install pango`) ; fallback `fpdf2` si blocage.
+
+### ADR-004 — Pas d'auth en v1
+**Context :** app locale non exposée (NG3, Constraints §9).
+**Décision :** aucune authentification en v1.
+**Conséquences :** simplicité ; devient un pré-requis obligatoire dès qu'on héberge (v2 cloud).
+
+### ADR-005 — Catégorisation par règles
+**Context :** besoin déterministe, testable, gratuit ; données bancaires sensibles.
+**Décision :** moteur de règles éditables (contrepartie/description → catégorie), fallback « à catégoriser ».
+**Conséquences :** transparent et corrigeable ; « catégo intelligente » LLM = piste v2.
 
 ---
 

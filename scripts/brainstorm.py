@@ -149,10 +149,21 @@ def run_brainstorm():
     clear_screen()
     print_header("Section 1: The One-Liner")
     print("What is this project in ONE sentence? No conjunctions.")
-    answers['project_name'] = ask_question("Project name:")
-    answers['one_liner'] = ask_question(
-        "One-liner ([PROJECT] is a [type] that [does what] for [who]):"
-    )
+
+    while True:
+        answers['project_name'] = ask_question("Project name:")
+        if answers['project_name']:
+            break
+        print("   ⚠️  Project name cannot be empty.")
+
+    print(f"\n   Example: \"{answers['project_name']} is a web app that tracks expenses for freelancers.\"")
+    while True:
+        answers['one_liner'] = ask_question(
+            f"One-liner ({answers['project_name']} is a [type] that [does what] for [who]):"
+        )
+        if answers['one_liner']:
+            break
+        print("   ⚠️  One-liner cannot be empty.")
 
     # Section 2: The Problem
     clear_screen()

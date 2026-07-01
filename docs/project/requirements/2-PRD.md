@@ -1,17 +1,17 @@
 # 📋 Stage 2 — Product Requirements Document (PRD)
 > **Output →** `docs/project/config/prd.md`
-> **Instructions:** Written by human, not AI. This is the source of truth.
+> **Instructions:** Drafted with AI, decisions made by you. This is the source of truth.
 > The AI reads this before every session. Be precise — vague requirements = scope creep.
 > Status: `[ ] Draft` → `[ ] Reviewed` → `[ ] Locked`
 > ⚠️ Once LOCKED, changes require a dated amendment at the bottom.
 
 ## 📥 Inputs from 1-BRAINSTORM.md
-- **Project Name & One-liner** → Use in Project Summary
-- **Goals & Non-Goals** → Copy into Section 2
-- **User Types & Workflows** → Convert to User Stories in Section 3
-- **Requirements Seeds** → Expand into Sections 4-5
-- **Constraints** → List in Section 9
-- **Assumptions & Risks** → Convert to Open Questions in Section 10
+- **Name & one-liner (§1)** → Section 1 Project Summary
+- **Problem (§2)** → Context for Goals (§2) and User Stories (§3) — AI derives these with you
+- **Solution / user journey (§3)** → User Stories (§3) and Functional Requirements (§4)
+- **Assumptions & risks (§4)** → Open Questions (§10)
+- **Feasibility (§5)** → Constraints (§9) and Non-Functional Requirements (§5)
+- **Success criteria / Go/No-Go rationale (§6)** → Goals (§2) and Definition of Done framing
 
 ---
 
@@ -103,7 +103,7 @@
 | System | Direction | Method | Auth |
 |---|---|---|---|
 | [e.g. IBKR API] | Inbound | REST | API Key |
-| [e.g. PostgreSQL] | Read/Write | SQLAlchemy | .env |
+| [e.g. DB_CHOICE] | Read/Write | [ORM/client] | .env |
 
 ---
 

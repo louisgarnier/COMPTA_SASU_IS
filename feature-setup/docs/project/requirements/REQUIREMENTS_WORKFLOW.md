@@ -5,9 +5,15 @@ This is the **master checklist** for developing a new project from scratch. Foll
 ## Workflow Overview
 
 ```
-PLAN IT:  1-BRAINSTORM → 2-PRD → 3-ARCHITECTURE → 4-LOGGING
-BUILD IT: 5-EPICS → 6-BUILD → 7-CODEBASE
+PLAN IT:   1-BRAINSTORM → 2-PRD → 3-ARCHITECTURE → 4-LOGGING
+BUILD IT:  5-EPICS → 6-BUILD → 7-CODEBASE
+SHIP IT:   8-DEPLOY  (production readiness gate)
 ```
+
+**Per-story checklists** (referenced from `6-BUILD.md` Story Sign-Off):
+- `SECURITY-CHECKLIST.md` — OWASP, auth, input validation, secrets
+- `PERFORMANCE-CHECKLIST.md` — Core Web Vitals, backend latency, common anti-patterns
+- `ACCESSIBILITY-CHECKLIST.md` — semantic HTML, keyboard nav, contrast, ARIA
 
 **Continuous Workflow Tools** (updated throughout development):
 - `../../../workflow/ADR.md` - Architecture Decision Records

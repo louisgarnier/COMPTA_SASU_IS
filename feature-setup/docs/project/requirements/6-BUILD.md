@@ -117,6 +117,12 @@ e.g.
 - [ ] Story marked `[x] Done` in `docs/4-EPICS.md`
 - [ ] Linter clean
 
+**Pre-sign-off engineering gates** (skip the row only if N/A — mark why):
+- [ ] **Interface design** (if new API / module / component contract): `api-and-interface-design` skill invoked → Hyrum's-Law-aware contract chosen
+- [ ] **Security pass** (if story touches user input / auth / data / external services): `security-and-hardening` skill invoked → `SECURITY-CHECKLIST.md` rows ticked or marked N/A
+- [ ] **Performance pass** (if PRD has perf budget or Core Web Vitals target): `performance-optimization` skill invoked → measurement recorded → `PERFORMANCE-CHECKLIST.md` rows ticked
+- [ ] **Simplification pass** (tests are green; implementation feels heavy): `code-simplification` skill invoked → simplifications committed separately from feature commit
+
 **Commit:** `[EPIC-X] feat: description` — `[hash]`
 **Next session:** EPIC-X / Story X.Y+1 — [Name]
 
