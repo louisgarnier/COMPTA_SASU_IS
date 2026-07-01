@@ -207,6 +207,18 @@ class Investment(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class FxRate(Base):
+    """Taux de change théorique devise → EUR (éditable dans les Réglages)."""
+
+    __tablename__ = "fx_rates"
+
+    currency: Mapped[str] = mapped_column(String(3), primary_key=True)  # 'USD', 'CAD'…
+    rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("1"))  # 1 unité devise = ? EUR
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+
 class BalanceDocument(Base):
     """Justificatif officiel de solde (relevé PDF/image) stocké en local."""
 

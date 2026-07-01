@@ -27,7 +27,7 @@ def _reset(db):
     for m in (
         models.Transaction, models.Invoice, models.ForecastInput,
         models.Investment, models.CategoryRule, models.Category,
-        models.BankAccount, models.Client, models.Settings,
+        models.BankAccount, models.Client, models.Settings, models.FxRate,
     ):
         db.query(m).delete()
     db.commit()
@@ -218,6 +218,8 @@ def main(reset: bool = False):
             return
         seed_default_categories_and_rules(db)
         db.commit()
+        from backend.services.fx import ensure_seed_rates
+        ensure_seed_rates(db)  # taux FX théoriques USD/CAD
         _demo_rules(db)
         _settings(db)
         swib, nwh = _clients(db)

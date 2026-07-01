@@ -39,13 +39,26 @@ class AccountOut(BaseModel):
     provider: str
     currency: str
     balance: Decimal
+    rate: Decimal = Decimal("1")
+    balance_eur: Decimal = Decimal("0")
+
+
+class CurrencyBalance(BaseModel):
+    """Solde agrégé par devise (natif → taux → EUR)."""
+
+    currency: str
+    balance_native: Decimal
+    rate: Decimal
+    balance_eur: Decimal
+    missing_rate: bool = False
 
 
 class TreasuryOut(BaseModel):
-    """Trésorerie consolidée : comptes + équivalents EUR + placements."""
+    """Trésorerie consolidée : comptes + ventilation par devise + placements."""
 
     as_of: Optional[str] = None
     accounts: list[AccountOut]
+    by_currency: list[CurrencyBalance] = []
     bank_total_eur: Decimal
     investments_total_eur: Decimal
     total_eur: Decimal

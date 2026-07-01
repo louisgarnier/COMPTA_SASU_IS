@@ -16,6 +16,7 @@
 | ADR-003 | WeasyPrint (HTML+CSS) pour la génération des factures | Accepted | 2026-07-01 | Pre-epic |
 | ADR-004 | Pas d'auth en v1 (local mono-utilisateur non exposé) | Accepted | 2026-07-01 | Pre-epic |
 | ADR-005 | Catégorisation par règles éditables (pas de LLM en v1) | Accepted | 2026-07-01 | Pre-epic |
+| ADR-006 | Taux FX théorique par devise (Réglages) comme source unique de conversion EUR | Accepted | 2026-07-01 | Epic-4 |
 
 ### ADR-001 — SQLite local, schéma portable Postgres
 **Context :** outil perso mono-utilisateur, local-first (PRD Constraints §9), migration cloud possible plus tard.
@@ -41,6 +42,11 @@
 **Context :** besoin déterministe, testable, gratuit ; données bancaires sensibles.
 **Décision :** moteur de règles éditables (contrepartie/description → catégorie), fallback « à catégoriser ».
 **Conséquences :** transparent et corrigeable ; « catégo intelligente » LLM = piste v2.
+
+### ADR-006 — Taux FX théorique par devise comme source unique de conversion EUR
+**Context :** les transactions/soldes restent en devise native (Qonto EUR, Revolut USD/CAD…). On ne peut jamais additionner bêtement des devises différentes. Il faut un reporting consolidé en EUR (total tréso + P&L + IS) et des prévisions saisies dans une devise puis converties.
+**Décision :** un taux théorique par devise stocké dans `fx_rates` (devise → EUR, EUR=1), éditable dans les Réglages. Table = source unique de vérité ; `amount_eur`/`fx_rate` figés sur la transaction sont **ignorés** pour les agrégats (montant natif × taux courant). Les devises listées sont uniquement celles présentes dans les transactions/comptes ; une devise sans taux est signalée « à renseigner » (fallback 1). Le vrai taux réalisé remplacera le théorique quand la transaction arrivera (forecast → réel).
+**Conséquences :** cohérence totale des agrégats EUR ; un seul endroit à corriger ; solde par devise toujours exact en natif ; risque de sous-estimation si un taux manque (mitigé par le flag `missing`). Impacte `services/fx.py`, `treasury.py`, `pnl.py`, `forecast.py`, route `/api/fx-rates`, écran Réglages.
 
 ---
 

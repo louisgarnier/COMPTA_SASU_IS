@@ -112,14 +112,17 @@ def _avg_monthly_charges(db: Session, year: int) -> Decimal:
         .all()
     )
 
+    from backend.services.fx import load_rates, to_eur
+
+    rates = load_rates(db)
     per_month: dict[str, Decimal] = {}
     prefix = f"{year:04d}-"
     for txn, _category in rows:
         key = txn.booked_date.isoformat()[:7]  # 'YYYY-MM'
         if not key.startswith(prefix):
             continue
-        amount = txn.amount_eur if txn.amount_eur is not None else txn.amount
-        per_month[key] = per_month.get(key, _ZERO) + abs(Decimal(amount))
+        eur = to_eur(txn.amount, txn.currency, rates)  # taux théorique Réglages
+        per_month[key] = per_month.get(key, _ZERO) + abs(eur)
 
     if not per_month:
         return _ZERO

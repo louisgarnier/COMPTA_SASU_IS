@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import models
 from backend.logging_config import get_logger
+from backend.services.fx import load_rates, rate_for, to_eur
 
 logger = get_logger("treasury", channel="api")
 
@@ -37,40 +38,14 @@ def _get_settings(db: Session) -> models.Settings:
     return row if row is not None else models.Settings(id=1)
 
 
-def _default_fx(currency: str, settings: models.Settings) -> Decimal:
-    """Taux par défaut devise → EUR issu de Settings (1 si inconnu)."""
-    cur = (currency or "").upper()
-    if cur == "EUR":
-        return Decimal("1")
-    if cur == "USD":
-        return Decimal(settings.default_fx_usd or "0")
-    if cur == "CAD":
-        return Decimal(settings.default_fx_cad or "0")
-    return Decimal("1")
-
-
-def _convert_to_eur(amount: Decimal, currency: str, settings: models.Settings) -> Decimal:
-    """Convertit un montant depuis sa devise vers EUR via les taux par défaut."""
-    amount = Decimal(amount or 0)
-    if (currency or "").upper() == "EUR":
-        return amount
-    return amount * _default_fx(currency, settings)
-
-
-def eur_amount(tx: models.Transaction, settings: models.Settings) -> Decimal:
+def eur_amount(tx: models.Transaction, rates: dict) -> Decimal:
     """
-    Équivalent EUR d'une transaction.
+    Équivalent EUR d'une transaction via le taux théorique des Réglages.
 
-    Priorité : amount_eur → (EUR : amount) → amount*fx_rate → conversion défaut.
+    Modèle : montant natif × taux(devise). EUR = 1. Aucun taux « réalisé » figé
+    par transaction — la conversion suit toujours le taux courant des Réglages.
     """
-    if tx.amount_eur is not None:
-        return Decimal(tx.amount_eur)
-    amount = Decimal(tx.amount or 0)
-    if (tx.currency or "").upper() == "EUR":
-        return amount
-    if tx.fx_rate is not None:
-        return amount * Decimal(tx.fx_rate)
-    return _convert_to_eur(amount, tx.currency, settings)
+    return to_eur(tx.amount, tx.currency, rates)
 
 
 def _account_transactions(
@@ -107,25 +82,22 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
     EUR d'un compte non-EUR agrège l'ouverture convertie (taux défaut) + Σ des
     équivalents EUR des transactions.
     """
-    settings = _get_settings(db)
+    rates = load_rates(db)
     accounts = db.query(models.BankAccount).order_by(models.BankAccount.id).all()
 
     out_accounts: list[dict] = []
     bank_total_eur = _ZERO
+    native_by_ccy: dict[str, Decimal] = {}
     for acc in accounts:
         txs = _account_transactions(db, acc, as_of=as_of)
         tx_sum = sum((Decimal(t.amount or 0) for t in txs), _ZERO)
         balance = Decimal(acc.opening_balance or 0) + tx_sum
+        cur = (acc.currency or "EUR").upper()
 
-        if (acc.currency or "").upper() == "EUR":
-            eur_balance = balance
-        else:
-            opening_eur = _convert_to_eur(
-                Decimal(acc.opening_balance or 0), acc.currency, settings
-            )
-            eur_tx_sum = sum((eur_amount(t, settings) for t in txs), _ZERO)
-            eur_balance = opening_eur + eur_tx_sum
+        # On agrège d'abord en natif par devise (jamais d'addition inter-devises).
+        native_by_ccy[cur] = native_by_ccy.get(cur, _ZERO) + balance
 
+        eur_balance = to_eur(balance, cur, rates)
         bank_total_eur += eur_balance
         out_accounts.append(
             {
@@ -134,8 +106,22 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
                 "provider": acc.provider,
                 "currency": acc.currency,
                 "balance": q2(balance),
+                "rate": rate_for(rates, cur),
+                "balance_eur": q2(eur_balance),
             }
         )
+
+    # Ventilation par devise : solde natif → taux → équivalent EUR.
+    by_currency = [
+        {
+            "currency": cur,
+            "balance_native": q2(native_by_ccy[cur]),
+            "rate": rate_for(rates, cur),
+            "balance_eur": q2(to_eur(native_by_ccy[cur], cur, rates)),
+            "missing_rate": cur != "EUR" and cur not in rates,
+        }
+        for cur in sorted(native_by_ccy)
+    ]
 
     investments = db.query(models.Investment).all()
     investments_total_eur = sum(
@@ -151,6 +137,7 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
     return {
         "as_of": as_of.isoformat() if as_of is not None else None,
         "accounts": out_accounts,
+        "by_currency": by_currency,
         "bank_total_eur": q2(bank_total_eur),
         "investments_total_eur": q2(investments_total_eur),
         "total_eur": q2(total_eur),

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { settingsAPI } from '@/api/client';
 import { PageTitle, Card } from '@/components/ui';
+import { FxRatesCard } from '@/components/FxRatesCard';
 
 const FIELDS: { key: string; label: string; type?: string; group: string }[] = [
   { key: 'company_name', label: 'Raison sociale', group: 'Société' },
@@ -14,8 +15,6 @@ const FIELDS: { key: string; label: string; type?: string; group: string }[] = [
   { key: 'is_threshold', label: 'Seuil IS (€)', type: 'number', group: 'Impôt société' },
   { key: 'is_high_rate', label: 'Taux IS normal', type: 'number', group: 'Impôt société' },
   { key: 'next_invoice_number', label: 'Prochain n° facture', type: 'number', group: 'Facturation' },
-  { key: 'default_fx_usd', label: 'FX USD→EUR défaut', type: 'number', group: 'Change' },
-  { key: 'default_fx_cad', label: 'FX CAD→EUR défaut', type: 'number', group: 'Change' },
 ];
 
 export default function SettingsPage() {
@@ -73,6 +72,7 @@ export default function SettingsPage() {
             </div>
           </Card>
         ))}
+        <FxRatesCard />
       </div>
     </div>
   );

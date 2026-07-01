@@ -29,21 +29,22 @@ def session_factory():
 
 
 def _seed_treasury(db):
+    # Taux FX théoriques (source unique de conversion EUR).
+    db.add(models.FxRate(currency="USD", rate=Decimal("0.92")))
+    db.add(models.FxRate(currency="CAD", rate=Decimal("0.68")))
     db.add(models.BankAccount(
         provider="revolut", account_uid="usd", currency="USD",
         opening_balance=Decimal("0"), opening_balance_date=date(2026, 1, 1)))
     db.add(models.BankAccount(
         provider="revolut", account_uid="eur", currency="EUR",
         opening_balance=Decimal("1000"), opening_balance_date=date(2026, 1, 1)))
-    # Revenus février : un USD (→ EUR) et un CAD (→ EUR)
+    # Revenus février : USD 1000 × 0.92 = 920 €, CAD 1000 × 0.68 = 680 €
     db.add(models.Transaction(
         account_uid="usd", external_id="us1", booked_date=date(2026, 2, 5),
-        amount=Decimal("1000"), currency="USD", kind="revenue",
-        amount_eur=Decimal("920")))
+        amount=Decimal("1000"), currency="USD", kind="revenue"))
     db.add(models.Transaction(
         account_uid="eur", external_id="ca1", booked_date=date(2026, 2, 8),
-        amount=Decimal("680"), currency="CAD", kind="revenue",
-        amount_eur=Decimal("680")))
+        amount=Decimal("1000"), currency="CAD", kind="revenue"))
     # Une transaction en mars (pour le test as_of)
     db.add(models.Transaction(
         account_uid="eur", external_id="mar1", booked_date=date(2026, 3, 3),
@@ -116,6 +117,44 @@ def test_balance_docs_upload_list_download_delete(session_factory, tmp_path, mon
     dele = client.delete(f"/api/balance-docs/{doc['id']}")
     assert dele.status_code == 204
     assert client.get("/api/balance-docs").json() == []
+
+
+def test_fx_rates_view_and_update(session_factory):
+    from backend.api.routes import fx as fxr
+
+    db = session_factory()
+    _seed_treasury(db)  # USD + CAD présents, taux 0.92 / 0.68
+    db.close()
+
+    app = FastAPI()
+    app.include_router(fxr.router)
+    Session = session_factory
+    app.dependency_overrides[get_db] = lambda: (yield Session())
+    client = TestClient(app)
+
+    rows = client.get("/api/fx-rates").json()
+    by = {r["currency"]: r for r in rows}
+    # Devises en usage listées (EUR exclu), avec leur taux, non manquantes.
+    assert set(by) == {"USD", "CAD"}
+    assert by["USD"]["rate"] == "0.920000"
+    assert by["USD"]["missing"] is False
+
+    # Mise à jour d'un taux.
+    upd = client.put("/api/fx-rates", json={"rates": [{"currency": "USD", "rate": "0.95"}]})
+    assert upd.status_code == 200
+    usd = {r["currency"]: r for r in upd.json()}["USD"]
+    assert usd["rate"] == "0.950000"
+
+
+def test_fx_missing_rate_flagged(session_factory):
+    from backend.services.fx import rates_view
+
+    db = session_factory()
+    # Une transaction en JPY sans taux → doit apparaître 'missing'.
+    db.add(models.BankAccount(provider="revolut", account_uid="jpy", currency="JPY"))
+    db.commit()
+    view = {r["currency"]: r for r in rates_view(db)}
+    assert view["JPY"]["missing"] is True
 
 
 def test_balance_docs_rejects_bad_type(session_factory, tmp_path, monkeypatch):

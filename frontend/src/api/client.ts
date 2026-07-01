@@ -81,6 +81,12 @@ export const treasuryAPI = {
   pnl: (year = 2026) => get<any>(`/api/pnl?year=${year}`),
 };
 
+export const fxAPI = {
+  list: () => get<any[]>('/api/fx-rates'),
+  save: (rates: { currency: string; rate: string | number }[]) =>
+    put<any[]>('/api/fx-rates', { rates }),
+};
+
 export const balanceDocsAPI = {
   list: (accountUid?: string) =>
     get<any[]>(`/api/balance-docs${accountUid ? `?account_uid=${accountUid}` : ''}`),

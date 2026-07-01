@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 
 from backend.db import models
 from backend.logging_config import get_logger
-from backend.services.treasury import _get_settings, eur_amount, q2
+from backend.services.fx import load_rates
+from backend.services.treasury import eur_amount, q2
 
 logger = get_logger("pnl", channel="api")
 
@@ -35,7 +36,7 @@ _EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal"}
 
 def monthly_pnl(db: Session, year: int) -> dict:
     """Agrège produits, charges et résultat par mois pour l'exercice `year`."""
-    settings = _get_settings(db)
+    rates = load_rates(db)
 
     # Mapping catégorie -> type (pour éviter N requêtes de relation).
     cat_type = {
@@ -66,7 +67,7 @@ def monthly_pnl(db: Session, year: int) -> dict:
             continue
 
         month = tx.booked_date.month
-        amt = eur_amount(tx, settings)
+        amt = eur_amount(tx, rates)
 
         is_revenue = (tx.kind or "") == "revenue" or ctype == "revenue"
         if is_revenue and amt > 0:

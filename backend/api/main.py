@@ -13,12 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.db.base import SessionLocal, init_db
 from backend.logging_config import get_logger
 from backend.services.categorize import seed_default_categories_and_rules
+from backend.services.fx import ensure_seed_rates
 
 from backend.api.routes import balance_docs as balance_docs_routes
 from backend.api.routes import banking as banking_routes
 from backend.api.routes import categories as categories_routes
 from backend.api.routes import clients as clients_routes
 from backend.api.routes import forecast as forecast_routes
+from backend.api.routes import fx as fx_routes
 from backend.api.routes import investments as investments_routes
 from backend.api.routes import invoices as invoices_routes
 from backend.api.routes import settings as settings_routes
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_default_categories_and_rules(db)
+        ensure_seed_rates(db)
         db.commit()
     finally:
         db.close()
@@ -70,6 +73,7 @@ app.include_router(forecast_routes.router)
 app.include_router(invoices_routes.router)
 app.include_router(banking_routes.router)
 app.include_router(balance_docs_routes.router)
+app.include_router(fx_routes.router)
 
 
 @app.get("/")

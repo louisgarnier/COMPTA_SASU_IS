@@ -48,6 +48,9 @@ def session():
 def _seed(db):
     # Paramètres (taux de conversion par défaut).
     db.add(models.Settings(id=1, default_fx_usd=Decimal("0.90"), default_fx_cad=Decimal("0.68")))
+    # Taux FX théoriques (source unique de conversion EUR sous le nouveau modèle).
+    db.add(models.FxRate(currency="USD", rate=Decimal("0.90")))
+    db.add(models.FxRate(currency="CAD", rate=Decimal("0.68")))
 
     # Compte EUR : ouverture 1000, +500 (janv) -300 (fév) = 1200 EUR.
     db.add(models.BankAccount(
@@ -139,24 +142,22 @@ def test_consolidated_eur_totals(session):
     assert result["total_eur"] == Decimal("8620.00")
 
 
-def test_eur_amount_fallbacks(session):
-    settings = session.get(models.Settings, 1)
-    # amount_eur présent -> prioritaire.
-    tx = models.Transaction(account_uid="x", external_id="z", amount=Decimal("100"),
-                            currency="USD", amount_eur=Decimal("88"))
-    assert eur_amount(tx, settings) == Decimal("88")
-    # Pas d'amount_eur, devise EUR -> amount.
-    tx2 = models.Transaction(account_uid="x", external_id="z2", amount=Decimal("50"),
-                             currency="EUR")
-    assert eur_amount(tx2, settings) == Decimal("50")
-    # Pas d'amount_eur, fx_rate figé.
-    tx3 = models.Transaction(account_uid="x", external_id="z3", amount=Decimal("100"),
-                             currency="USD", fx_rate=Decimal("0.95"))
-    assert eur_amount(tx3, settings) == Decimal("95.00")
-    # Pas d'amount_eur ni fx -> taux défaut USD 0.90.
-    tx4 = models.Transaction(account_uid="x", external_id="z4", amount=Decimal("100"),
-                             currency="USD")
-    assert eur_amount(tx4, settings) == Decimal("90.00")
+def test_eur_amount_uses_theoretical_rates(session):
+    # Modèle théorique : montant natif × taux Réglages (amount_eur/fx_rate ignorés).
+    rates = {"EUR": Decimal("1"), "USD": Decimal("0.90")}
+    # Devise EUR -> montant tel quel.
+    tx_eur = models.Transaction(account_uid="x", external_id="z2", amount=Decimal("50"),
+                                currency="EUR")
+    assert eur_amount(tx_eur, rates) == Decimal("50")
+    # USD -> montant × 0.90 (même si amount_eur/fx_rate figés existent, ignorés).
+    tx_usd = models.Transaction(account_uid="x", external_id="z", amount=Decimal("100"),
+                                currency="USD", amount_eur=Decimal("88"),
+                                fx_rate=Decimal("0.95"))
+    assert eur_amount(tx_usd, rates) == Decimal("90.00")
+    # Devise sans taux -> fallback 1 (à régler dans les Réglages).
+    tx_jpy = models.Transaction(account_uid="x", external_id="z5", amount=Decimal("100"),
+                                currency="JPY")
+    assert eur_amount(tx_jpy, rates) == Decimal("100")
 
 
 def test_link_fx_conversion(session):
