@@ -72,6 +72,8 @@ class PnlTotals(BaseModel):
     result_eur: Decimal
     revenue_by_currency: dict[str, Decimal] = {}
     revenue_native_by_currency: dict[str, Decimal] = {}
+    charges_by_currency: dict[str, Decimal] = {}
+    charges_native_by_currency: dict[str, Decimal] = {}
 
 
 class PnlOut(BaseModel):
@@ -79,6 +81,7 @@ class PnlOut(BaseModel):
 
     year: int
     currencies: list[str] = []
+    currencies_all: list[str] = []
     months: list[MonthPnl]
     totals: PnlTotals
 

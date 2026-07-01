@@ -50,6 +50,10 @@ def monthly_pnl(db: Session, year: int) -> dict:
     # Montant natif cumulé par devise (ex: total en $US, en $CA).
     revenue_native = {}
     currencies: set[str] = set()
+    # Charges ventilées par devise (EUR + natif, valeurs négatives).
+    charges_eur_ccy = {}
+    charges_native_ccy = {}
+    charge_currencies: set[str] = set()
 
     txs = db.query(models.Transaction).all()
     for tx in txs:
@@ -75,8 +79,15 @@ def monthly_pnl(db: Session, year: int) -> dict:
             )
         elif ctype == "charge" and amt < 0:
             charges[month] += amt
+            cc = (tx.currency or "EUR").upper()
+            charge_currencies.add(cc)
+            charges_eur_ccy[cc] = charges_eur_ccy.get(cc, _ZERO) + amt
+            charges_native_ccy[cc] = charges_native_ccy.get(cc, _ZERO) - abs(
+                Decimal(tx.amount or 0)
+            )
 
     ccy_order = sorted(currencies)
+    charge_ccy_order = sorted(charge_currencies)
     months = []
     total_rev = _ZERO
     total_chg = _ZERO
@@ -108,6 +119,7 @@ def monthly_pnl(db: Session, year: int) -> dict:
     return {
         "year": year,
         "currencies": ccy_order,
+        "currencies_all": sorted(currencies | charge_currencies),
         "months": months,
         "totals": {
             "revenue_eur": q2(total_rev),
@@ -116,6 +128,12 @@ def monthly_pnl(db: Session, year: int) -> dict:
             "revenue_by_currency": {c: q2(totals_by_ccy[c]) for c in ccy_order},
             "revenue_native_by_currency": {
                 c: q2(revenue_native.get(c, _ZERO)) for c in ccy_order
+            },
+            "charges_by_currency": {
+                c: q2(charges_eur_ccy.get(c, _ZERO)) for c in charge_ccy_order
+            },
+            "charges_native_by_currency": {
+                c: q2(charges_native_ccy.get(c, _ZERO)) for c in charge_ccy_order
             },
         },
     }

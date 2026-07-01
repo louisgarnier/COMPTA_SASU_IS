@@ -35,6 +35,7 @@ type PnlMonth = {
 type Pnl = {
   year: number;
   currencies?: string[];
+  currencies_all?: string[];
   months: PnlMonth[];
   totals: {
     revenue_eur: string | number;
@@ -42,6 +43,8 @@ type Pnl = {
     result_eur: string | number;
     revenue_by_currency?: CcyMap;
     revenue_native_by_currency?: CcyMap;
+    charges_by_currency?: CcyMap;
+    charges_native_by_currency?: CcyMap;
   };
 };
 
@@ -154,6 +157,9 @@ export default function DashboardPage() {
   const ccys = pnl?.currencies ?? [];
   const totalsByCcy = pnl?.totals.revenue_by_currency ?? {};
   const nativeByCcy = pnl?.totals.revenue_native_by_currency ?? {};
+  const flowCcys = pnl?.currencies_all ?? ccys;
+  const chargesByCcy = pnl?.totals.charges_by_currency ?? {};
+  const chargesNativeByCcy = pnl?.totals.charges_native_by_currency ?? {};
 
   // Échelle du graphe P&L : max valeur absolue sur revenus (total mois) / charges
   const pnlMax = Math.max(
@@ -261,32 +267,56 @@ export default function DashboardPage() {
             );
           })}
         </div>
-        {/* Détail des revenus par devise : montant natif → équivalent EUR */}
+        {/* Détail par devise : revenus (+) et charges (−), montant natif → EUR */}
         <div className="mt-4 border-t border-[var(--border)] pt-3">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Revenus par devise (2026)
+            Par devise (2026)
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {ccys.map((c, i) => (
-              <div
-                key={c}
-                className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2"
-              >
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <span
-                    className="inline-block h-3 w-3 rounded-sm"
-                    style={{ background: ccyColor(c, i) }}
-                  />
-                  {c}
-                </span>
-                <span className="text-right text-sm">
-                  <span className="tabular font-medium">{money(nativeByCcy[c], c)}</span>
-                  <span className="tabular block text-xs text-[var(--muted)]">
-                    = {eur(totalsByCcy[c])}
-                  </span>
-                </span>
-              </div>
-            ))}
+            {flowCcys.map((c, i) => {
+              const rev = num(totalsByCcy[c]);
+              const chg = num(chargesByCcy[c]);
+              return (
+                <div
+                  key={c}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2"
+                >
+                  <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                    <span
+                      className="inline-block h-3 w-3 rounded-sm"
+                      style={{ background: ccyColor(c, i) }}
+                    />
+                    {c}
+                  </div>
+                  {rev > 0 && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted)]">Revenus</span>
+                      <span className="text-right">
+                        <span className="tabular font-medium text-[var(--pos)]">
+                          {money(nativeByCcy[c], c)}
+                        </span>
+                        <span className="tabular block text-xs text-[var(--muted)]">
+                          = {eur(totalsByCcy[c])}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                  {chg < 0 && (
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <span className="text-[var(--muted)]">Charges</span>
+                      <span className="text-right">
+                        <span className="tabular font-medium text-[var(--neg)]">
+                          {money(chargesNativeByCcy[c], c)}
+                        </span>
+                        <span className="tabular block text-xs text-[var(--muted)]">
+                          = {eur(chargesByCcy[c])}
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-end gap-4 text-sm">
             <span className="text-[var(--muted)]">
