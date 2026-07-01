@@ -1,18 +1,22 @@
 # LGC — commandes de développement
-# `make dev` lance back (FastAPI :8000) + front (Next.js :3000) ensemble.
+# Ports décalés (8001/3001) pour cohabiter avec d'autres projets locaux
+# qui occupent souvent 8000/3000 (ex: Stocks). Le front cible le back via
+# frontend/.env.local (NEXT_PUBLIC_API_URL=http://localhost:8001).
 
-VENV    := backend/venv
-PY      := $(VENV)/bin/python
-UVICORN := $(VENV)/bin/uvicorn
-PYTEST  := $(VENV)/bin/pytest
+VENV     := backend/venv
+PY       := $(VENV)/bin/python
+UVICORN  := $(VENV)/bin/uvicorn
+PYTEST   := $(VENV)/bin/pytest
+BACK_PORT := 8001
+FRONT_PORT := 3001
 
 .PHONY: help install dev back front test test-back test-front seed seed-reset
 
 help:
 	@echo "make install    - installe les deps back (venv) + front (npm)"
-	@echo "make dev        - lance back (:8000) + front (:3000) en parallele"
-	@echo "make back       - lance uniquement le back (:8000)"
-	@echo "make front      - lance uniquement le front (:3000)"
+	@echo "make dev        - lance back (:$(BACK_PORT)) + front (:$(FRONT_PORT)) en parallele"
+	@echo "make back       - lance uniquement le back (:$(BACK_PORT))"
+	@echo "make front      - lance uniquement le front (:$(FRONT_PORT))"
 	@echo "make seed       - remplit la base avec des donnees de demo (si vide)"
 	@echo "make seed-reset - vide puis reseed la base de demo"
 	@echo "make test       - lance les tests back + front"
@@ -29,17 +33,17 @@ install:
 
 # Lance les deux process ; Ctrl-C arrete les deux (trap sur les PID).
 dev:
-	@echo "🚀 LGC — back :8000 + front :3000 (Ctrl-C pour arreter)"
+	@echo "🚀 LGC — back :$(BACK_PORT) + front :$(FRONT_PORT) (Ctrl-C pour arreter)"
 	@trap 'kill 0' INT TERM EXIT; \
-	$(UVICORN) backend.api.main:app --reload --port 8000 & \
-	(cd frontend && npm run dev) & \
+	$(UVICORN) backend.api.main:app --reload --port $(BACK_PORT) & \
+	(cd frontend && npm run dev -- -p $(FRONT_PORT)) & \
 	wait
 
 back:
-	$(UVICORN) backend.api.main:app --reload --port 8000
+	$(UVICORN) backend.api.main:app --reload --port $(BACK_PORT)
 
 front:
-	cd frontend && npm run dev
+	cd frontend && npm run dev -- -p $(FRONT_PORT)
 
 test: test-back test-front
 

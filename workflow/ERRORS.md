@@ -51,6 +51,7 @@
 ## Error Index
 | ID | Category | Short Description | Status | First Seen | Epic |
 |---|---|---|---|---|---|
+| ERR-001 | INFRA | Dashboard bloqué « Chargement… » — port 8000 pris par un autre projet | Resolved | 2026-07-01 | EPIC-4 |
 
 ---
 
@@ -68,28 +69,39 @@
 
 ## Error Entries
 
-### ERR-001: [Short Title]
-**Category:** [DATA / CONFIG / INTEGRATION / LOGIC / PERFORMANCE / DEPENDENCY / INFRA / UI]
-**Status:** `Open` → `Resolved` → `Recurring`
-**First seen:** [DATE] — EPIC-X / Story X.Y
+### ERR-001: Dashboard bloqué sur « Chargement… »
+**Category:** INFRA
+**Status:** `Resolved`
+**First seen:** 2026-07-01 — EPIC-4
 
 #### Symptoms
 ```
-[Paste the exact error message]
+Dashboard affiche "Chargement…" indéfiniment.
+curl :8000/health → HTTP 000 (connexion refusée).
+Un autre projet (Claude/Stocks) tournait aussi sur :8000 / :3000
+(requêtes /api/holding-signals dans les logs) → back LGC éjecté.
 ```
 
 #### Root Cause
-[Explain the root cause clearly.]
+Conflit de port : LGC et un autre projet local (Stocks) utilisaient tous deux
+`:8000` (back) et `:3000` (front). Le back LGC s'est arrêté, le front continuait
+d'interroger `:8000` (mort ou servant l'autre projet) → fetch en attente → écran
+de chargement figé.
 
 #### Fix Applied
-**Date fixed:** [DATE]
-**Commit:** `[hash]`
+**Date fixed:** 2026-07-01
+LGC déplacé sur des ports isolés : **back :8001**, **front :3001**.
+- `Makefile` : `BACK_PORT=8001`, `FRONT_PORT=3001`.
+- `frontend/.env.local` : `NEXT_PUBLIC_API_URL=http://localhost:8001`.
+- CORS (`main.py`) autorise déjà `localhost:3001`.
 
 #### Prevention Rule
-> 🔒 **RULE ERR-001:** [Write the rule as a clear instruction]
+> 🔒 **RULE ERR-001:** Avant de lancer un serveur, TOUJOURS vérifier que le port
+> est libre (`lsof -ti :PORT`). En cas de conflit avec un autre projet, décaler
+> LGC sur ses ports dédiés (8001/3001) plutôt que tuer le process de l'autre projet.
 
 #### Test Added
-- [ ] Regression test added: `tests/dev/test_[module].py::test_[name]`
+- [x] Vérif manuelle : Dashboard charge sur :3001 → :8001 (screenshot). N/A pour test auto.
 
 ---
 
