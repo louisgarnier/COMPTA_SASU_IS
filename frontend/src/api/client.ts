@@ -1,10 +1,5 @@
 /**
- * API Client for Frontend
- * 
- * ⚠️ Before making changes, read: ../../docs/workflow/BEST_PRACTICES.md
- * Always check with the user before modifying this file.
- * 
- * Handles all communication with the backend API
+ * Client API front LGC — communication avec le backend FastAPI local.
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';

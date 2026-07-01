@@ -1,67 +1,37 @@
 """
-FastAPI main application.
+LGC — API FastAPI (application principale).
 
-⚠️ Before making changes, read: .windsurfrules
-Always check with the user before modifying this file.
+Squelette S1.1 : expose `/` et `/health`, CORS pour le front local.
+Aucune dépendance base de données ici (couche DB = S1.2).
 """
-
-import sys
-from pathlib import Path
-from contextlib import asynccontextmanager
-
-# Add project root to path for shared imports
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.database.connection import init_database
-
-# Import routes (create these as needed)
-# from backend.api.routes import example
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan manager - handles startup and shutdown."""
-    # Startup: Initialize database
-    init_database()
-    yield
-    # Shutdown: cleanup if needed
-
 
 # Create FastAPI app
 app = FastAPI(
-    title="API Template",
-    description="Template FastAPI application",
-    version="1.0.0",
-    lifespan=lifespan
+    title="LGC API",
+    description="LGC — suivi cashflow SASU (API locale)",
+    version="0.1.0",
 )
 
-# Configure CORS - default to localhost frontend, change for production
+# CORS — autorise le front Next.js local (middleware couche la plus externe)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL - add production URL when deploying
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include routers (uncomment when routes are created)
-# app.include_router(example.router, prefix="/api", tags=["example"])
-
 
 @app.get("/")
 async def root():
-    """Root endpoint - health check."""
-    return {"message": "API is running", "status": "ok"}
+    """Racine — identifie l'API."""
+    return {"message": "LGC API", "status": "ok"}
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check."""
     return {"status": "healthy"}
-
-
-
-
