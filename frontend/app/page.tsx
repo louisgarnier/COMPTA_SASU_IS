@@ -289,6 +289,69 @@ export default function DashboardPage() {
             </span>
           </div>
         </div>
+
+        {/* Détail mensuel : montants par mois pour chaque devise + charges */}
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Détail par mois (équivalent EUR)
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted)]">
+                  <th className="py-2 font-medium">Mois</th>
+                  {ccys.map((c, i) => (
+                    <th key={c} className="py-2 text-right font-medium">
+                      <span
+                        className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-middle"
+                        style={{ background: ccyColor(c, i) }}
+                      />
+                      {c}
+                    </th>
+                  ))}
+                  <th className="py-2 text-right font-medium">Charges</th>
+                  <th className="py-2 text-right font-medium">Résultat</th>
+                </tr>
+              </thead>
+              <tbody className="tabular">
+                {(pnl?.months ?? [])
+                  .filter((m) => num(m.revenue_eur) !== 0 || num(m.charges_eur) !== 0)
+                  .map((m, idx) => {
+                    const mi = Number(m.month.slice(5, 7)) - 1;
+                    const r = num(m.result_eur);
+                    return (
+                      <tr key={m.month} className="border-b border-[var(--border)]/60">
+                        <td className="py-1.5 text-[var(--muted)]">{MONTH_LABELS[mi] ?? m.month}</td>
+                        {ccys.map((c) => (
+                          <td key={c} className="py-1.5 text-right">
+                            {num((m.revenue_by_currency ?? {})[c]) > 0
+                              ? eur((m.revenue_by_currency ?? {})[c])
+                              : '—'}
+                          </td>
+                        ))}
+                        <td className="py-1.5 text-right text-[var(--neg)]">{eur(m.charges_eur)}</td>
+                        <td className={`py-1.5 text-right font-medium ${r >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
+                          {eur(r)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                <tr className="font-semibold">
+                  <td className="py-2">Total</td>
+                  {ccys.map((c) => (
+                    <td key={c} className="py-2 text-right">
+                      {eur(totalsByCcy[c])}
+                    </td>
+                  ))}
+                  <td className="py-2 text-right text-[var(--neg)]">{eur(pnl?.totals.charges_eur)}</td>
+                  <td className={`py-2 text-right ${pnlResult >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
+                    {eur(pnlResult)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
