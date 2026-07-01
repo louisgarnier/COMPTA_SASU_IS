@@ -14,7 +14,7 @@ class Settings:
         "ENABLE_BANKING_PRIVATE_KEY_PATH", "./secrets/eb_private.pem"
     )
     enable_banking_redirect_url: str = os.getenv(
-        "ENABLE_BANKING_REDIRECT_URL", "http://localhost:3000/banking/callback"
+        "ENABLE_BANKING_REDIRECT_URL", "http://localhost:3001/banking"
     )
 
 
