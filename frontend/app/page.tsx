@@ -57,6 +57,14 @@ const ccyColor = (c: string, i: number) =>
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+// Montant compact pour affichage sur les barres (ex: 8704 → "8,7k").
+const kEur = (v: string | number | null | undefined): string => {
+  const n = Math.abs(typeof v === 'string' ? parseFloat(v) : v ?? 0);
+  if (!n) return '';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k';
+  return String(Math.round(n));
+};
+
 type InvestmentsSummary = {
   total_opening_value_eur: string | number;
   total_current_value_eur: string | number;
@@ -207,36 +215,43 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-end gap-2">
           {(pnl?.months ?? []).map((m, i) => {
-            const rev = Math.abs(num(m.revenue_eur));
             const chg = Math.abs(num(m.charges_eur));
             const byCcy = m.revenue_by_currency ?? {};
             return (
               <div key={m.month} className="flex flex-1 flex-col items-center gap-1">
-                {/* Montant du mois (revenus) au-dessus des barres */}
-                <div className="h-4 text-[9px] font-medium text-[var(--muted)] tabular">
-                  {rev > 0 ? `${Math.round(rev / 1000)}k` : ''}
-                </div>
-                <div className="flex w-full items-end justify-center gap-0.5" style={{ height: 165 }}>
-                  {/* Barre revenus empilée par devise */}
-                  <div className="flex w-1/2 flex-col justify-end" style={{ height: 165 }}>
+                <div className="flex w-full items-end justify-center gap-0.5" style={{ height: 175 }}>
+                  {/* Barre revenus empilée par devise (montant en petit dans chaque segment) */}
+                  <div className="flex w-1/2 flex-col justify-end" style={{ height: 175 }}>
                     {ccys.map((c, ci) => {
                       const v = num(byCcy[c]);
                       if (v <= 0) return null;
+                      const h = (v / pnlMax) * 175;
                       return (
                         <div
                           key={c}
-                          className="w-full first:rounded-t"
-                          style={{ height: `${(v / pnlMax) * 165}px`, background: ccyColor(c, ci) }}
+                          className="flex w-full items-center justify-center overflow-hidden first:rounded-t"
+                          style={{ height: `${h}px`, background: ccyColor(c, ci) }}
                           title={`${MONTH_LABELS[i]} — ${c} : ${eur(v)}`}
-                        />
+                        >
+                          {h >= 14 && (
+                            <span className="text-[8px] font-semibold leading-none text-white tabular">
+                              {kEur(v)}
+                            </span>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
-                  {/* Barre charges */}
-                  <div className="flex w-1/2 items-end">
+                  {/* Barre charges (montant en petit au-dessus) */}
+                  <div className="flex w-1/2 flex-col items-center justify-end" style={{ height: 175 }}>
+                    {chg > 0 && (
+                      <span className="mb-0.5 text-[8px] font-medium leading-none text-[var(--neg)] tabular">
+                        {kEur(chg)}
+                      </span>
+                    )}
                     <div
                       className="w-full rounded-t bg-[var(--neg)]"
-                      style={{ height: `${(chg / pnlMax) * 165}px` }}
+                      style={{ height: `${(chg / pnlMax) * 175}px` }}
                       title={`Charges ${eur(m.charges_eur)}`}
                     />
                   </div>
@@ -287,69 +302,6 @@ export default function DashboardPage() {
                 {eur(pnlResult)}
               </span>
             </span>
-          </div>
-        </div>
-
-        {/* Détail mensuel : montants par mois pour chaque devise + charges */}
-        <div className="mt-4 border-t border-[var(--border)] pt-3">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Détail par mois (équivalent EUR)
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted)]">
-                  <th className="py-2 font-medium">Mois</th>
-                  {ccys.map((c, i) => (
-                    <th key={c} className="py-2 text-right font-medium">
-                      <span
-                        className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-middle"
-                        style={{ background: ccyColor(c, i) }}
-                      />
-                      {c}
-                    </th>
-                  ))}
-                  <th className="py-2 text-right font-medium">Charges</th>
-                  <th className="py-2 text-right font-medium">Résultat</th>
-                </tr>
-              </thead>
-              <tbody className="tabular">
-                {(pnl?.months ?? [])
-                  .filter((m) => num(m.revenue_eur) !== 0 || num(m.charges_eur) !== 0)
-                  .map((m, idx) => {
-                    const mi = Number(m.month.slice(5, 7)) - 1;
-                    const r = num(m.result_eur);
-                    return (
-                      <tr key={m.month} className="border-b border-[var(--border)]/60">
-                        <td className="py-1.5 text-[var(--muted)]">{MONTH_LABELS[mi] ?? m.month}</td>
-                        {ccys.map((c) => (
-                          <td key={c} className="py-1.5 text-right">
-                            {num((m.revenue_by_currency ?? {})[c]) > 0
-                              ? eur((m.revenue_by_currency ?? {})[c])
-                              : '—'}
-                          </td>
-                        ))}
-                        <td className="py-1.5 text-right text-[var(--neg)]">{eur(m.charges_eur)}</td>
-                        <td className={`py-1.5 text-right font-medium ${r >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-                          {eur(r)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                <tr className="font-semibold">
-                  <td className="py-2">Total</td>
-                  {ccys.map((c) => (
-                    <td key={c} className="py-2 text-right">
-                      {eur(totalsByCcy[c])}
-                    </td>
-                  ))}
-                  <td className="py-2 text-right text-[var(--neg)]">{eur(pnl?.totals.charges_eur)}</td>
-                  <td className={`py-2 text-right ${pnlResult >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-                    {eur(pnlResult)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
       </Card>
