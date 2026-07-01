@@ -1,11 +1,11 @@
 # Active Context
 
 ## Current Sprint
-- **Epic:** EPIC-1 — Foundation & Scaffold
-- **Story:** S1.2 — Couche base de données *(à démarrer)*
-- **File:** `docs/project/config/epics/epic-1/story-1.2.md` *(à créer)*
-- **Goal:** SQLAlchemy + Alembic + SQLite ; toutes les entités (archi §4) ; montants en `Decimal`
-- **Modules touched:** `backend/db/` (models, session, migrations), `backend/config.py`
+- **Epic:** MVP EPIC-1 → 6 — **code complet, testable** (mode "bombarde tout", sans checkpoints)
+- **Story:** — *(à définir après revue front par l'utilisateur)*
+- **Goal:** L'utilisateur teste le front (`make dev` + `make seed`), puis on itère sur les retours.
+- **À faire ensuite (hors code) :** brancher WeasyPrint (`brew install pango`), creds Enable Banking pour synchro réelle, migrations Alembic.
 
 ## Completed
-- **S1.1 — Scaffold back + front** *(2026-07-01)* — FastAPI `/health` + Next.js LGC, lancement `make dev`, tests verts (back 4 / front 2). Scaffold DB template supprimé (recréé en S1.2).
+- **S1.1 — Scaffold back + front** *(2026-07-01)* — FastAPI `/health` + Next.js, `make dev`, tests verts.
+- **MVP EPIC-1 → 6 — backend + front** *(2026-07-01)* — 9 modèles DB, 6 services, 27 endpoints, 7 pages front, seed démo. 60 tests back + 7 front verts, `next build` OK, 7 pages vérifiées visuellement.

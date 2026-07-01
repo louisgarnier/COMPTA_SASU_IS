@@ -1,0 +1,304 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { transactionsAPI, categoriesAPI, bankingAPI } from '@/api/client';
+import { PageTitle, Card, Badge, Empty } from '@/components/ui';
+import { eur, money, dateFR } from '@/lib/format';
+
+interface Transaction {
+  id: number;
+  account_uid: string;
+  external_id: string;
+  booked_date: string;
+  value_date: string;
+  amount: string;
+  currency: string;
+  description: string;
+  counterparty: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  kind: string | null;
+  fx_rate: string | null;
+  amount_eur: string | null;
+  linked_conversion_id: number | null;
+  invoice_id: number | null;
+  created_at: string;
+}
+
+interface Category {
+  id: number;
+  name: string;
+  type: string;
+  parent_id: number | null;
+  is_system: boolean;
+}
+
+const KINDS = [
+  'revenue',
+  'charge',
+  'conversion',
+  'transfer',
+  'investment',
+  'other',
+] as const;
+
+const KIND_LABELS: Record<string, string> = {
+  revenue: 'Revenu',
+  charge: 'Charge',
+  conversion: 'Conversion',
+  transfer: 'Transfert',
+  investment: 'Investissement',
+  other: 'Autre',
+};
+
+function kindTone(kind: string | null): 'neutral' | 'pos' | 'neg' | 'warn' {
+  if (kind === 'revenue') return 'pos';
+  if (kind === 'charge') return 'neg';
+  if (kind === 'conversion' || kind === 'transfer') return 'warn';
+  return 'neutral';
+}
+
+export default function TransactionsPage() {
+  const [rows, setRows] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  const [syncMsg, setSyncMsg] = useState<string>('');
+  const [syncing, setSyncing] = useState(false);
+
+  // Filtres
+  const [categoryFilter, setCategoryFilter] = useState<string>(''); // '' = Toutes, 'uncat', ou id
+  const [kindFilter, setKindFilter] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params: Record<string, string | boolean | undefined> = {
+        kind: kindFilter || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      };
+      if (categoryFilter === 'uncat') {
+        params.uncategorized = true;
+      } else if (categoryFilter) {
+        params.category_id = categoryFilter;
+      }
+      const data = await transactionsAPI.list(params);
+      setRows(data as Transaction[]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryFilter, kindFilter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    categoriesAPI
+      .list()
+      .then((c) => setCategories(c as Category[]))
+      .catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const sync = async () => {
+    setSyncing(true);
+    setSyncMsg('Synchronisation…');
+    try {
+      const res = await bankingAPI.sync();
+      setSyncMsg(
+        `✅ ${res.transactions_added ?? 0} ajoutée(s), ${res.transactions_skipped ?? 0} ignorée(s)`,
+      );
+      await load();
+    } catch (e) {
+      setSyncMsg(`❌ ${(e as Error).message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const updateCategory = async (tx: Transaction, value: string) => {
+    const category_id = value === '' ? null : Number(value);
+    try {
+      const updated = await transactionsAPI.update(tx.id, { category_id });
+      setRows((prev) =>
+        prev.map((r) => (r.id === tx.id ? (updated as Transaction) : r)),
+      );
+    } catch (e) {
+      setSyncMsg(`❌ ${(e as Error).message}`);
+    }
+  };
+
+  const selectCls =
+    'rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]';
+
+  return (
+    <div>
+      <PageTitle
+        title="Transactions"
+        subtitle={`${rows.length} opération(s)`}
+        action={
+          <button
+            onClick={sync}
+            disabled={syncing}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {syncing ? 'Synchronisation…' : 'Synchroniser'}
+          </button>
+        }
+      />
+
+      {syncMsg && <p className="mb-4 text-sm text-[var(--muted)]">{syncMsg}</p>}
+
+      {/* Filtres */}
+      <Card className="mb-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[var(--muted)]">Catégorie</span>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">Toutes</option>
+              <option value="uncat">À catégoriser</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[var(--muted)]">Type</span>
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value)}
+              className={selectCls}
+            >
+              <option value="">Tous</option>
+              {KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {KIND_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[var(--muted)]">Du</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className={selectCls}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[var(--muted)]">Au</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className={selectCls}
+            />
+          </label>
+        </div>
+      </Card>
+
+      {/* Table */}
+      {error ? (
+        <Empty>❌ Erreur : {error}</Empty>
+      ) : loading ? (
+        <Empty>Chargement…</Empty>
+      ) : rows.length === 0 ? (
+        <Empty>Aucune transaction.</Empty>
+      ) : (
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Description</th>
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Catégorie</th>
+                <th className="px-4 py-3 text-right font-medium">Montant</th>
+                <th className="px-4 py-3 text-right font-medium">EUR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((tx) => {
+                const amt = parseFloat(tx.amount);
+                const uncategorized = tx.category_id == null;
+                return (
+                  <tr
+                    key={tx.id}
+                    className="border-b border-[var(--border)] last:border-0 hover:bg-black/[0.02]"
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 text-[var(--muted)]">
+                      {dateFR(tx.booked_date)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{tx.description || '—'}</div>
+                      {tx.counterparty && (
+                        <div className="text-xs text-[var(--muted)]">
+                          {tx.counterparty}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {tx.kind ? (
+                        <Badge tone={kindTone(tx.kind)}>
+                          {KIND_LABELS[tx.kind] ?? tx.kind}
+                        </Badge>
+                      ) : (
+                        <span className="text-[var(--muted)]">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={tx.category_id ?? ''}
+                        onChange={(e) => updateCategory(tx, e.target.value)}
+                        aria-label="Catégorie"
+                        className={`rounded-lg border px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)] ${
+                          uncategorized
+                            ? 'border-amber-300 bg-amber-50 text-amber-800'
+                            : 'border-[var(--border)] bg-[var(--panel)]'
+                        }`}
+                      >
+                        <option value="">À catégoriser</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td
+                      className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                      style={{
+                        color: amt < 0 ? 'var(--neg)' : amt > 0 ? 'var(--pos)' : undefined,
+                      }}
+                    >
+                      {money(tx.amount, tx.currency)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-[var(--muted)]">
+                      {tx.amount_eur != null ? eur(tx.amount_eur) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  );
+}

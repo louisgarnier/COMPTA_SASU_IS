@@ -24,3 +24,31 @@
 - `CLAUDE.md` projet contient encore des placeholders `[NAME]`/stack — à remplir hors S1.1.
 
 **Prochaine story :** S1.2 — Couche base de données (SQLAlchemy + Alembic + SQLite, entités archi §4, montants `Decimal`).
+
+## 2026-07-01 — Build MVP complet (EPIC-1 → 6) *(mode "bombarde tout", sans checkpoints)*
+
+**Demande utilisateur :** tout construire d'un coup, tester le front à la fin. Foundation posée manuellement, puis 6 agents backend + 6 agents front en parallèle.
+
+**Backend (S1.2–S1.4 + EPIC 2–6) :**
+- `db/` : modèles SQLAlchemy (archi §4), `Decimal`, FK activées, `init_db`.
+- `logging_config` : fichiers datés `logs/*` + masquage IBAN/PII.
+- `services/` : categorize (moteur de règles + seed), treasury (conso + FX), pnl (P&L mensuel EUR), forecast (projection + estimation IS), invoices (numérotation + WeasyPrint lazy + rapprochement), banking (Enable Banking, seam mock/live, dédup `(account_uid, external_id)`).
+- 27 endpoints montés dans `main.py`.
+- `seed.py` + `make seed` : données démo 2026 (42 transactions catégorisées, 3 comptes, 2 factures, 1 placement, forecast Juil–Déc).
+- **60 tests backend verts.**
+
+**Frontend (7 pages) :** Dashboard (StatCards + P&L barres + prévision tréso), Transactions (filtres + catégo inline + sync), Catégories (catégories + éditeur de règles), Forecast (grille éditable + déroulé tréso), Factures (création + statut + PDF), Banques (statut mock + connexion + sync), Réglages.
+- Tailwind v4 configuré (postcss plugin + `@import`), nav latérale, primitives UI, client API typé, helpers de formatage FR.
+- **6 suites / 7 tests jest verts · `tsc --noEmit` clean · `next build` OK (7 routes).**
+
+**Preuves visuelles :** les 7 pages chargées dans un navigateur headless sur la base seedée, données réelles affichées, zéro erreur console (hors 404 favicon). Dashboard : tréso 126 189,60 € · résultat P&L 88 325,60 € · IS estimé 14 276,80 €.
+
+**Bugs corrigés en route :**
+- Barres CSS du dashboard invisibles (hauteur `%` en flexbox) → hauteurs pixel.
+- Front tooling : conflit peer deps testing-library (React 19) → v16 ; `@types/jest` + `jest-dom.d.ts` pour tsc ; Tailwind v4 non branché → plugin postcss.
+
+**Non couvert / à faire (voir handoff) :**
+- WeasyPrint (PDF factures) : lib système `pango/cairo` non installée → génération renvoie 503 tant que `brew install pango` non fait.
+- Enable Banking : mode démo (mock) ; `pyjwt`/creds requis pour la synchro **réelle**.
+- Alembic : pas encore de migrations versionnées (tables via `init_db` en dev).
+- Détail financier : "Total facturé" additionne des devises différentes (cosmétique) ; soldes bruts des comptes = 0 tant que non synchronisés via le flux (le dashboard calcule à la volée).

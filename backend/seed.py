@@ -181,6 +181,27 @@ def _forecast(db, swib, nwh):
     db.commit()
 
 
+def _demo_rules(db):
+    """Règles supplémentaires pour catégoriser proprement le jeu de démo."""
+    by_name = {c.name: c.id for c in db.query(models.Category).all()}
+    demo = [
+        ("counterparty", "SWIB", "Revenus SWIB", 60),
+        ("counterparty", "NORTHWIND", "Revenus NWH", 60),
+        ("counterparty", "NOTION", "Outils/SaaS", 62),
+        ("description", "RESTAURANT", "Repas", 62),
+        ("description", "MONTHLY FEE", "Frais bancaires", 62),
+        ("counterparty", "KRAKEN", "Investissement", 62),
+    ]
+    for field, pattern, cat_name, prio in demo:
+        cid = by_name.get(cat_name)
+        if cid is None:
+            continue
+        db.add(models.CategoryRule(
+            match_field=field, pattern=pattern, category_id=cid,
+            priority=prio, enabled=True))
+    db.commit()
+
+
 def main(reset: bool = False):
     init_db()
     db = SessionLocal()
@@ -192,6 +213,7 @@ def main(reset: bool = False):
             return
         seed_default_categories_and_rules(db)
         db.commit()
+        _demo_rules(db)
         _settings(db)
         swib, nwh = _clients(db)
         _accounts(db)
