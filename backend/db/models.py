@@ -207,6 +207,22 @@ class Investment(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class BalanceDocument(Base):
+    """Justificatif officiel de solde (relevé PDF/image) stocké en local."""
+
+    __tablename__ = "balance_documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_uid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    label: Mapped[str] = mapped_column(String, default="")
+    doc_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    filename: Mapped[str] = mapped_column(String)
+    file_path: Mapped[str] = mapped_column(String)
+    content_type: Mapped[str] = mapped_column(String, default="")
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class ForecastInput(Base):
     """Entrée de prévision mensuelle (jours × TJH × fx par client)."""
 

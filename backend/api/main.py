@@ -14,6 +14,7 @@ from backend.db.base import SessionLocal, init_db
 from backend.logging_config import get_logger
 from backend.services.categorize import seed_default_categories_and_rules
 
+from backend.api.routes import balance_docs as balance_docs_routes
 from backend.api.routes import banking as banking_routes
 from backend.api.routes import categories as categories_routes
 from backend.api.routes import clients as clients_routes
@@ -68,6 +69,7 @@ app.include_router(treasury_routes.router)
 app.include_router(forecast_routes.router)
 app.include_router(invoices_routes.router)
 app.include_router(banking_routes.router)
+app.include_router(balance_docs_routes.router)
 
 
 @app.get("/")

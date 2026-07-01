@@ -10,7 +10,9 @@ d'exposer exactement /api/treasury et /api/pnl.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -42,6 +44,7 @@ class AccountOut(BaseModel):
 class TreasuryOut(BaseModel):
     """Trésorerie consolidée : comptes + équivalents EUR + placements."""
 
+    as_of: Optional[str] = None
     accounts: list[AccountOut]
     bank_total_eur: Decimal
     investments_total_eur: Decimal
@@ -58,6 +61,7 @@ class MonthPnl(BaseModel):
     revenue_eur: Decimal
     charges_eur: Decimal
     result_eur: Decimal
+    revenue_by_currency: dict[str, Decimal] = {}
 
 
 class PnlTotals(BaseModel):
@@ -66,12 +70,15 @@ class PnlTotals(BaseModel):
     revenue_eur: Decimal
     charges_eur: Decimal
     result_eur: Decimal
+    revenue_by_currency: dict[str, Decimal] = {}
+    revenue_native_by_currency: dict[str, Decimal] = {}
 
 
 class PnlOut(BaseModel):
     """Compte de résultat mensuel d'un exercice."""
 
     year: int
+    currencies: list[str] = []
     months: list[MonthPnl]
     totals: PnlTotals
 
@@ -80,10 +87,13 @@ class PnlOut(BaseModel):
 
 
 @router.get("/api/treasury", response_model=TreasuryOut)
-def get_treasury(db: Session = Depends(get_db)) -> dict:
+def get_treasury(
+    as_of: Optional[date] = Query(default=None, description="Solde à cette date (incluse)"),
+    db: Session = Depends(get_db),
+) -> dict:
     """Retourne la trésorerie consolidée (tous comptes + placements)."""
-    logger.info("📥 [Treasury] GET /api/treasury")
-    return consolidated_treasury(db)
+    logger.info("📥 [Treasury] GET /api/treasury as_of=%s", as_of)
+    return consolidated_treasury(db, as_of=as_of)
 
 
 @router.get("/api/pnl", response_model=PnlOut)

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { treasuryAPI, investmentsAPI, forecastAPI } from '@/api/client';
 import { PageTitle, Card, StatCard, Badge, Empty } from '@/components/ui';
-import { eur, money, MONTH_LABELS } from '@/lib/format';
+import { eur, money, dateFR, MONTH_LABELS } from '@/lib/format';
+import { BalanceDocsModal } from '@/components/BalanceDocsModal';
 
 type Account = {
   account_uid: string;
@@ -14,24 +15,47 @@ type Account = {
 };
 
 type Treasury = {
+  as_of?: string | null;
   accounts: Account[];
   bank_total_eur: string | number;
   investments_total_eur: string | number;
   total_eur: string | number;
 };
 
+type CcyMap = Record<string, string | number>;
+
 type PnlMonth = {
   month: string;
   revenue_eur: string | number;
   charges_eur: string | number;
   result_eur: string | number;
+  revenue_by_currency?: CcyMap;
 };
 
 type Pnl = {
   year: number;
+  currencies?: string[];
   months: PnlMonth[];
-  totals: { revenue_eur: string | number; charges_eur: string | number; result_eur: string | number };
+  totals: {
+    revenue_eur: string | number;
+    charges_eur: string | number;
+    result_eur: string | number;
+    revenue_by_currency?: CcyMap;
+    revenue_native_by_currency?: CcyMap;
+  };
 };
+
+// Palette par devise pour l'empilement du graphe P&L.
+const CCY_COLORS: Record<string, string> = {
+  EUR: '#16a34a',
+  USD: '#2563eb',
+  CAD: '#f59e0b',
+  GBP: '#8b5cf6',
+};
+const ccyColor = (c: string, i: number) =>
+  CCY_COLORS[c] ?? ['#16a34a', '#2563eb', '#f59e0b', '#8b5cf6', '#ec4899'][i % 5];
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
 
 type InvestmentsSummary = {
   total_opening_value_eur: string | number;
@@ -76,16 +100,13 @@ export default function DashboardPage() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [asOf, setAsOf] = useState<string>(todayISO());
+  const [docsOpen, setDocsOpen] = useState(false);
 
+  // P&L / investissements / forecast : chargés une fois.
   useEffect(() => {
-    Promise.all([
-      treasuryAPI.get(),
-      treasuryAPI.pnl(2026),
-      investmentsAPI.summary(),
-      forecastAPI.get(2026),
-    ])
-      .then(([t, p, i, f]) => {
-        setTreasury(t);
+    Promise.all([treasuryAPI.pnl(2026), investmentsAPI.summary(), forecastAPI.get(2026)])
+      .then(([p, i, f]) => {
         setPnl(p);
         setInvest(i);
         setForecast(f);
@@ -93,6 +114,14 @@ export default function DashboardPage() {
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, []);
+
+  // Trésorerie : rechargée à chaque changement de date de valorisation.
+  useEffect(() => {
+    treasuryAPI
+      .get(asOf)
+      .then(setTreasury)
+      .catch((e) => setError((e as Error).message));
+  }, [asOf]);
 
   if (loading) {
     return (
@@ -114,8 +143,11 @@ export default function DashboardPage() {
 
   const gain = num(invest?.gain_eur);
   const pnlResult = num(pnl?.totals.result_eur);
+  const ccys = pnl?.currencies ?? [];
+  const totalsByCcy = pnl?.totals.revenue_by_currency ?? {};
+  const nativeByCcy = pnl?.totals.revenue_native_by_currency ?? {};
 
-  // Échelle du graphe P&L : max valeur absolue sur revenus / charges
+  // Échelle du graphe P&L : max valeur absolue sur revenus (total mois) / charges
   const pnlMax = Math.max(
     1,
     ...(pnl?.months ?? []).flatMap((m) => [
@@ -154,14 +186,20 @@ export default function DashboardPage() {
         <StatCard label="IS estimé" value={eur(forecast?.is.is_total_eur)} />
       </div>
 
-      {/* P&L mensuel — graphe barres CSS */}
+      {/* P&L mensuel — revenus empilés par devise + charges */}
       <Card>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold">P&amp;L mensuel 2026</div>
-          <div className="flex items-center gap-4 text-xs text-[var(--muted)]">
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-3 w-3 rounded-sm bg-[var(--pos)]" /> Revenus
-            </span>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+            {ccys.map((c, i) => (
+              <span key={c} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-3 w-3 rounded-sm"
+                  style={{ background: ccyColor(c, i) }}
+                />
+                Revenus {c}
+              </span>
+            ))}
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-3 w-3 rounded-sm bg-[var(--neg)]" /> Charges
             </span>
@@ -171,45 +209,112 @@ export default function DashboardPage() {
           {(pnl?.months ?? []).map((m, i) => {
             const rev = Math.abs(num(m.revenue_eur));
             const chg = Math.abs(num(m.charges_eur));
+            const byCcy = m.revenue_by_currency ?? {};
             return (
               <div key={m.month} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex w-full items-end justify-center gap-0.5" style={{ height: 175 }}>
-                  <div
-                    className="w-1/2 rounded-t bg-[var(--pos)]"
-                    style={{ height: `${(rev / pnlMax) * 175}px` }}
-                    title={`Revenus ${eur(m.revenue_eur)}`}
-                  />
-                  <div
-                    className="w-1/2 rounded-t bg-[var(--neg)]"
-                    style={{ height: `${(chg / pnlMax) * 175}px` }}
-                    title={`Charges ${eur(m.charges_eur)}`}
-                  />
+                {/* Montant du mois (revenus) au-dessus des barres */}
+                <div className="h-4 text-[9px] font-medium text-[var(--muted)] tabular">
+                  {rev > 0 ? `${Math.round(rev / 1000)}k` : ''}
+                </div>
+                <div className="flex w-full items-end justify-center gap-0.5" style={{ height: 165 }}>
+                  {/* Barre revenus empilée par devise */}
+                  <div className="flex w-1/2 flex-col justify-end" style={{ height: 165 }}>
+                    {ccys.map((c, ci) => {
+                      const v = num(byCcy[c]);
+                      if (v <= 0) return null;
+                      return (
+                        <div
+                          key={c}
+                          className="w-full first:rounded-t"
+                          style={{ height: `${(v / pnlMax) * 165}px`, background: ccyColor(c, ci) }}
+                          title={`${MONTH_LABELS[i]} — ${c} : ${eur(v)}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  {/* Barre charges */}
+                  <div className="flex w-1/2 items-end">
+                    <div
+                      className="w-full rounded-t bg-[var(--neg)]"
+                      style={{ height: `${(chg / pnlMax) * 165}px` }}
+                      title={`Charges ${eur(m.charges_eur)}`}
+                    />
+                  </div>
                 </div>
                 <div className="text-[10px] text-[var(--muted)]">{MONTH_LABELS[i]}</div>
               </div>
             );
           })}
         </div>
-        <div className="mt-4 flex justify-between border-t border-[var(--border)] pt-3 text-sm">
-          <span className="text-[var(--muted)]">
-            Revenus <span className="tabular font-medium text-[var(--text)]">{eur(pnl?.totals.revenue_eur)}</span>
-          </span>
-          <span className="text-[var(--muted)]">
-            Charges <span className="tabular font-medium text-[var(--text)]">{eur(pnl?.totals.charges_eur)}</span>
-          </span>
-          <span className="text-[var(--muted)]">
-            Résultat{' '}
-            <span className={`tabular font-medium ${pnlResult >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-              {eur(pnlResult)}
+        {/* Détail des revenus par devise : montant natif → équivalent EUR */}
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Revenus par devise (2026)
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {ccys.map((c, i) => (
+              <div
+                key={c}
+                className="flex items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <span
+                    className="inline-block h-3 w-3 rounded-sm"
+                    style={{ background: ccyColor(c, i) }}
+                  />
+                  {c}
+                </span>
+                <span className="text-right text-sm">
+                  <span className="tabular font-medium">{money(nativeByCcy[c], c)}</span>
+                  <span className="tabular block text-xs text-[var(--muted)]">
+                    = {eur(totalsByCcy[c])}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-4 text-sm">
+            <span className="text-[var(--muted)]">
+              Total revenus{' '}
+              <span className="tabular font-medium text-[var(--text)]">{eur(pnl?.totals.revenue_eur)}</span>
             </span>
-          </span>
+            <span className="text-[var(--muted)]">
+              Charges <span className="tabular font-medium text-[var(--text)]">{eur(pnl?.totals.charges_eur)}</span>
+            </span>
+            <span className="text-[var(--muted)]">
+              Résultat{' '}
+              <span className={`tabular font-medium ${pnlResult >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
+                {eur(pnlResult)}
+              </span>
+            </span>
+          </div>
         </div>
       </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Comptes */}
         <Card>
-          <div className="mb-4 text-sm font-semibold">Comptes</div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-semibold">Comptes</div>
+            <button
+              onClick={() => setDocsOpen(true)}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-gray-50"
+            >
+              📎 Justificatifs
+            </button>
+          </div>
+          <div className="mb-3 flex items-center gap-2 text-xs text-[var(--muted)]">
+            <label htmlFor="asof">Soldes au</label>
+            <input
+              id="asof"
+              type="date"
+              value={asOf}
+              max={todayISO()}
+              onChange={(e) => setAsOf(e.target.value || todayISO())}
+              className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--text)] outline-none focus:border-[var(--accent)]"
+            />
+            <span>({dateFR(asOf)})</span>
+          </div>
           {treasury && treasury.accounts.length > 0 ? (
             <div className="flex flex-col divide-y divide-[var(--border)]">
               {treasury.accounts.map((a) => (
@@ -222,6 +327,10 @@ export default function DashboardPage() {
                   <span className="tabular text-sm font-medium">{money(a.balance, a.currency)}</span>
                 </div>
               ))}
+              <div className="flex items-center justify-between py-2.5 text-sm font-semibold">
+                <span>Total banques (EUR)</span>
+                <span className="tabular">{eur(treasury.bank_total_eur)}</span>
+              </div>
             </div>
           ) : (
             <Empty>Aucun compte connecté.</Empty>
@@ -262,6 +371,8 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {docsOpen && <BalanceDocsModal onClose={() => setDocsOpen(false)} />}
     </div>
   );
 }

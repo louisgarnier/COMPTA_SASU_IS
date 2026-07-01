@@ -45,6 +45,11 @@ def monthly_pnl(db: Session, year: int) -> dict:
     # Accumulateurs indexés par mois (1..12).
     revenue = {m: _ZERO for m in range(1, 13)}
     charges = {m: _ZERO for m in range(1, 13)}
+    # Produits ventilés par devise d'origine (équivalent EUR), par mois.
+    revenue_ccy = {m: {} for m in range(1, 13)}
+    # Montant natif cumulé par devise (ex: total en $US, en $CA).
+    revenue_native = {}
+    currencies: set[str] = set()
 
     txs = db.query(models.Transaction).all()
     for tx in txs:
@@ -62,23 +67,35 @@ def monthly_pnl(db: Session, year: int) -> dict:
         is_revenue = (tx.kind or "") == "revenue" or ctype == "revenue"
         if is_revenue and amt > 0:
             revenue[month] += amt
+            ccy = (tx.currency or "EUR").upper()
+            currencies.add(ccy)
+            revenue_ccy[month][ccy] = revenue_ccy[month].get(ccy, _ZERO) + amt
+            revenue_native[ccy] = revenue_native.get(ccy, _ZERO) + abs(
+                Decimal(tx.amount or 0)
+            )
         elif ctype == "charge" and amt < 0:
             charges[month] += amt
 
+    ccy_order = sorted(currencies)
     months = []
     total_rev = _ZERO
     total_chg = _ZERO
+    totals_by_ccy = {c: _ZERO for c in ccy_order}
     for m in range(1, 13):
         rev = revenue[m]
         chg = charges[m]
         total_rev += rev
         total_chg += chg
+        by_ccy = {c: q2(revenue_ccy[m].get(c, _ZERO)) for c in ccy_order}
+        for c in ccy_order:
+            totals_by_ccy[c] += revenue_ccy[m].get(c, _ZERO)
         months.append(
             {
                 "month": f"{year:04d}-{m:02d}",
                 "revenue_eur": q2(rev),
                 "charges_eur": q2(chg),
                 "result_eur": q2(rev + chg),
+                "revenue_by_currency": by_ccy,
             }
         )
 
@@ -90,10 +107,15 @@ def monthly_pnl(db: Session, year: int) -> dict:
     )
     return {
         "year": year,
+        "currencies": ccy_order,
         "months": months,
         "totals": {
             "revenue_eur": q2(total_rev),
             "charges_eur": q2(total_chg),
             "result_eur": q2(total_rev + total_chg),
+            "revenue_by_currency": {c: q2(totals_by_ccy[c]) for c in ccy_order},
+            "revenue_native_by_currency": {
+                c: q2(revenue_native.get(c, _ZERO)) for c in ccy_order
+            },
         },
     }

@@ -76,8 +76,35 @@ export const categoriesAPI = {
 };
 
 export const treasuryAPI = {
-  get: () => get<any>('/api/treasury'),
+  get: (asOf?: string) =>
+    get<any>(`/api/treasury${asOf ? `?as_of=${asOf}` : ''}`),
   pnl: (year = 2026) => get<any>(`/api/pnl?year=${year}`),
+};
+
+export const balanceDocsAPI = {
+  list: (accountUid?: string) =>
+    get<any[]>(`/api/balance-docs${accountUid ? `?account_uid=${accountUid}` : ''}`),
+  upload: async (
+    file: File,
+    meta?: { account_uid?: string; label?: string; doc_date?: string },
+  ) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (meta?.account_uid) fd.append('account_uid', meta.account_uid);
+    if (meta?.label) fd.append('label', meta.label);
+    if (meta?.doc_date) fd.append('doc_date', meta.doc_date);
+    const res = await fetch(`${API_BASE_URL}/api/balance-docs`, {
+      method: 'POST',
+      body: fd, // pas de Content-Type manuel → boundary multipart auto
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(e.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+  downloadUrl: (id: number) => `${API_BASE_URL}/api/balance-docs/${id}/download`,
+  remove: (id: number) => del(`/api/balance-docs/${id}`),
 };
 
 export const investmentsAPI = {

@@ -10,7 +10,9 @@ Règles monnaie (architecture) :
 
 from __future__ import annotations
 
+from datetime import date as date_type
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
@@ -71,8 +73,15 @@ def eur_amount(tx: models.Transaction, settings: models.Settings) -> Decimal:
     return _convert_to_eur(amount, tx.currency, settings)
 
 
-def _account_transactions(db: Session, acc: models.BankAccount) -> list[models.Transaction]:
-    """Transactions du compte, filtrées à partir de la date d'ouverture si fixée."""
+def _account_transactions(
+    db: Session,
+    acc: models.BankAccount,
+    as_of: Optional[date_type] = None,
+) -> list[models.Transaction]:
+    """
+    Transactions du compte, filtrées à partir de la date d'ouverture si fixée,
+    et jusqu'à `as_of` inclus si fourni (solde à une date donnée).
+    """
     txs = (
         db.query(models.Transaction)
         .filter(models.Transaction.account_uid == acc.account_uid)
@@ -84,16 +93,19 @@ def _account_transactions(db: Session, acc: models.BankAccount) -> list[models.T
             for t in txs
             if t.booked_date is None or t.booked_date >= acc.opening_balance_date
         ]
+    if as_of is not None:
+        txs = [t for t in txs if t.booked_date is None or t.booked_date <= as_of]
     return txs
 
 
-def consolidated_treasury(db: Session) -> dict:
+def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dict:
     """
     Consolide la trésorerie de tous les comptes bancaires + placements.
 
     Solde d'un compte = opening_balance + Σ transactions (depuis la date
-    d'ouverture si renseignée). L'équivalent EUR d'un compte non-EUR agrège
-    l'ouverture convertie (taux défaut) + Σ des équivalents EUR des transactions.
+    d'ouverture si renseignée, jusqu'à `as_of` inclus si fourni). L'équivalent
+    EUR d'un compte non-EUR agrège l'ouverture convertie (taux défaut) + Σ des
+    équivalents EUR des transactions.
     """
     settings = _get_settings(db)
     accounts = db.query(models.BankAccount).order_by(models.BankAccount.id).all()
@@ -101,7 +113,7 @@ def consolidated_treasury(db: Session) -> dict:
     out_accounts: list[dict] = []
     bank_total_eur = _ZERO
     for acc in accounts:
-        txs = _account_transactions(db, acc)
+        txs = _account_transactions(db, acc, as_of=as_of)
         tx_sum = sum((Decimal(t.amount or 0) for t in txs), _ZERO)
         balance = Decimal(acc.opening_balance or 0) + tx_sum
 
@@ -137,6 +149,7 @@ def consolidated_treasury(db: Session) -> dict:
         q2(total_eur),
     )
     return {
+        "as_of": as_of.isoformat() if as_of is not None else None,
         "accounts": out_accounts,
         "bank_total_eur": q2(bank_total_eur),
         "investments_total_eur": q2(investments_total_eur),

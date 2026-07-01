@@ -79,6 +79,11 @@ def _accounts(db):
             balance=D("0"), opening_balance=D("4200"), opening_balance_date=date(2026, 1, 1),
         ),
         models.BankAccount(
+            provider="revolut", account_uid="rev-cad", currency="CAD",
+            iban_masked="FR76****CAD3", name="Revolut CAD",
+            balance=D("0"), opening_balance=D("0"), opening_balance_date=date(2026, 1, 1),
+        ),
+        models.BankAccount(
             provider="qonto", account_uid="qonto-eur", currency="EUR",
             iban_masked="FR76****QON7", name="Qonto Courant EUR",
             balance=D("0"), opening_balance=D("9000"), opening_balance_date=date(2026, 1, 1),
@@ -105,8 +110,8 @@ def _transactions(db):
     for m in range(1, 7):
         txs.append(_tx("rev-usd", f"swib-{m}", date(2026, m, 5), 9750, "USD",
                        f"SWIB INV 2026-0{m}", "SWIB INC", "revenue", round(9750 * 0.92, 2), 0.92))
-        txs.append(_tx("rev-eur-main", f"nwh-{m}", date(2026, m, 8), round(12800 * 0.68, 2), "EUR",
-                       f"NORTHWIND PAYMENT 0{m}", "NORTHWIND HEALTH", "revenue", round(12800 * 0.68, 2)))
+        txs.append(_tx("rev-cad", f"nwh-{m}", date(2026, m, 8), 12800, "CAD",
+                       f"NORTHWIND PAYMENT 0{m}", "NORTHWIND HEALTH", "revenue", round(12800 * 0.68, 2), 0.68))
     # Charges récurrentes
     for m in range(1, 7):
         txs.append(_tx("qonto-eur", f"urssaf-{m}", date(2026, m, 15), -1850, "EUR",
