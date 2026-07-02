@@ -189,3 +189,52 @@ def test_route_sessions_then_connections_then_sync(client):
     r4 = client.post("/api/banking/sync")
     assert r4.json()["transactions_added"] == 0
     assert r4.json()["transactions_skipped"] > 0
+
+
+# --- Chargement de la clé privée (PEM complet OU base64 brut type Railway) ---
+
+
+def _rsa_pem_pair():
+    """Génère une paire RSA de test → (PEM privé PKCS8, objet clé publique)."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    return pem, key.public_key()
+
+
+def _assert_signs(tmp_path, monkeypatch, key_text, pub):
+    """Écrit key_text dans le fichier clé, signe un JWT, le vérifie avec la clé publique."""
+    import jwt
+
+    key_file = tmp_path / "eb_private.pem"
+    key_file.write_text(key_text, encoding="utf-8")
+    monkeypatch.setattr(
+        banking_service.settings, "enable_banking_private_key_path", str(key_file)
+    )
+    monkeypatch.setattr(banking_service.settings, "enable_banking_app_id", "test-kid")
+
+    token = banking_service._make_jwt()
+    decoded = jwt.decode(token, pub, algorithms=["RS256"], audience="api.enablebanking.com")
+    assert decoded["iss"] == "enablebanking.com"
+    assert jwt.get_unverified_header(token)["kid"] == "test-kid"
+
+
+def test_make_jwt_accepts_full_pem(tmp_path, monkeypatch):
+    pem, pub = _rsa_pem_pair()
+    _assert_signs(tmp_path, monkeypatch, pem, pub)
+
+
+def test_make_jwt_accepts_raw_base64_body(tmp_path, monkeypatch):
+    # Cas Railway : en-têtes retirés + tout sur une ligne (newlines supprimés).
+    pem, pub = _rsa_pem_pair()
+    body = "".join(
+        l for l in pem.splitlines() if l and not l.startswith("-----")
+    )
+    assert "\n" not in body and not body.startswith("-----")
+    _assert_signs(tmp_path, monkeypatch, body, pub)

@@ -64,6 +64,26 @@ def _key_path() -> Path:
     return Path(settings.enable_banking_private_key_path)
 
 
+def _load_private_key() -> str:
+    """
+    Lit la clé privée et renvoie un PEM valide, quel que soit le format stocké.
+
+    Accepte :
+    - un PEM complet (`-----BEGIN … PRIVATE KEY-----` avec retours à la ligne) ;
+    - un corps base64 brut (cas Railway/Vercel : en-têtes et newlines supprimés).
+      On reconstruit alors le PEM (headers + lignes de 64 caractères).
+    Voir docs/integrations/enablebanking.md (gotcha « Railway strips newlines »).
+    """
+    import textwrap
+
+    raw = _key_path().read_text(encoding="utf-8").replace("\\n", "\n").strip()
+    if raw.startswith("-----BEGIN"):
+        return raw
+    body = "".join(raw.split())  # retire tout espace/newline résiduel
+    wrapped = "\n".join(textwrap.wrap(body, 64))
+    return f"-----BEGIN PRIVATE KEY-----\n{wrapped}\n-----END PRIVATE KEY-----\n"
+
+
 def is_live() -> bool:
     """
     True si l'on peut réellement appeler Enable Banking :
@@ -115,7 +135,7 @@ def _make_jwt() -> str:
         "iat": now,
         "exp": now + 3600,
     }
-    private_key = _key_path().read_text(encoding="utf-8")
+    private_key = _load_private_key()
     return jwt.encode(
         payload,
         private_key,
