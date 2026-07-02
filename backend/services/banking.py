@@ -558,15 +558,22 @@ def sync(db: Session) -> dict[str, Any]:
         account.balance = balance
         account.last_synced_at = datetime.now(tz=timezone.utc)
 
+    # Re-catégorisation automatique des nouvelles écritures (spec S3.3).
+    db.flush()  # rendre les transactions ajoutées visibles au moteur de règles
+    from backend.services.categorize import recategorize_all
+
+    categorized = recategorize_all(db)
     db.commit()
     logger.info(
-        "✅ [Banking] sync: comptes=%d ajoutées=%d ignorées=%d",
+        "✅ [Banking] sync: comptes=%d ajoutées=%d ignorées=%d catégorisées=%d",
         len(accounts),
         added,
         skipped,
+        categorized,
     )
     return {
         "accounts_synced": len(accounts),
         "transactions_added": added,
         "transactions_skipped": skipped,
+        "transactions_categorized": categorized,
     }

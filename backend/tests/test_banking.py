@@ -26,6 +26,18 @@ from backend.db.base import Base, get_db
 from backend.services import banking as banking_service
 
 
+@pytest.fixture(autouse=True)
+def _force_mock_mode(monkeypatch):
+    """
+    Les tests banking supposent le mode MOCK (aucun identifiant réseau).
+    L'environnement local peut désormais contenir de vrais identifiants
+    Enable Banking (`.env` + `secrets/eb_private.pem`) → on les neutralise
+    pour garder les tests hermétiques. Les tests de signature JWT
+    ré-injectent app_id + clé eux-mêmes (monkeypatch local prioritaire).
+    """
+    monkeypatch.setattr(banking_service.settings, "enable_banking_app_id", "")
+
+
 @pytest.fixture()
 def session():
     engine = create_engine(
@@ -238,3 +250,30 @@ def test_make_jwt_accepts_raw_base64_body(tmp_path, monkeypatch):
     )
     assert "\n" not in body and not body.startswith("-----")
     _assert_signs(tmp_path, monkeypatch, body, pub)
+
+
+# --- Régression S3.3 : sync catégorise automatiquement les nouvelles écritures ---
+
+
+def test_sync_auto_categorizes(session):
+    # Une règle : contrepartie contenant 'URSSAF' → catégorie de type charge.
+    cat = models.Category(name="Cotisations URSSAF", type="charge")
+    session.add(cat)
+    session.flush()
+    session.add(models.CategoryRule(
+        match_field="counterparty", pattern="URSSAF",
+        category_id=cat.id, priority=50, enabled=True))
+    # Crée les comptes mock puis synchronise.
+    banking_service.create_session(session, "mock-code")
+    res = banking_service.sync(session)
+
+    assert res["transactions_added"] > 0
+    assert res["transactions_categorized"] > 0  # la régression : valait 0 avant le fix
+
+    urssaf = (
+        session.query(models.Transaction)
+        .filter(models.Transaction.counterparty.ilike("%URSSAF%"))
+        .first()
+    )
+    assert urssaf is not None
+    assert urssaf.category_id == cat.id  # catégorisée pendant le sync, sans appel manuel
