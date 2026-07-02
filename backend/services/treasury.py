@@ -77,10 +77,13 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
     """
     Consolide la trésorerie de tous les comptes bancaires + placements.
 
-    Solde d'un compte = opening_balance + Σ transactions (depuis la date
-    d'ouverture si renseignée, jusqu'à `as_of` inclus si fourni). L'équivalent
-    EUR d'un compte non-EUR agrège l'ouverture convertie (taux défaut) + Σ des
-    équivalents EUR des transactions.
+    Solde d'un compte :
+    - **vue courante** (`as_of` None) d'un compte **synchronisé** → solde réel
+      renvoyé par le provider (`acc.balance`), source de vérité ;
+    - sinon (historique `as_of`, ou compte jamais synchronisé/mock) →
+      reconstruction `opening_balance + Σ transactions` depuis la date
+      d'ouverture, jusqu'à `as_of` inclus si fourni.
+    L'équivalent EUR d'un compte non-EUR applique le taux théorique des Réglages.
     """
     rates = load_rates(db)
     accounts = db.query(models.BankAccount).order_by(models.BankAccount.id).all()
@@ -89,10 +92,16 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
     bank_total_eur = _ZERO
     native_by_ccy: dict[str, Decimal] = {}
     for acc in accounts:
-        txs = _account_transactions(db, acc, as_of=as_of)
-        tx_sum = sum((Decimal(t.amount or 0) for t in txs), _ZERO)
-        balance = Decimal(acc.opening_balance or 0) + tx_sum
         cur = (acc.currency or "EUR").upper()
+        synced = acc.last_synced_at is not None and acc.balance is not None
+        if as_of is None and synced:
+            # Solde réel du provider (ne dépend pas d'un solde d'ouverture saisi).
+            balance = Decimal(acc.balance)
+        else:
+            # Reconstruction : ouverture + Σ mouvements (historique ou non synchro).
+            txs = _account_transactions(db, acc, as_of=as_of)
+            tx_sum = sum((Decimal(t.amount or 0) for t in txs), _ZERO)
+            balance = Decimal(acc.opening_balance or 0) + tx_sum
 
         # On agrège d'abord en natif par devise (jamais d'addition inter-devises).
         native_by_ccy[cur] = native_by_ccy.get(cur, _ZERO) + balance

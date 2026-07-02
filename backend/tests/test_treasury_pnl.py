@@ -245,3 +245,27 @@ def test_route_pnl_explicit_year(session):
     assert body["year"] == 2025
     # Aucune transaction en 2025 -> tout à zéro.
     assert body["totals"]["result_eur"] == "0.00"
+
+
+# --- Régression : un compte synchronisé utilise le solde réel du provider ------
+
+
+def test_synced_account_prefers_real_balance(session):
+    from datetime import datetime
+
+    # eur-1 : opening 1000 + mouvements = 2900 (reconstruction).
+    acc = session.query(models.BankAccount).filter_by(account_uid="eur-1").one()
+    # Le provider renvoie un solde réel différent (ex. mouvements hors fenêtre).
+    acc.balance = Decimal("9999.00")
+    acc.last_synced_at = datetime(2026, 6, 30)
+    session.commit()
+
+    # Vue courante → solde réel, PAS le 2900 recalculé (c'était le bug).
+    res = consolidated_treasury(session)
+    eur = next(a for a in res["accounts"] if a["account_uid"] == "eur-1")
+    assert eur["balance"] == Decimal("9999.00")
+
+    # Vue historique (as_of) → repasse en reconstruction opening + mouvements.
+    at = consolidated_treasury(session, as_of=date(2026, 2, 28))
+    eur_h = next(a for a in at["accounts"] if a["account_uid"] == "eur-1")
+    assert eur_h["balance"] == Decimal("2900.00")
