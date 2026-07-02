@@ -88,13 +88,17 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
     rates = load_rates(db)
     accounts = db.query(models.BankAccount).order_by(models.BankAccount.id).all()
 
+    # « Vue courante » = pas de date, ou date demandée ≥ aujourd'hui : on montre le
+    # solde réel synchronisé. Une date passée déclenche la reconstruction historique.
+    is_current = as_of is None or as_of >= date_type.today()
+
     out_accounts: list[dict] = []
     bank_total_eur = _ZERO
     native_by_ccy: dict[str, Decimal] = {}
     for acc in accounts:
         cur = (acc.currency or "EUR").upper()
         synced = acc.last_synced_at is not None and acc.balance is not None
-        if as_of is None and synced:
+        if is_current and synced:
             # Solde réel du provider (ne dépend pas d'un solde d'ouverture saisi).
             balance = Decimal(acc.balance)
         else:
