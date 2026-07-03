@@ -125,12 +125,18 @@ def test_totals_sum_over_year(db_session):
 # --------------------------------------------------------------------------- #
 
 
-def test_future_month_is_forecast_with_client_currency(db_session):
+def test_future_incoming_bucketed_on_expected_payment_date(db_session):
+    """
+    L'encaissement d'une prévision de septembre à 45j tombe en NOVEMBRE
+    (fin sept + 45j ≈ 14 nov), pas en septembre → cœur du modèle accrual/cash.
+    """
     rev, chg = _base(db_session)
     # Charges écoulées → moyenne mensuelle des 6 mois = 600/6 = 100.
     _tx(db_session, chg.id, date(2026, 1, 20), "-600", "EUR", "charge", "c1")
 
-    client = models.Client(code="SWIB", legal_name="SWIB", currency="USD")
+    client = models.Client(
+        code="SWIB", legal_name="SWIB", currency="USD", payment_terms_days=45
+    )
     db_session.add(client)
     db_session.commit()
     db_session.refresh(client)
@@ -140,16 +146,41 @@ def test_future_month_is_forecast_with_client_currency(db_session):
           "rate": Decimal("500"), "fx_rate": Decimal("0.9"), "note": ""}],
     )
 
-    result = cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY)
-    sep = _by_month(result)["2026-09"]
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
 
+    # Septembre (mois travaillé) : AUCUN encaissement — l'argent n'arrive pas encore.
+    sep = by["2026-09"]
     assert sep["is_forecast"] is True
-    # 10 × 500 × 0.9 = 4500, bucketé sous la devise du client (USD).
-    assert sep["incoming_by_ccy"] == {"USD": Decimal("4500.00")}
-    assert sep["incoming_eur"] == Decimal("4500.00")
+    assert sep["incoming_by_ccy"] == {}
     # Charges prévisionnelles futures = moyenne des mois écoulés, bucket EUR.
     assert sep["outgoing_by_ccy"] == {"EUR": Decimal("100.00")}
-    assert sep["outgoing_eur"] == Decimal("100.00")
+
+    # Novembre : le cash de la presta de septembre (10 × 500 × 0.9 = 4500 USD-EUR).
+    nov = by["2026-11"]
+    assert nov["incoming_by_ccy"] == {"USD": Decimal("4500.00")}
+    assert nov["incoming_eur"] == Decimal("4500.00")
+
+
+def test_due_invoice_bucketed_on_due_date(db_session):
+    """Une facture émise (`due`) apparaît au cashflow le mois de son `due_date`."""
+    _base(db_session)
+    client = models.Client(
+        code="NWH", legal_name="NWH", currency="EUR", payment_terms_days=45
+    )
+    db_session.add(client)
+    db_session.commit()
+    db_session.refresh(client)
+    # Émise, non payée : service août, échéance 2026-10-01 → cash en octobre.
+    db_session.add(models.Invoice(
+        number="100", client_id=client.id, month="2026-08", status="due",
+        currency="EUR", amount=Decimal("3000"),
+        issue_date=date(2026, 8, 18), due_date=date(2026, 10, 1),
+    ))
+    db_session.commit()
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    assert by["2026-10"]["incoming_by_ccy"] == {"EUR": Decimal("3000.00")}
+    assert by["2026-08"]["incoming_by_ccy"] == {}
 
 
 # --------------------------------------------------------------------------- #

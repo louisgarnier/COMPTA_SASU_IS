@@ -119,15 +119,21 @@ def test_get_inputs_returns_rate_unit_and_hours(db):
 
 
 def test_forecast_incoming_uses_theoretical_fx(db):
-    """cashflow : encaissement prévisionnel = amount_eur_forecast (FX Réglages)."""
-    c = _client(db, mode="thm")
+    """
+    cashflow : encaissement prévisionnel = amount_eur_forecast (FX Réglages),
+    bucketisé sur la date d'ENCAISSEMENT attendue (service + délai client),
+    pas sur le mois de service (comptabilité de caisse — accrual-vs-cash).
+    """
+    c = _client(db, mode="thm")  # payment_terms_days défaut = 60
     forecast_service.upsert_inputs(db, [{
         "month": "2026-08", "client_id": c.id, "rate_unit": "hour",
         "hours": Decimal("100"), "rate": Decimal("120"), "note": "",
     }])
     by = {m["month"]: m for m in cashflow_service.monthly_cashflow(db, 2026, today=_TODAY)["months"]}
-    aug = by["2026-08"]
-    assert aug["is_forecast"] is True
+    # Service Août → encaissement 31 août + 60 j = 30 oct → 2026-10.
+    assert by["2026-08"]["incoming_eur"] == Decimal("0.00")
+    oct_ = by["2026-10"]
+    assert oct_["is_forecast"] is True
     # 100 × 120 = 12000 $ × 0.9 = 10800 €
-    assert aug["incoming_by_ccy"] == {"USD": Decimal("10800.00")}
-    assert aug["incoming_eur"] == Decimal("10800.00")
+    assert oct_["incoming_by_ccy"] == {"USD": Decimal("10800.00")}
+    assert oct_["incoming_eur"] == Decimal("10800.00")

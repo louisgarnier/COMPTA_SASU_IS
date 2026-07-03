@@ -1,14 +1,20 @@
 """
-Service Compte de résultat mensuel LGC (P&L opérationnel).
+Service Compte de résultat mensuel LGC (P&L opérationnel, comptabilité d'engagement).
 
 Périmètre : produits & charges d'exploitation uniquement. On EXCLUT les flux
 non opérationnels — kinds 'investment' | 'conversion' | 'transfer' | 'internal'
 et toute transaction dont la catégorie est de type
 'conversion' | 'transfer' | 'internal'.
 
-- Produits (revenue) : montants EUR positifs de kind 'revenue' ou de catégorie
-  de type 'revenue'.
-- Charges (charge)  : montants EUR négatifs de catégorie de type 'charge'.
+Modèle « accrual » (revenu rattaché au mois TRAVAILLÉ, pas au mois payé) :
+- Produits (revenue) : factures émises (`status ∈ {due, paid}`) rattachées à leur
+  **mois de service** (`Invoice.month`) — le revenu est gagné quand la presta est
+  livrée, indépendamment de l'encaissement (paiement à 45j). Filet anti-perte :
+  les transactions de revenu NON rattachées à une facture (`invoice_id IS NULL`)
+  comptent par `booked_date` (encaissement divers non facturé) ; celles rattachées
+  sont exclues (déjà comptées côté facture) → pas de double comptage.
+- Charges (charge)  : montants EUR négatifs de catégorie de type 'charge', par
+  `booked_date` (base **cash** assumée — pas de facture fournisseur, NG5).
 - Résultat = produits + charges (les charges sont déjà négatives).
 
 Douze mois toujours présents (Jan..Déc), remplis à zéro.
@@ -23,7 +29,7 @@ from sqlalchemy.orm import Session
 from backend.db import models
 from backend.logging_config import get_logger
 from backend.services import forecast as forecast_service
-from backend.services.fx import load_rates
+from backend.services.fx import load_rates, to_eur
 from backend.services.treasury import eur_amount, q2
 
 logger = get_logger("pnl", channel="api")
@@ -33,6 +39,22 @@ _ZERO = Decimal("0")
 # Flux exclus du résultat d'exploitation.
 _EXCLUDED_KINDS = {"investment", "conversion", "transfer", "internal"}
 _EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal"}
+
+
+def invoice_revenue_eur(inv: models.Invoice, rates: dict) -> Decimal:
+    """
+    Revenu EUR reconnu pour une facture émise (accrual).
+
+    Priorité : montant réellement encaissé (`amount_eur_received`, FX réel) si la
+    facture est payée ; sinon montant EUR prévisionnel (`amount_eur_forecast`, FX
+    théorique) s'il est renseigné ; sinon conversion théorique du natif `amount`.
+    """
+    if inv.status == "paid" and inv.amount_eur_received is not None:
+        return Decimal(inv.amount_eur_received)
+    forecast_eur = Decimal(inv.amount_eur_forecast or 0)
+    if forecast_eur > 0:
+        return forecast_eur
+    return to_eur(inv.amount, inv.currency, rates)
 
 
 def monthly_pnl(db: Session, year: int) -> dict:
@@ -57,6 +79,29 @@ def monthly_pnl(db: Session, year: int) -> dict:
     charges_native_ccy = {}
     charge_currencies: set[str] = set()
 
+    # --- Produits (accrual) : factures émises rattachées au mois de service ---
+    year_months = {f"{year:04d}-{m:02d}" for m in range(1, 13)}
+    issued = (
+        db.query(models.Invoice)
+        .filter(models.Invoice.status.in_(("due", "paid")))
+        .all()
+    )
+    for inv in issued:
+        if inv.month not in year_months:
+            continue
+        month = int(inv.month[5:7])
+        amt = invoice_revenue_eur(inv, rates)
+        if amt <= 0:
+            continue
+        revenue[month] += amt
+        ccy = (inv.currency or "EUR").upper()
+        currencies.add(ccy)
+        revenue_ccy[month][ccy] = revenue_ccy[month].get(ccy, _ZERO) + amt
+        revenue_native[ccy] = revenue_native.get(ccy, _ZERO) + abs(
+            Decimal(inv.amount or 0)
+        )
+
+    # --- Charges (cash) + filet « revenus non facturés » (invoice_id NULL) ----
     txs = db.query(models.Transaction).all()
     for tx in txs:
         if tx.booked_date is None or tx.booked_date.year != year:
@@ -72,6 +117,9 @@ def monthly_pnl(db: Session, year: int) -> dict:
 
         is_revenue = (tx.kind or "") == "revenue" or ctype == "revenue"
         if is_revenue and amt > 0:
+            # Rattachée à une facture → déjà comptée côté facture (accrual).
+            if tx.invoice_id is not None:
+                continue
             revenue[month] += amt
             ccy = (tx.currency or "EUR").upper()
             currencies.add(ccy)

@@ -564,16 +564,26 @@ def sync(db: Session) -> dict[str, Any]:
 
     categorized = recategorize_all(db)
     db.commit()
+
+    # Rapprochement auto des paiements importés avec les factures ouvertes : ferme
+    # la boucle accrual (une transaction rattachée `invoice_id` est exclue du P&L,
+    # la facture la comptant déjà côté mois travaillé → pas de double comptage).
+    from backend.services.invoices import reconcile_payments
+
+    reconciled = reconcile_payments(db)
     logger.info(
-        "✅ [Banking] sync: comptes=%d ajoutées=%d ignorées=%d catégorisées=%d",
+        "✅ [Banking] sync: comptes=%d ajoutées=%d ignorées=%d catégorisées=%d "
+        "rapprochées=%d",
         len(accounts),
         added,
         skipped,
         categorized,
+        reconciled,
     )
     return {
         "accounts_synced": len(accounts),
         "transactions_added": added,
         "transactions_skipped": skipped,
         "transactions_categorized": categorized,
+        "invoices_reconciled": reconciled,
     }

@@ -8,10 +8,15 @@ Vue trésorerie « flux » : pour chaque mois de l'exercice, l'argent qui ENTRE
   transactions, mêmes règles d'exclusion que le P&L (kinds/catégories non
   opérationnels ignorés).
 - Mois futurs → PRÉVISION :
-  - incoming : entrées de prévision (jours × TJH × fx) groupées par devise du
-    client (montant déjà exprimé en EUR).
+  - incoming : encaissements ATTENDUS depuis les factures non payées
+    (`status ∈ {forecast, due}`), bucketisés sur la **date de paiement attendue**
+    (facture `due` → `due_date` ; facture `forecast` → fin du mois de service +
+    délai de paiement du client), groupés par devise du client (montant EUR).
   - outgoing : charges prévisionnelles du mois (moyenne des mois écoulés),
     agrégat EUR → bucket unique « EUR ».
+
+Un euro porte deux dates : le cashflow le compte quand il est ENCAISSÉ (à 45j),
+là où le P&L le compte quand il est GAGNÉ (mois travaillé). L'écart est normal.
 
 `is_forecast` = mois strictement postérieur au mois courant (today).
 Tous les montants en `Decimal` 2 décimales.
@@ -19,7 +24,8 @@ Tous les montants en `Decimal` 2 décimales.
 
 from __future__ import annotations
 
-from datetime import date
+import calendar
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -29,12 +35,17 @@ from backend.db import models
 from backend.logging_config import get_logger
 from backend.services import forecast as forecast_service
 from backend.services.fx import load_rates
-from backend.services.pnl import _EXCLUDED_CATEGORY_TYPES, _EXCLUDED_KINDS
+from backend.services.pnl import (
+    _EXCLUDED_CATEGORY_TYPES,
+    _EXCLUDED_KINDS,
+    invoice_revenue_eur,
+)
 from backend.services.treasury import eur_amount, q2
 
 logger = get_logger("cashflow", channel="api")
 
 _ZERO = Decimal("0")
+_DEFAULT_TERMS = 60
 
 
 def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
@@ -75,18 +86,54 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
     return flows
 
 
-def _forecast_incoming(db: Session, year: int) -> dict[str, dict]:
+def _expected_payment_date(inv: models.Invoice) -> Optional[date]:
     """
-    Encaissements prévisionnels par mois ('YYYY-MM') → {ccy: eur}.
+    Date d'encaissement ATTENDUE d'une facture non payée.
 
-    Montant EUR prévisionnel de la facture (`amount_eur_forecast`, taux théorique),
-    groupé par devise du client. Source = factures `status='forecast'`.
+    - facture `due` (émise) → `due_date` (déjà = émission + délai client).
+    - facture `forecast` (non émise) → dernier jour du mois de service +
+      `client.payment_terms_days` (émission supposée en fin de mois travaillé).
     """
+    if inv.due_date is not None:
+        return inv.due_date
+    if not inv.month:
+        return None
+    try:
+        y, m = int(inv.month[:4]), int(inv.month[5:7])
+    except (ValueError, IndexError):
+        return None
+    last_day = calendar.monthrange(y, m)[1]
+    terms = _DEFAULT_TERMS
+    if inv.client is not None and inv.client.payment_terms_days:
+        terms = inv.client.payment_terms_days
+    return date(y, m, last_day) + timedelta(days=terms)
+
+
+def _expected_inflows(db: Session, year: int) -> dict[str, dict]:
+    """
+    Encaissements ATTENDUS par mois ('YYYY-MM') → {ccy: eur}.
+
+    Factures non payées (`status ∈ {forecast, due}`) bucketisées sur leur date de
+    paiement attendue (cf. `_expected_payment_date`), montant EUR groupé par devise
+    du client. Les factures `paid` sont exclues (leur cash est déjà dans le réel).
+    """
+    rates = load_rates(db)
     out: dict[str, dict] = {}
-    for row in forecast_service.get_inputs(db, year):
-        ccy = ((row.client.currency if row.client else None) or "EUR").upper()
-        bucket = out.setdefault(row.month, {})
-        bucket[ccy] = bucket.get(ccy, _ZERO) + Decimal(row.amount_eur)
+    invoices = (
+        db.query(models.Invoice)
+        .filter(models.Invoice.status.in_(("forecast", "due")))
+        .all()
+    )
+    for inv in invoices:
+        pay_date = _expected_payment_date(inv)
+        if pay_date is None or pay_date.year != year:
+            continue
+        key = f"{pay_date.year:04d}-{pay_date.month:02d}"
+        ccy = (
+            (inv.client.currency if inv.client else None) or inv.currency or "EUR"
+        ).upper()
+        bucket = out.setdefault(key, {})
+        bucket[ccy] = bucket.get(ccy, _ZERO) + invoice_revenue_eur(inv, rates)
     return out
 
 
@@ -97,7 +144,7 @@ def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> di
     current = (today.year, today.month)
 
     real = _real_month_flows(db, year)
-    forecast_in = _forecast_incoming(db, year)
+    forecast_in = _expected_inflows(db, year)
     projection = forecast_service.project(db, year, today=today)
     forecast_charge = {m["month"]: m["charges_forecast_eur"] for m in projection["months"]}
 

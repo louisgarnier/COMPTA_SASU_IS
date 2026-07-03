@@ -142,9 +142,11 @@ def test_forecast_invoice_counts_in_future_month_once(db):
         "days": Decimal("10"), "rate": Decimal("100"), "fx_rate": Decimal("0.9"), "note": "",
     }])
     by = {m["month"]: m for m in cashflow_service.monthly_cashflow(db, 2026, today=_TODAY)["months"]}
-    aug = by["2026-08"]
-    assert aug["is_forecast"] is True
-    assert aug["incoming_eur"] == Decimal("900.00")   # 10 × 100 × 0.9, une seule source
+    # Service Août → encaissement attendu 31 août + 60 j = 2026-10 (compta de caisse).
+    assert by["2026-08"]["incoming_eur"] == Decimal("0.00")
+    oct_ = by["2026-10"]
+    assert oct_["is_forecast"] is True
+    assert oct_["incoming_eur"] == Decimal("900.00")   # 10 × 100 × 0.9, une seule source
 
 
 def test_paid_forecast_invoice_drops_from_forecast_side(db):
@@ -154,12 +156,16 @@ def test_paid_forecast_invoice_drops_from_forecast_side(db):
         "month": "2026-08", "client_id": client.id,
         "days": Decimal("10"), "rate": Decimal("100"), "fx_rate": Decimal("0.9"), "note": "",
     }])
+    # Avant paiement : comptée à l'encaissement attendu (2026-10).
+    before = {m["month"]: m for m in cashflow_service.monthly_cashflow(db, 2026, today=_TODAY)["months"]}
+    assert before["2026-10"]["incoming_eur"] == Decimal("900.00")
+
     inv = db.query(models.Invoice).one()
     inv.status = "paid"          # réalisée → sort du forecast
     db.commit()
 
-    by = {m["month"]: m for m in cashflow_service.monthly_cashflow(db, 2026, today=_TODAY)["months"]}
-    assert by["2026-08"]["incoming_eur"] == Decimal("0.00")   # plus de double compte
+    after = {m["month"]: m for m in cashflow_service.monthly_cashflow(db, 2026, today=_TODAY)["months"]}
+    assert after["2026-10"]["incoming_eur"] == Decimal("0.00")   # plus de double compte
 
 
 # --------------------------------------------------------------------------- #
