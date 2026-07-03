@@ -12,6 +12,8 @@ Tous les montants sont manipulés en `Decimal`, jamais en float.
 
 from __future__ import annotations
 
+import calendar
+from datetime import date
 from decimal import Decimal
 from typing import Iterable, Optional
 
@@ -92,14 +94,12 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[models.ForecastInp
     return result
 
 
-def _avg_monthly_charges(db: Session, year: int) -> Decimal:
+def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:
     """
-    Moyenne des charges opérationnelles mensuelles sur les mois disposant de
-    données cette année.
+    Charges opérationnelles réelles de `year` : liste (date, montant_eur_positif).
 
     Charge opérationnelle = transaction dont la catégorie est de type 'charge'
     et dont le `kind` n'est pas dans {investment, conversion, transfer}.
-    Retourne un montant positif (à retrancher), 0 si aucune donnée.
     """
     rows = (
         db.query(models.Transaction, models.Category)
@@ -115,40 +115,97 @@ def _avg_monthly_charges(db: Session, year: int) -> Decimal:
     from backend.services.fx import load_rates, to_eur
 
     rates = load_rates(db)
-    per_month: dict[str, Decimal] = {}
-    prefix = f"{year:04d}-"
+    out: list[tuple[date, Decimal]] = []
     for txn, _category in rows:
-        key = txn.booked_date.isoformat()[:7]  # 'YYYY-MM'
-        if not key.startswith(prefix):
+        if txn.booked_date.year != year:
             continue
         eur = to_eur(txn.amount, txn.currency, rates)  # taux théorique Réglages
-        per_month[key] = per_month.get(key, _ZERO) + abs(eur)
+        out.append((txn.booked_date, abs(eur)))
+    return out
 
-    if not per_month:
-        return _ZERO
 
-    total = sum(per_month.values(), _ZERO)
-    return Decimal(total) / Decimal(len(per_month))
+def _charge_forecast(
+    db: Session, year: int, today: date
+) -> tuple[dict[str, Decimal], set[str]]:
+    """
+    Calcule les charges par mois de `year` selon la position vs `today` :
+
+    - mois écoulé (avant le mois courant) → charges RÉELLES du mois.
+    - mois en cours → réel déjà passé (dates < today) + prorata des jours
+      restants sur la moyenne mensuelle : moyenne × (jours restants / jours du mois).
+    - mois futur → moyenne des mois écoulés = total charges réelles des mois
+      écoulés / nombre de mois écoulés.
+
+    Retourne (charges_par_mois, mois_avec_forecast) — le second set liste les
+    clés 'YYYY-MM' où une composante prévisionnelle intervient.
+    """
+    rows = _charges_by_date(db, year)
+    current = (today.year, today.month)
+
+    actual_by_month: dict[str, Decimal] = {}
+    current_before_today = _ZERO
+    for d, eur in rows:
+        key = d.isoformat()[:7]
+        actual_by_month[key] = actual_by_month.get(key, _ZERO) + eur
+        if (d.year, d.month) == current and d < today:
+            current_before_today += eur
+
+    # Moyenne = total réel des mois écoulés (strictement avant le mois courant)
+    # de `year`, divisé par le nombre de mois écoulés.
+    elapsed = [m for m in range(1, 13) if (year, m) < current]
+    if elapsed:
+        elapsed_total = sum(
+            actual_by_month.get(f"{year:04d}-{m:02d}", _ZERO) for m in elapsed
+        )
+        avg = Decimal(elapsed_total) / Decimal(len(elapsed))
+    else:
+        avg = _ZERO
+
+    charges: dict[str, Decimal] = {}
+    forecast_months: set[str] = set()
+    for m in range(1, 13):
+        key = f"{year:04d}-{m:02d}"
+        pos = (year, m)
+        if pos < current:  # écoulé → réel
+            charges[key] = actual_by_month.get(key, _ZERO)
+        elif pos == current:  # en cours → réel passé + prorata restant
+            days_in_month = calendar.monthrange(year, m)[1]
+            remaining = days_in_month - today.day + 1  # today inclus dans le reste
+            prorata = avg * Decimal(remaining) / Decimal(days_in_month)
+            charges[key] = current_before_today + prorata
+            forecast_months.add(key)
+        else:  # futur → moyenne
+            charges[key] = avg
+            forecast_months.add(key)
+    return charges, forecast_months
 
 
 def project(
-    db: Session, year: int, starting_cash_eur: Decimal = Decimal("0")
+    db: Session,
+    year: int,
+    starting_cash_eur: Decimal = Decimal("0"),
+    today: Optional[date] = None,
 ) -> dict:
     """
     Construit le déroulé de trésorerie projeté sur les 12 mois de `year`.
 
     - revenue_eur : somme (days × rate × fx_rate) des entrées du mois.
-    - charges_eur : charges opérationnelles mensuelles moyennes (constantes).
+    - charges_eur : réel pour les mois écoulés, réel+prorata pour le mois en
+      cours, moyenne des mois écoulés pour les mois futurs (cf. _charge_forecast).
     - net_eur : revenue - charges.
     - cumulative_cash_eur : trésorerie de départ + cumul des nets.
+    - is_forecast : True si le mois comporte une composante prévisionnelle.
     """
+    if today is None:
+        today = date.today()
+
     inputs = get_inputs(db, year)
     revenue_by_month: dict[str, Decimal] = {}
     for row in inputs:
         amount = Decimal(row.days) * Decimal(row.rate) * Decimal(row.fx_rate)
         revenue_by_month[row.month] = revenue_by_month.get(row.month, _ZERO) + amount
 
-    avg_charges = _avg_monthly_charges(db, year)
+    charges_by_month, forecast_months = _charge_forecast(db, year, today)
 
     starting = Decimal(str(starting_cash_eur))
     running = starting
@@ -158,7 +215,7 @@ def project(
 
     for month in _months(year):
         revenue = revenue_by_month.get(month, _ZERO)
-        charges = avg_charges
+        charges = charges_by_month.get(month, _ZERO)
         net = revenue - charges
         running = running + net
         total_revenue += revenue
@@ -170,6 +227,7 @@ def project(
                 "charges_eur": _q(charges),
                 "net_eur": _q(net),
                 "cumulative_cash_eur": _q(running),
+                "is_forecast": month in forecast_months,
             }
         )
 
@@ -211,7 +269,10 @@ def _get_settings(db: Session) -> models.Settings:
 
 
 def estimate_is(
-    db: Session, year: int, base_override: Optional[Decimal] = None
+    db: Session,
+    year: int,
+    base_override: Optional[Decimal] = None,
+    today: Optional[date] = None,
 ) -> dict:
     """
     Estime l'impôt sur les sociétés (IS) pour `year`.
@@ -227,7 +288,7 @@ def estimate_is(
     if base_override is not None:
         base = Decimal(str(base_override))
     else:
-        projection = project(db, year)
+        projection = project(db, year, today=today)
         result = projection["totals"]["revenue_eur"] - projection["totals"]["charges_eur"]
         base = result + _investment_gain(db)
 

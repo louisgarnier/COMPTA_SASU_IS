@@ -27,6 +27,7 @@ type ProjectionMonth = {
   charges_eur: string;
   net_eur: string;
   cumulative_cash_eur: string;
+  is_forecast: boolean;
 };
 
 type ForecastData = {
@@ -284,9 +285,23 @@ export default function ForecastPage() {
                 const neg = cash < 0;
                 return (
                   <tr key={m.month} className="border-t border-[var(--border)]">
-                    <td className="py-2 pr-3">{monthLabel(m.month)}</td>
+                    <td className="py-2 pr-3">
+                      {monthLabel(m.month)}
+                      {m.is_forecast && (
+                        <span
+                          className="ml-2 rounded bg-[var(--border)]/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]"
+                          title="Charges estimées (mois en cours au prorata / mois à venir en moyenne)"
+                        >
+                          prév.
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right">{eur(m.revenue_eur)}</td>
-                    <td className="px-3 py-2 text-right text-[var(--neg)]">{eur(m.charges_eur)}</td>
+                    <td
+                      className={`px-3 py-2 text-right text-[var(--neg)] ${m.is_forecast ? 'italic opacity-70' : ''}`}
+                    >
+                      {eur(m.charges_eur)}
+                    </td>
                     <td
                       className={`px-3 py-2 text-right ${net < 0 ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}
                     >

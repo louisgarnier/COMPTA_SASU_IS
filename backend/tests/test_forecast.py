@@ -7,6 +7,7 @@ Tests du domaine Prévision : service (projection + IS) et routes.
 - Route testée via FastAPI TestClient + dependency_overrides[get_db].
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -104,6 +105,102 @@ def test_cumulative_cash_uses_starting_cash(db_session):
     jan = projection["months"][0]
     # 5000 + (1000 - 0 charges) = 6000
     assert jan["cumulative_cash_eur"] == Decimal("6000.00")
+
+
+# --------------------------------------------------------------------------- #
+# Service : forecast des charges (écoulé = réel, en cours = prorata, futur =   #
+# moyenne des mois écoulés). Réf. today = 2026-07-03.                          #
+# --------------------------------------------------------------------------- #
+
+
+def _charge_cat(db) -> models.Category:
+    db.add(
+        models.BankAccount(provider="revolut", account_uid="ACC", currency="EUR")
+    )
+    cat = models.Category(name="Charges", type="charge")
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return cat
+
+
+def _add_charge(db, cat_id: int, d: date, amount_eur, ext: str) -> None:
+    """Ajoute une charge opérationnelle (montant négatif, EUR) datée `d`."""
+    db.add(
+        models.Transaction(
+            account_uid="ACC",
+            external_id=ext,
+            booked_date=d,
+            amount=-Decimal(str(amount_eur)),
+            currency="EUR",
+            kind="charge",
+            category_id=cat_id,
+        )
+    )
+    db.commit()
+
+
+_TODAY = date(2026, 7, 3)  # 3 juillet 2026 : Jan–Juin écoulés, Juil en cours
+
+
+def test_elapsed_months_show_real_charges_not_average(db_session):
+    cat = _charge_cat(db_session)
+    _add_charge(db_session, cat.id, date(2026, 1, 15), "123.45", "j")
+    _add_charge(db_session, cat.id, date(2026, 2, 10), "200", "f")
+
+    projection = forecast_service.project(db_session, 2026, today=_TODAY)
+    by_month = {m["month"]: m for m in projection["months"]}
+
+    # Mois écoulés → charges RÉELLES (pas la moyenne (123.45+200)/6 = 53.91).
+    assert by_month["2026-01"]["charges_eur"] == Decimal("123.45")
+    assert by_month["2026-01"]["is_forecast"] is False
+    assert by_month["2026-02"]["charges_eur"] == Decimal("200.00")
+    assert by_month["2026-02"]["is_forecast"] is False
+
+
+def test_future_months_use_average_of_elapsed_months(db_session):
+    cat = _charge_cat(db_session)
+    # Total charges Jan–Juin = 600 ; 6 mois écoulés → moyenne = 100.
+    _add_charge(db_session, cat.id, date(2026, 1, 20), "600", "j")
+
+    projection = forecast_service.project(db_session, 2026, today=_TODAY)
+    by_month = {m["month"]: m for m in projection["months"]}
+
+    assert by_month["2026-08"]["charges_eur"] == Decimal("100.00")
+    assert by_month["2026-08"]["is_forecast"] is True
+    assert by_month["2026-12"]["charges_eur"] == Decimal("100.00")
+
+
+def test_current_month_prorata_of_remaining_days(db_session):
+    cat = _charge_cat(db_session)
+    # Moyenne des mois écoulés = 186 / 6 = 31.
+    _add_charge(db_session, cat.id, date(2026, 1, 20), "186", "j")
+    # Charge du mois en cours AVANT aujourd'hui (1 juil) → comptée en réel.
+    _add_charge(db_session, cat.id, date(2026, 7, 1), "10", "j1")
+    # Charge datée APRÈS aujourd'hui (10 juil) → ignorée du réel du mois en cours.
+    _add_charge(db_session, cat.id, date(2026, 7, 10), "999", "j10")
+
+    projection = forecast_service.project(db_session, 2026, today=_TODAY)
+    july = {m["month"]: m for m in projection["months"]}["2026-07"]
+
+    # réel avant aujourd'hui (10) + prorata jours restants : 31 × 29/31 = 29.
+    assert july["charges_eur"] == Decimal("39.00")
+    assert july["is_forecast"] is True
+
+
+def test_past_year_all_actual_no_forecast(db_session):
+    cat = _charge_cat(db_session)
+    _add_charge(db_session, cat.id, date(2025, 3, 5), "500", "m")
+    _add_charge(db_session, cat.id, date(2025, 11, 8), "700", "n")
+
+    projection = forecast_service.project(db_session, 2025, today=_TODAY)
+    by_month = {m["month"]: m for m in projection["months"]}
+
+    # Année passée → tous les mois sont écoulés → 100 % réel, aucun forecast.
+    assert by_month["2025-03"]["charges_eur"] == Decimal("500.00")
+    assert by_month["2025-11"]["charges_eur"] == Decimal("700.00")
+    assert by_month["2025-05"]["charges_eur"] == Decimal("0.00")
+    assert all(m["is_forecast"] is False for m in projection["months"])
 
 
 # --------------------------------------------------------------------------- #

@@ -80,6 +80,7 @@ type ForecastMonth = {
   charges_eur: string | number;
   net_eur: string | number;
   cumulative_cash_eur: string | number;
+  is_forecast?: boolean;
 };
 
 type Forecast = {
@@ -384,28 +385,42 @@ export default function DashboardPage() {
 
         {/* Prévision tréso */}
         <Card>
-          <div className="mb-4 text-sm font-semibold">Prévision tréso (cash cumulé)</div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm font-semibold">Prévision tréso (cash cumulé)</div>
+            <div className="flex items-center gap-3 text-[11px] text-[var(--muted)]">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--accent)]" /> Réel
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--accent)] opacity-40" />{' '}
+                Prévision
+              </span>
+            </div>
+          </div>
           {projMonths.length > 0 ? (
             <>
               <div className="flex items-end gap-1.5">
                 {projMonths.map((m, i) => {
                   const c = num(m.cumulative_cash_eur);
+                  const fc = m.is_forecast;
                   return (
                     <div key={m.month} className="flex flex-1 flex-col items-center justify-end gap-1">
                       <div className="flex w-full items-end" style={{ height: 110 }}>
                         <div
-                          className={`w-full rounded-t ${c >= 0 ? 'bg-[var(--accent)]' : 'bg-[var(--neg)]'}`}
+                          className={`w-full rounded-t ${c >= 0 ? 'bg-[var(--accent)]' : 'bg-[var(--neg)]'} ${fc ? 'opacity-40' : ''}`}
                           style={{ height: `${(Math.abs(c) / cashMax) * 110}px` }}
-                          title={`${MONTH_LABELS[i]} : ${eur(c)}`}
+                          title={`${MONTH_LABELS[i]} : ${eur(c)}${fc ? ' (prévision)' : ''}`}
                         />
                       </div>
-                      <div className="text-[10px] text-[var(--muted)]">{MONTH_LABELS[i]}</div>
+                      <div className={`text-[10px] ${fc ? 'text-[var(--muted)] italic' : 'text-[var(--muted)]'}`}>
+                        {MONTH_LABELS[i]}
+                      </div>
                     </div>
                   );
                 })}
               </div>
               <div className="mt-4 flex justify-between border-t border-[var(--border)] pt-3 text-sm">
-                <span className="text-[var(--muted)]">Fin d'année</span>
+                <span className="text-[var(--muted)]">Fin d&apos;année (prév.)</span>
                 <span className="tabular font-medium">
                   {eur(projMonths[projMonths.length - 1]?.cumulative_cash_eur)}
                 </span>
