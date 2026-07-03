@@ -68,8 +68,13 @@ class Client(Base):
     code: Mapped[str] = mapped_column(String, unique=True, index=True)
     legal_name: Mapped[str] = mapped_column(String)
     address: Mapped[str] = mapped_column(Text, default="")
+    country: Mapped[str] = mapped_column(String, default="")
+    contact_name: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     tjh: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    default_hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
+    payment_terms_days: Mapped[int] = mapped_column(Integer, default=60)
     pay_iban: Mapped[str] = mapped_column(String, default="")
     counterparty_match: Mapped[str] = mapped_column(String, default="")
 

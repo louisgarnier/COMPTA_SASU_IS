@@ -46,6 +46,7 @@ export const clientsAPI = {
   create: (b: Record<string, unknown>) => post<any>('/api/clients', b),
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/clients/${id}`, b),
+  remove: (id: number) => del(`/api/clients/${id}`),
 };
 
 export const transactionsAPI = {

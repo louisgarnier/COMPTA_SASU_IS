@@ -121,6 +121,39 @@ def test_client_create_list_patch_and_404(client: TestClient):
     assert client.patch("/api/clients/9999", json={"tjh": "1"}).status_code == 404
 
 
+def test_client_billing_fields_and_defaults(client: TestClient):
+    # Champs de facturation (story ① Client card).
+    resp = client.post(
+        "/api/clients",
+        json={
+            "code": "NWH",
+            "legal_name": "New Wave Holdings",
+            "currency": "CAD",
+            "tjh": "120.00",
+            "contact_name": "Jane Doe",
+            "email": "billing@nwh.example",
+            "country": "Canada",
+        },
+    )
+    assert resp.status_code == 201
+    c = resp.json()
+    assert c["contact_name"] == "Jane Doe"
+    assert c["email"] == "billing@nwh.example"
+    assert c["country"] == "Canada"
+    # Défauts métier : 8 h/jour, échéance 60 jours.
+    assert Decimal(str(c["default_hours_per_day"])) == Decimal("8")
+    assert c["payment_terms_days"] == 60
+
+    # Patch d'un champ de facturation.
+    patched = client.patch(
+        f"/api/clients/{c['id']}",
+        json={"payment_terms_days": 30, "default_hours_per_day": "7.5"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["payment_terms_days"] == 30
+    assert Decimal(str(patched.json()["default_hours_per_day"])) == Decimal("7.5")
+
+
 # --------------------------------------------------------------------------- #
 # Investments
 # --------------------------------------------------------------------------- #

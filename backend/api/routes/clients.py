@@ -36,8 +36,13 @@ class ClientOut(BaseModel):
     code: str
     legal_name: str
     address: str
+    country: str
+    contact_name: str
+    email: str
     currency: str
     tjh: Decimal
+    default_hours_per_day: Decimal
+    payment_terms_days: int
     pay_iban: str
     counterparty_match: str
 
@@ -48,8 +53,13 @@ class ClientCreate(BaseModel):
     code: str
     legal_name: str
     address: str = ""
+    country: str = ""
+    contact_name: str = ""
+    email: str = ""
     currency: str = "USD"
     tjh: Decimal = Decimal("0")
+    default_hours_per_day: Decimal = Decimal("8")
+    payment_terms_days: int = 60
     pay_iban: str = ""
     counterparty_match: str = ""
 
@@ -60,8 +70,13 @@ class ClientUpdate(BaseModel):
     code: Optional[str] = None
     legal_name: Optional[str] = None
     address: Optional[str] = None
+    country: Optional[str] = None
+    contact_name: Optional[str] = None
+    email: Optional[str] = None
     currency: Optional[str] = None
     tjh: Optional[Decimal] = None
+    default_hours_per_day: Optional[Decimal] = None
+    payment_terms_days: Optional[int] = None
     pay_iban: Optional[str] = None
     counterparty_match: Optional[str] = None
 
@@ -96,6 +111,30 @@ def get_client(client_id: int, db: Session = Depends(get_db)) -> models.Client:
     """Retourne un client (404 si absent)."""
     logger.info("📥 [Clients] get: id=%d", client_id)
     return _get_or_404(db, client_id)
+
+
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
+    """Supprime un client (404 si absent, 409 s'il a des factures/prévisions)."""
+    row = _get_or_404(db, client_id)
+    has_invoices = (
+        db.query(models.Invoice).filter(models.Invoice.client_id == client_id).first()
+        is not None
+    )
+    has_forecast = (
+        db.query(models.ForecastInput)
+        .filter(models.ForecastInput.client_id == client_id)
+        .first()
+        is not None
+    )
+    if has_invoices or has_forecast:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Client lié à des factures/prévisions — impossible à supprimer",
+        )
+    db.delete(row)
+    db.commit()
+    logger.info("🗑️ [Clients] delete: id=%d ✅", client_id)
 
 
 @router.patch("/{client_id}", response_model=ClientOut)

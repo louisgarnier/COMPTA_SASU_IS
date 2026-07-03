@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/transactions', label: 'Transactions', icon: '💳' },
   { href: '/categories', label: 'Catégories', icon: '🏷️' },
   { href: '/forecast', label: 'Forecast', icon: '📈' },
+  { href: '/clients', label: 'Clients', icon: '🧑‍💼' },
   { href: '/invoices', label: 'Factures', icon: '🧾' },
   { href: '/banking', label: 'Banques', icon: '🏦' },
   { href: '/settings', label: 'Réglages', icon: '⚙️' },
