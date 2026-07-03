@@ -78,6 +78,8 @@ type ForecastMonth = {
   month: string;
   revenue_eur: string | number;
   charges_eur: string | number;
+  charges_actual_eur?: string | number;
+  charges_forecast_eur?: string | number;
   net_eur: string | number;
   cumulative_cash_eur: string | number;
   is_forecast?: boolean;
@@ -172,10 +174,31 @@ export default function DashboardPage() {
   );
 
   const projMonths = forecast?.projection.months ?? [];
-  const cashMax = Math.max(
-    1,
-    ...projMonths.map((m) => Math.abs(num(m.cumulative_cash_eur))),
-  );
+
+  // Géométrie du combo « Prévision tréso » : barres = Δ net mensuel (couleur
+  // par signe), ligne = cash cumulé. UN SEUL axe € (cumulé = somme des Δ).
+  const CW = 360;
+  const CH = 150;
+  const CPAD = 16;
+  const chart = (() => {
+    if (projMonths.length === 0) return null;
+    const nets = projMonths.map((m) => num(m.net_eur));
+    const cums = projMonths.map((m) => num(m.cumulative_cash_eur));
+    const dMin = Math.min(0, ...nets, ...cums);
+    const dMax = Math.max(0, ...nets, ...cums);
+    const span = dMax - dMin || 1;
+    const yFor = (v: number) => CH - CPAD - ((v - dMin) / span) * (CH - 2 * CPAD);
+    const slotW = CW / projMonths.length;
+    const barW = slotW * 0.46;
+    const zeroY = yFor(0);
+    const lastRealIdx = projMonths.reduce((acc, m, i) => (m.is_forecast ? acc : i), 0);
+    const points = projMonths.map((m, i) => ({
+      x: i * slotW + slotW / 2,
+      y: yFor(num(m.cumulative_cash_eur)),
+      forecast: !!m.is_forecast,
+    }));
+    return { nets, cums, dMin, dMax, yFor, slotW, barW, zeroY, lastRealIdx, points };
+  })();
 
   return (
     <div className="flex flex-col gap-8">
@@ -383,43 +406,125 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        {/* Prévision tréso */}
+        {/* Prévision tréso — combo : barres Δ net + ligne cash cumulé */}
         <Card>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm font-semibold">Prévision tréso (cash cumulé)</div>
-            <div className="flex items-center gap-3 text-[11px] text-[var(--muted)]">
+            <div className="text-sm font-semibold">Prévision tréso</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--muted)]">
               <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--accent)]" /> Réel
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--pos)]" /> Δ + (entrée)
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--accent)] opacity-40" />{' '}
-                Prévision
+                <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[var(--neg)]" /> Δ − (sortie)
               </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-0.5 w-4 bg-[var(--accent)]" /> Cash cumulé
+              </span>
+              <span className="text-[var(--muted)]">· pâle = prévision</span>
             </div>
           </div>
-          {projMonths.length > 0 ? (
+          {chart ? (
             <>
-              <div className="flex items-end gap-1.5">
+              <svg
+                viewBox={`0 0 ${CW} ${CH}`}
+                width="100%"
+                height={CH}
+                role="img"
+                aria-label="Prévision de trésorerie : variation mensuelle et cash cumulé"
+                preserveAspectRatio="none"
+              >
+                {/* Ligne zéro */}
+                <line
+                  x1={0}
+                  x2={CW}
+                  y1={chart.zeroY}
+                  y2={chart.zeroY}
+                  stroke="var(--border)"
+                  strokeWidth={1}
+                />
+                {/* Barres Δ net — split réel (plein) / prévision (pâle) */}
                 {projMonths.map((m, i) => {
-                  const c = num(m.cumulative_cash_eur);
-                  const fc = m.is_forecast;
+                  const net = num(m.net_eur);
+                  const y0 = chart.zeroY;
+                  const y1 = chart.yFor(net);
+                  const x = i * chart.slotW + (chart.slotW - chart.barW) / 2;
+                  const color = net >= 0 ? 'var(--pos)' : 'var(--neg)';
+                  const act = Math.abs(num(m.charges_actual_eur));
+                  const fc = Math.abs(num(m.charges_forecast_eur));
+                  const solidFrac = act + fc > 0 ? act / (act + fc) : m.is_forecast ? 0 : 1;
+                  const splitY = y0 + (y1 - y0) * solidFrac;
                   return (
-                    <div key={m.month} className="flex flex-1 flex-col items-center justify-end gap-1">
-                      <div className="flex w-full items-end" style={{ height: 110 }}>
-                        <div
-                          className={`w-full rounded-t ${c >= 0 ? 'bg-[var(--accent)]' : 'bg-[var(--neg)]'} ${fc ? 'opacity-40' : ''}`}
-                          style={{ height: `${(Math.abs(c) / cashMax) * 110}px` }}
-                          title={`${MONTH_LABELS[i]} : ${eur(c)}${fc ? ' (prévision)' : ''}`}
-                        />
-                      </div>
-                      <div className={`text-[10px] ${fc ? 'text-[var(--muted)] italic' : 'text-[var(--muted)]'}`}>
-                        {MONTH_LABELS[i]}
-                      </div>
-                    </div>
+                    <g key={m.month}>
+                      {/* Part réelle (adjacente à zéro) */}
+                      <rect
+                        x={x}
+                        y={Math.min(y0, splitY)}
+                        width={chart.barW}
+                        height={Math.abs(splitY - y0)}
+                        fill={color}
+                        rx={1}
+                      />
+                      {/* Part prévisionnelle (au bout, pâle) */}
+                      <rect
+                        x={x}
+                        y={Math.min(splitY, y1)}
+                        width={chart.barW}
+                        height={Math.abs(y1 - splitY)}
+                        fill={color}
+                        fillOpacity={0.32}
+                        rx={1}
+                      />
+                      <title>
+                        {`${MONTH_LABELS[i]} — Δ ${eur(net)}${m.is_forecast ? ` (réel ${eur(-act)} + prév. ${eur(-fc)})` : ''}\nCumulé ${eur(m.cumulative_cash_eur)}`}
+                      </title>
+                    </g>
                   );
                 })}
+                {/* Ligne cash cumulé : pleine (réel) puis pointillés (prévision) */}
+                <polyline
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  points={chart.points
+                    .slice(0, chart.lastRealIdx + 1)
+                    .map((p) => `${p.x},${p.y}`)
+                    .join(' ')}
+                />
+                <polyline
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                  strokeLinejoin="round"
+                  points={chart.points
+                    .slice(chart.lastRealIdx)
+                    .map((p) => `${p.x},${p.y}`)
+                    .join(' ')}
+                />
+                {chart.points.map((p, i) => (
+                  <circle
+                    key={i}
+                    cx={p.x}
+                    cy={p.y}
+                    r={2.5}
+                    fill="var(--accent)"
+                    fillOpacity={p.forecast ? 0.4 : 1}
+                  />
+                ))}
+              </svg>
+              {/* Étiquettes de mois */}
+              <div className="mt-1 flex">
+                {projMonths.map((m, i) => (
+                  <div
+                    key={m.month}
+                    className={`flex-1 text-center text-[10px] text-[var(--muted)] ${m.is_forecast ? 'italic' : ''}`}
+                  >
+                    {MONTH_LABELS[i]}
+                  </div>
+                ))}
               </div>
-              <div className="mt-4 flex justify-between border-t border-[var(--border)] pt-3 text-sm">
+              <div className="mt-3 flex justify-between border-t border-[var(--border)] pt-3 text-sm">
                 <span className="text-[var(--muted)]">Fin d&apos;année (prév.)</span>
                 <span className="tabular font-medium">
                   {eur(projMonths[projMonths.length - 1]?.cumulative_cash_eur)}

@@ -136,8 +136,11 @@ def _charge_forecast(
     - mois futur → moyenne des mois écoulés = total charges réelles des mois
       écoulés / nombre de mois écoulés.
 
-    Retourne (charges_par_mois, mois_avec_forecast) — le second set liste les
-    clés 'YYYY-MM' où une composante prévisionnelle intervient.
+    Retourne un dict 'YYYY-MM' → {actual, forecast, is_forecast} :
+    - actual   : charges réelles (montant déjà engagé).
+    - forecast : charges prévisionnelles (prorata mois en cours / moyenne futur).
+    - is_forecast : True dès qu'une composante prévisionnelle intervient.
+    Le total du mois = actual + forecast.
     """
     rows = _charges_by_date(db, year)
     current = (today.year, today.month)
@@ -161,23 +164,28 @@ def _charge_forecast(
     else:
         avg = _ZERO
 
-    charges: dict[str, Decimal] = {}
-    forecast_months: set[str] = set()
+    out: dict[str, dict] = {}
     for m in range(1, 13):
         key = f"{year:04d}-{m:02d}"
         pos = (year, m)
-        if pos < current:  # écoulé → réel
-            charges[key] = actual_by_month.get(key, _ZERO)
+        if pos < current:  # écoulé → 100 % réel
+            out[key] = {
+                "actual": actual_by_month.get(key, _ZERO),
+                "forecast": _ZERO,
+                "is_forecast": False,
+            }
         elif pos == current:  # en cours → réel passé + prorata restant
             days_in_month = calendar.monthrange(year, m)[1]
             remaining = days_in_month - today.day + 1  # today inclus dans le reste
             prorata = avg * Decimal(remaining) / Decimal(days_in_month)
-            charges[key] = current_before_today + prorata
-            forecast_months.add(key)
-        else:  # futur → moyenne
-            charges[key] = avg
-            forecast_months.add(key)
-    return charges, forecast_months
+            out[key] = {
+                "actual": current_before_today,
+                "forecast": prorata,
+                "is_forecast": True,
+            }
+        else:  # futur → 100 % prévision (moyenne)
+            out[key] = {"actual": _ZERO, "forecast": avg, "is_forecast": True}
+    return out
 
 
 def project(
@@ -205,7 +213,7 @@ def project(
         amount = Decimal(row.days) * Decimal(row.rate) * Decimal(row.fx_rate)
         revenue_by_month[row.month] = revenue_by_month.get(row.month, _ZERO) + amount
 
-    charges_by_month, forecast_months = _charge_forecast(db, year, today)
+    charges_by_month = _charge_forecast(db, year, today)
 
     starting = Decimal(str(starting_cash_eur))
     running = starting
@@ -215,7 +223,8 @@ def project(
 
     for month in _months(year):
         revenue = revenue_by_month.get(month, _ZERO)
-        charges = charges_by_month.get(month, _ZERO)
+        split = charges_by_month[month]
+        charges = split["actual"] + split["forecast"]
         net = revenue - charges
         running = running + net
         total_revenue += revenue
@@ -225,9 +234,11 @@ def project(
                 "month": month,
                 "revenue_eur": _q(revenue),
                 "charges_eur": _q(charges),
+                "charges_actual_eur": _q(split["actual"]),
+                "charges_forecast_eur": _q(split["forecast"]),
                 "net_eur": _q(net),
                 "cumulative_cash_eur": _q(running),
-                "is_forecast": month in forecast_months,
+                "is_forecast": split["is_forecast"],
             }
         )
 

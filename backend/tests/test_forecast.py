@@ -188,6 +188,32 @@ def test_current_month_prorata_of_remaining_days(db_session):
     assert july["is_forecast"] is True
 
 
+def test_month_exposes_actual_vs_forecast_charge_split(db_session):
+    cat = _charge_cat(db_session)
+    # Moyenne des mois écoulés = 186 / 6 = 31.
+    _add_charge(db_session, cat.id, date(2026, 1, 20), "186", "j")
+    # Charge du mois en cours AVANT aujourd'hui → composante réelle.
+    _add_charge(db_session, cat.id, date(2026, 7, 1), "10", "j1")
+
+    proj = forecast_service.project(db_session, 2026, today=_TODAY)
+    by = {m["month"]: m for m in proj["months"]}
+
+    # Écoulé : tout en réel, rien en prévision.
+    assert by["2026-01"]["charges_actual_eur"] == Decimal("186.00")
+    assert by["2026-01"]["charges_forecast_eur"] == Decimal("0.00")
+    # En cours : réel passé (10) + prorata (31 × 29/31 = 29).
+    assert by["2026-07"]["charges_actual_eur"] == Decimal("10.00")
+    assert by["2026-07"]["charges_forecast_eur"] == Decimal("29.00")
+    # Futur : tout en prévision (moyenne).
+    assert by["2026-08"]["charges_actual_eur"] == Decimal("0.00")
+    assert by["2026-08"]["charges_forecast_eur"] == Decimal("31.00")
+    # Invariant : total = réel + prévision sur chaque mois.
+    for m in proj["months"]:
+        assert Decimal(m["charges_eur"]) == Decimal(m["charges_actual_eur"]) + Decimal(
+            m["charges_forecast_eur"]
+        )
+
+
 def test_past_year_all_actual_no_forecast(db_session):
     cat = _charge_cat(db_session)
     _add_charge(db_session, cat.id, date(2025, 3, 5), "500", "m")
