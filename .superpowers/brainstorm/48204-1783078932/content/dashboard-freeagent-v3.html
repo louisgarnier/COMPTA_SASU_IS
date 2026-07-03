@@ -1,0 +1,222 @@
+<style>
+  .lgc { --bg:#f7f8fa; --panel:#fff; --border:#e6e8ec; --text:#14161a; --muted:#6b7280;
+         --accent:#2563eb; --pos:#16a34a; --neg:#dc2626; --cad:#f59e0b; --due:#eab308;
+         background:var(--bg); color:var(--text); font-family:-apple-system,sans-serif;
+         padding:20px; border-radius:8px; }
+  .lgc * { box-sizing:border-box; }
+  .lgc h1 { font-size:22px; font-weight:700; margin:0; }
+  .lgc .sub { color:var(--muted); font-size:13px; margin-top:2px; }
+  .lgc .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .lgc .card-title { font-size:13px; font-weight:600; }
+  .lgc .muted { color:var(--muted); }
+  .lgc .tab { font-variant-numeric:tabular-nums; }
+  .lgc .grid5 { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:16px 0; }
+  .lgc .stat { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+  .lgc .stat .k { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .lgc .stat .v { font-size:20px; font-weight:700; margin-top:4px; }
+  .lgc .row2 { display:grid; grid-template-columns:1.35fr 1fr; gap:16px; margin-top:16px; }
+  .lgc .legend { display:flex; flex-wrap:wrap; gap:10px; font-size:11px; color:var(--muted); align-items:center; }
+  .lgc .sw { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:4px; }
+  .lgc .hatch { background-image:repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 2px, transparent 2px 4px); }
+  .lgc .cf { display:flex; align-items:flex-end; gap:8px; height:180px; margin-top:8px; }
+  .lgc .cf .mo { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .lgc .cf .pair { display:flex; align-items:flex-end; justify-content:center; gap:3px; height:160px; width:100%; }
+  .lgc .cf .bar { width:42%; display:flex; flex-direction:column; justify-content:flex-end; border-radius:3px 3px 0 0; overflow:hidden; }
+  .lgc .cf .seg { width:100%; }
+  .lgc .cf .molab { font-size:10px; color:var(--muted); }
+  .lgc .kpi { display:flex; flex-direction:column; gap:10px; }
+  .lgc .kpi .kv { font-size:22px; font-weight:700; }
+  .lgc .kpi .kl { font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .lgc .eq { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin:6px 0 12px; }
+  .lgc .eq .cell .cl { font-size:10px; text-transform:uppercase; color:var(--muted); letter-spacing:.03em; }
+  .lgc .eq .cell .cv { font-size:18px; font-weight:700; }
+  .lgc .eq .op { width:20px; height:20px; border-radius:50%; color:#fff; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; }
+  .lgc .subcard { background:#f9fafb; border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-top:6px; }
+  .lgc .subcard .sct { font-size:11px; font-weight:600; color:var(--muted); margin-bottom:6px; }
+  .lgc table { width:100%; border-collapse:collapse; font-size:13px; }
+  .lgc th { text-align:right; font-size:10px; text-transform:uppercase; color:var(--muted); font-weight:600; padding:6px 8px; }
+  .lgc th:first-child, .lgc td:first-child { text-align:left; }
+  .lgc td { padding:7px 8px; border-top:1px solid var(--border); }
+  .lgc .note { margin-top:10px; font-size:11px; color:var(--muted); }
+  .lgc .pill { font-size:9px; font-weight:700; text-transform:uppercase; padding:2px 6px; border-radius:3px; background:var(--border); color:var(--muted); }
+  .lgc .inv { display:flex; align-items:flex-end; gap:14px; height:170px; margin-top:8px; }
+  .lgc .inv .mo { flex:1; display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .lgc .inv .stack { width:60%; display:flex; flex-direction:column; justify-content:flex-end; height:150px; border-radius:4px 4px 0 0; overflow:hidden; }
+  .lgc .inv .seg { width:100%; }
+  .lgc .inv .molab { font-size:10px; color:var(--muted); }
+  .lgc .ilist .il { display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-top:1px solid var(--border); font-size:13px; }
+  .lgc .badge { font-size:9px; font-weight:700; text-transform:uppercase; padding:2px 6px; border-radius:3px; }
+  .lgc .btn { font-size:12px; font-weight:600; color:var(--accent); }
+</style>
+
+<div class="lgc">
+  <h1>Dashboard — FreeAgent × multi-devise <span style="font-size:12px" class="muted">v3 · P&L + report à nouveau</span></h1>
+  <div class="sub">Maquette · année civile 2026 (réel + prévision) · devises visibles + total EUR</div>
+
+  <div class="grid5">
+    <div class="stat"><div class="k">Trésorerie totale</div><div class="v tab" style="color:var(--pos)">49 660,77 €</div></div>
+    <div class="stat"><div class="k">Solde banques</div><div class="v tab">49 660,77 €</div></div>
+    <div class="stat"><div class="k">Résultat P&amp;L</div><div class="v tab" style="color:var(--pos)">184 010,23 €</div></div>
+    <div class="stat"><div class="k">IS estimé</div><div class="v tab">27 877,56 €</div></div>
+    <div class="stat"><div class="k">Factures en attente</div><div class="v tab" style="color:var(--due)">6 175 €</div></div>
+  </div>
+
+  <!-- CASHFLOW -->
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+      <div class="card-title">Cashflow — entrées / sorties par mois</div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--accent)"></span>USD</span>
+        <span><span class="sw" style="background:var(--cad)"></span>CAD</span>
+        <span><span class="sw" style="background:var(--pos)"></span>EUR</span>
+        <span class="muted">· plein = <b>entrées</b> · hachuré = <b>sorties</b> · pâle = prévision</span>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 200px; gap:20px; align-items:center;">
+      <div class="cf" id="cf"></div>
+      <div class="kpi">
+        <div><div class="kl">Total entrées (EUR)</div><div class="kv tab" style="color:var(--pos)">202 223 €</div></div>
+        <div><div class="kl">Total sorties (EUR)</div><div class="kv tab" style="color:var(--neg)">18 213 €</div></div>
+        <div style="border-top:1px solid var(--border); padding-top:10px;">
+          <div class="kl">Solde net (EUR)</div><div class="kv tab" style="color:var(--pos)">+184 010 €</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <!-- SOLDE -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="card-title">Solde de trésorerie</div>
+        <span class="pill" style="background:#fff; border:1px solid var(--border);">Tous les comptes ▾</span>
+      </div>
+      <div style="font-size:26px; font-weight:700;" class="tab">49 660,77 €</div>
+      <div class="muted" style="font-size:11px; margin-bottom:6px;">solde actuel · projeté fin 2026 : <b class="tab">≈ 128 400 €</b></div>
+      <svg viewBox="0 0 400 150" width="100%" height="150" preserveAspectRatio="none">
+        <line x1="0" y1="120" x2="400" y2="120" stroke="#e6e8ec"/>
+        <defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#2563eb" stop-opacity="0.18"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></linearGradient></defs>
+        <path d="M0,110 L36,104 L72,95 L108,88 L144,70 L180,60 L180,120 L0,120 Z" fill="url(#fill)"/>
+        <polyline points="0,110 36,104 72,95 108,88 144,70 180,60" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+        <polyline points="180,60 216,52 252,44 288,34 324,24 360,16 396,8" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-dasharray="4 3"/>
+        <circle cx="180" cy="60" r="3" fill="#2563eb"/>
+      </svg>
+      <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--muted);">
+        <span>Jan</span><span>Juin</span><span style="font-style:italic">Déc (prév.)</span>
+      </div>
+    </div>
+
+    <!-- P&L -->
+    <div class="card">
+      <div class="card-title">Profit &amp; Loss (live)</div>
+      <div class="eq">
+        <div class="cell"><div class="cl">Revenus</div><div class="cv tab">202 223 €</div></div>
+        <div class="op" style="background:var(--neg)">−</div>
+        <div class="cell"><div class="cl">Charges</div><div class="cv tab">18 213 €</div></div>
+        <div class="op" style="background:#6b7280">=</div>
+        <div class="cell"><div class="cl">Résultat</div><div class="cv tab" style="color:var(--pos)">184 010 €</div></div>
+        <div class="op" style="background:var(--neg)">−</div>
+        <div class="cell"><div class="cl">IS estimé</div><div class="cv tab">27 878 €</div></div>
+        <div class="op" style="background:#6b7280">=</div>
+        <div class="cell"><div class="cl">Résultat net</div><div class="cv tab" style="color:var(--pos)">156 132 €</div></div>
+      </div>
+
+      <!-- Report à nouveau / distribuable -->
+      <div class="subcard">
+        <div class="sct">Résultat distribuable <span class="muted">(cumul réserves + exercice)</span></div>
+        <div class="eq" style="margin:0;">
+          <div class="cell"><div class="cl">Résultat net 2026</div><div class="cv tab" style="color:var(--pos)">156 132 €</div></div>
+          <div class="op" style="background:var(--pos)">+</div>
+          <div class="cell"><div class="cl">Report à nouveau</div><div class="cv tab muted">0 €</div></div>
+          <div class="op" style="background:#6b7280">=</div>
+          <div class="cell"><div class="cl">Distribuable</div><div class="cv tab" style="color:var(--pos)">156 132 €</div></div>
+        </div>
+        <div class="note" style="margin-top:6px;">Report à nouveau = 0 € cette année (1er exercice) · se cumulera automatiquement les années suivantes.</div>
+      </div>
+
+      <table style="margin-top:10px;">
+        <thead><tr><th>Devise</th><th>Revenus (natif)</th><th>= EUR</th><th>Charges (EUR)</th></tr></thead>
+        <tbody>
+          <tr><td><span class="sw" style="background:var(--cad)"></span>CAD</td><td class="tab">109 066,68 $CA</td><td class="tab">74 165 €</td><td class="tab muted">—</td></tr>
+          <tr><td><span class="sw" style="background:var(--accent)"></span>USD</td><td class="tab">122 880,00 $US</td><td class="tab">113 050 €</td><td class="tab" style="color:var(--neg)">−287 €</td></tr>
+          <tr><td><span class="sw" style="background:var(--pos)"></span>EUR</td><td class="tab">15 007,98 €</td><td class="tab">15 008 €</td><td class="tab" style="color:var(--neg)">−17 926 €</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- INVOICE TIMELINE -->
+  <div class="row2">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
+        <div class="card-title">Invoice Timeline</div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--pos)"></span>Payé</span>
+          <span><span class="sw" style="background:var(--due)"></span>Dû</span>
+          <span><span class="sw" style="background:var(--neg)"></span>En retard</span>
+        </div>
+      </div>
+      <div class="inv" id="inv"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border); margin-top:8px; padding-top:10px;">
+        <span class="btn">+ Nouvelle facture</span>
+        <span class="muted" style="font-size:12px;">En attente <b class="tab" style="color:var(--text)">6 175,03 €</b> · 3 factures ouvertes/en retard</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:8px;">Factures ouvertes</div>
+      <div class="ilist">
+        <div class="il"><span><b>F-2026-061</b> · SWIB</span><span><span class="badge" style="background:#fef2f2; color:var(--neg)">En retard</span> <b class="tab">4 200 $US</b></span></div>
+        <div class="il"><span><b>F-2026-062</b> · NWH</span><span><span class="badge" style="background:#fefce8; color:#a16207">Dû</span> <b class="tab">1 500 $CA</b></span></div>
+        <div class="il"><span><b>F-2026-063</b> · SWIB</span><span><span class="badge" style="background:#fefce8; color:#a16207">Dû</span> <b class="tab">2 100 €</b></span></div>
+      </div>
+      <div class="note">Devise native affichée · total « en attente » converti EUR.</div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:16px;">💡 Période = <b>2026 réel + prévision</b> · toutes les cartes branchées sur les données réelles à l'implémentation.</div>
+</div>
+
+<script>
+(function(){
+  const months = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Aoû','Sep','Oct','Nov','Déc'];
+  const data = [
+    {in:{usd:15,cad:8,eur:2}, out:{eur:6,usd:0.3}},
+    {in:{usd:15,cad:9,eur:1}, out:{eur:1.7}},
+    {in:{usd:17,cad:20,eur:0}, out:{eur:1.6}},
+    {in:{usd:16,cad:17,eur:0}, out:{eur:1.6}},
+    {in:{usd:15,cad:0,eur:15}, out:{eur:5.3}},
+    {in:{usd:35,cad:20,eur:2}, out:{eur:1.7}},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+    {in:{usd:12,cad:10,eur:1}, out:{eur:3.1}, f:true},
+  ];
+  const col={usd:'#2563eb',cad:'#f59e0b',eur:'#16a34a'};
+  const sum=o=>Object.values(o).reduce((a,b)=>a+b,0);
+  const mx=Math.max(...data.map(d=>Math.max(sum(d.in),sum(d.out))));
+  const H=160;
+  const seg=(o,hatch,fc)=>Object.keys(col).filter(k=>o[k]).map(k=>
+    `<div class="seg ${hatch?'hatch':''}" style="height:${o[k]/mx*H}px;background:${col[k]};opacity:${fc?0.42:1}"></div>`).join('');
+  document.getElementById('cf').innerHTML = data.map((d,i)=>`
+    <div class="mo"><div class="pair">
+      <div class="bar">${seg(d.in,false,d.f)}</div><div class="bar">${seg(d.out,true,d.f)}</div>
+    </div><div class="molab" style="${d.f?'font-style:italic':''}">${months[i]}</div></div>`).join('');
+
+  const inv = [
+    {m:'Fév', paid:21, due:0, over:0},{m:'Mar', paid:26, due:0, over:0},
+    {m:'Avr', paid:16, due:0, over:0},{m:'Mai', paid:20, due:0, over:0},
+    {m:'Juin', paid:21, due:0, over:5},{m:'Juil', paid:2, due:4, over:0},
+  ];
+  const ic={paid:'#16a34a',due:'#eab308',over:'#dc2626'};
+  const imx=Math.max(...inv.map(d=>d.paid+d.due+d.over));
+  const IH=150;
+  document.getElementById('inv').innerHTML = inv.map(d=>{
+    const s=k=>d[k]?`<div class="seg" style="height:${d[k]/imx*IH}px;background:${ic[k]}"></div>`:'';
+    return `<div class="mo"><div class="stack">${s('over')}${s('due')}${s('paid')}</div><div class="molab">${d.m}</div></div>`;
+  }).join('');
+})();
+</script>
