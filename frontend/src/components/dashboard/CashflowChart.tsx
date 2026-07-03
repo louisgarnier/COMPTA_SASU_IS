@@ -63,6 +63,20 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   const max = Math.max(1, ...data.months.map((m) => Math.max(inTotal(m), outTotal(m))));
   const usedCcy = CCY_ORDER.filter((c) => data.months.some((m) => num(m.incoming_by_ccy[c]) > 0));
 
+  // Split réel (mois passés) vs prévision (mois futurs) — calculé côté front.
+  const sum = (pick: (m: Month) => number, fc: boolean) =>
+    data.months.filter((m) => !!m.is_forecast === fc).reduce((a, m) => a + pick(m), 0);
+  const inReal = sum((m) => num(m.incoming_eur), false);
+  const inFc = sum((m) => num(m.incoming_eur), true);
+  const outReal = sum((m) => num(m.outgoing_eur), false);
+  const outFc = sum((m) => num(m.outgoing_eur), true);
+  const c0 = (v: number) => Math.round(v).toLocaleString('fr-FR') + ' €';
+  const split = (real: number, fc: number) => (
+    <div className="mt-0.5 text-[10px] leading-tight text-[var(--muted)]">
+      dont <b className="text-[var(--text)]">{c0(real)}</b> réel · {c0(fc)} prév.
+    </div>
+  );
+
   return (
     <Card>
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
@@ -118,10 +132,12 @@ export function CashflowChart({ data }: { data: CashflowData }) {
           <div>
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Total entrées (EUR)</div>
             <div className="tabular text-xl font-bold text-[var(--pos)]">{eur(data.totals.incoming_eur)}</div>
+            {split(inReal, inFc)}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Total sorties (EUR)</div>
             <div className="tabular text-xl font-bold text-[var(--neg)]">{eur(data.totals.outgoing_eur)}</div>
+            {split(outReal, outFc)}
           </div>
           <div className="border-t border-[var(--border)] pt-2.5">
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Solde net (EUR)</div>
@@ -129,6 +145,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
               {num(data.totals.net_eur) >= 0 ? '+' : ''}
               {eur(data.totals.net_eur)}
             </div>
+            {split(inReal - outReal, inFc - outFc)}
           </div>
         </div>
       </div>
