@@ -1,7 +1,7 @@
 'use client';
 
 import { Card } from '@/components/ui';
-import { eur, MONTH_LABELS } from '@/lib/format';
+import { MONTH_LABELS } from '@/lib/format';
 
 const CCY: Record<string, string> = {
   USD: '#2563eb',
@@ -70,12 +70,10 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   const inFc = sum((m) => num(m.incoming_eur), true);
   const outReal = sum((m) => num(m.outgoing_eur), false);
   const outFc = sum((m) => num(m.outgoing_eur), true);
-  const c0 = (v: number) => Math.round(v).toLocaleString('fr-FR') + ' €';
-  const split = (real: number, fc: number) => (
-    <div className="mt-0.5 text-[10px] leading-tight text-[var(--muted)]">
-      dont <b className="text-[var(--text)]">{c0(real)}</b> réel · {c0(fc)} prév.
-    </div>
-  );
+  const netReal = inReal - outReal;
+  const netFc = inFc - outFc;
+  const c0 = (v: number) => (v ? Math.round(v).toLocaleString('fr-FR') : '—');
+  const signed = (v: number) => (v >= 0 ? '+' : '−') + Math.round(Math.abs(v)).toLocaleString('fr-FR');
 
   return (
     <Card>
@@ -96,7 +94,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-[1fr_190px] md:items-center">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[1fr_248px] md:items-center">
         <div className="flex items-end gap-2">
           {data.months.map((m, i) => {
             const net = num(m.incoming_eur) - num(m.outgoing_eur);
@@ -128,26 +126,36 @@ export function CashflowChart({ data }: { data: CashflowData }) {
           })}
         </div>
 
-        <div className="flex flex-col gap-3">
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Total entrées (EUR)</div>
-            <div className="tabular text-xl font-bold text-[var(--pos)]">{eur(data.totals.incoming_eur)}</div>
-            {split(inReal, inFc)}
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Total sorties (EUR)</div>
-            <div className="tabular text-xl font-bold text-[var(--neg)]">{eur(data.totals.outgoing_eur)}</div>
-            {split(outReal, outFc)}
-          </div>
-          <div className="border-t border-[var(--border)] pt-2.5">
-            <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Solde net (EUR)</div>
-            <div className={`tabular text-xl font-bold ${num(data.totals.net_eur) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
-              {num(data.totals.net_eur) >= 0 ? '+' : ''}
-              {eur(data.totals.net_eur)}
-            </div>
-            {split(inReal - outReal, inFc - outFc)}
-          </div>
-        </div>
+        <table className="w-full text-sm tabular">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
+              <th className="pb-1.5 text-left font-semibold">EUR</th>
+              <th className="pb-1.5 pl-2 text-right font-semibold">Réel</th>
+              <th className="pb-1.5 pl-2 text-right font-semibold">Prévision</th>
+              <th className="pb-1.5 pl-2 text-right font-semibold text-[var(--text)]">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-[var(--border)]">
+              <td className="py-1.5 text-left text-[var(--muted)]">Entrées</td>
+              <td className="py-1.5 pl-2 text-right font-semibold text-[var(--pos)]">{c0(inReal)}</td>
+              <td className="py-1.5 pl-2 text-right text-[var(--muted)]">{c0(inFc)}</td>
+              <td className="py-1.5 pl-2 text-right font-bold text-[var(--pos)]">{c0(inReal + inFc)}</td>
+            </tr>
+            <tr className="border-t border-[var(--border)]">
+              <td className="py-1.5 text-left text-[var(--muted)]">Sorties</td>
+              <td className="py-1.5 pl-2 text-right font-semibold text-[var(--neg)]">{c0(outReal)}</td>
+              <td className="py-1.5 pl-2 text-right text-[var(--muted)]">{c0(outFc)}</td>
+              <td className="py-1.5 pl-2 text-right font-bold text-[var(--neg)]">{c0(outReal + outFc)}</td>
+            </tr>
+            <tr className="border-t-2 border-[var(--border)]">
+              <td className="py-1.5 text-left font-semibold">Net</td>
+              <td className={`py-1.5 pl-2 text-right font-semibold ${netReal >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>{signed(netReal)}</td>
+              <td className={`py-1.5 pl-2 text-right ${netFc >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>{signed(netFc)}</td>
+              <td className={`py-1.5 pl-2 text-right font-bold ${netReal + netFc >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>{signed(netReal + netFc)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </Card>
   );
