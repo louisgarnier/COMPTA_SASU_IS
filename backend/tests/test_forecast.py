@@ -53,12 +53,15 @@ def _make_client(db, code="SWIB") -> models.Client:
 
 
 def test_projected_revenue_equals_days_rate_fx(db_session):
-    client = _make_client(db_session)
+    client = _make_client(db_session)  # USD
+    # FX théorique depuis les Réglages (plus de fx_rate manuel).
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("0.9")))
+    db_session.commit()
     items = [
-        {"month": "2026-01", "client_id": client.id, "days": Decimal("20"),
-         "rate": Decimal("500"), "fx_rate": Decimal("0.9"), "note": ""},
-        {"month": "2026-02", "client_id": client.id, "days": Decimal("18"),
-         "rate": Decimal("500"), "fx_rate": Decimal("0.9"), "note": ""},
+        {"month": "2026-01", "client_id": client.id, "rate_unit": "day",
+         "days": Decimal("20"), "rate": Decimal("500"), "note": ""},
+        {"month": "2026-02", "client_id": client.id, "rate_unit": "day",
+         "days": Decimal("18"), "rate": Decimal("500"), "note": ""},
     ]
     forecast_service.upsert_inputs(db_session, items)
 
@@ -293,12 +296,14 @@ def client_app(db_session):
 
 
 def test_route_put_then_get(client_app, db_session):
-    client = _make_client(db_session)
+    client = _make_client(db_session)  # USD
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("0.9")))
+    db_session.commit()
     body = {
         "year": 2026,
         "inputs": [
-            {"month": "2026-01", "client_id": client.id, "days": "20",
-             "rate": "500", "fx_rate": "0.9", "note": "SWIB janv"},
+            {"month": "2026-01", "client_id": client.id, "rate_unit": "day",
+             "days": "20", "rate": "500", "note": "SWIB janv"},
         ],
     }
     put_resp = client_app.put("/api/forecast", json=body)

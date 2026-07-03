@@ -41,6 +41,7 @@ class ClientOut(BaseModel):
     email: str
     currency: str
     tjh: Decimal
+    billing_mode: str
     default_hours_per_day: Decimal
     payment_terms_days: int
     pay_iban: str
@@ -58,6 +59,7 @@ class ClientCreate(BaseModel):
     email: str = ""
     currency: str = "USD"
     tjh: Decimal = Decimal("0")
+    billing_mode: str = "tjm"
     default_hours_per_day: Decimal = Decimal("8")
     payment_terms_days: int = 60
     pay_iban: str = ""
@@ -75,6 +77,7 @@ class ClientUpdate(BaseModel):
     email: Optional[str] = None
     currency: Optional[str] = None
     tjh: Optional[Decimal] = None
+    billing_mode: Optional[str] = None
     default_hours_per_day: Optional[Decimal] = None
     payment_terms_days: Optional[int] = None
     pay_iban: Optional[str] = None

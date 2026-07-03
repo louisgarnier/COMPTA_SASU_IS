@@ -14,6 +14,7 @@ type Client = {
   email: string;
   currency: string;
   tjh: string | number;
+  billing_mode: string;
   default_hours_per_day: string | number;
   payment_terms_days: number;
   pay_iban: string;
@@ -39,7 +40,8 @@ const FIELDS: Field[] = [
   { key: 'email', label: 'Email', group: 'Envoi facture', type: 'email', ph: 'billing@…' },
   { key: 'address', label: 'Adresse', group: 'Envoi facture', ph: '437 Madison Ave…' },
   { key: 'country', label: 'Pays', group: 'Envoi facture', ph: 'USA' },
-  { key: 'tjh', label: 'Taux horaire', type: 'number', group: 'Facturation', ph: '120' },
+  { key: 'billing_mode', label: 'Mode', type: 'select', options: ['tjm', 'thm'], group: 'Facturation' },
+  { key: 'tjh', label: 'Taux (jour/heure)', type: 'number', group: 'Facturation', ph: '120' },
   { key: 'default_hours_per_day', label: 'Heures / jour', type: 'number', group: 'Facturation', ph: '8' },
   { key: 'payment_terms_days', label: 'Échéance (jours)', type: 'number', group: 'Facturation', ph: '60' },
   { key: 'counterparty_match', label: 'Libellé rapprochement', group: 'Facturation', ph: 'texte relevé bancaire' },
@@ -47,9 +49,12 @@ const FIELDS: Field[] = [
 
 const EMPTY: Partial<Client> = {
   code: '', legal_name: '', currency: 'USD', address: '', country: '',
-  contact_name: '', email: '', tjh: '', default_hours_per_day: 8,
-  payment_terms_days: 60, counterparty_match: '',
+  contact_name: '', email: '', tjh: '', billing_mode: 'tjm',
+  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '',
 };
+
+// Libellé lisible pour les options de select.
+const OPTION_LABEL: Record<string, string> = { tjm: 'TJM · jour', thm: 'THM · heure' };
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -178,7 +183,7 @@ export default function ClientsPage() {
                         >
                           {(f.options ?? []).map((o) => (
                             <option key={o} value={o}>
-                              {o}
+                              {OPTION_LABEL[o] ?? o}
                             </option>
                           ))}
                         </select>

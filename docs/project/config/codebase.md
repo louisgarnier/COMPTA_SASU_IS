@@ -12,7 +12,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `config.py` | Config env (`DATABASE_URL`, `LOG_LEVEL`, creds Enable Banking). |
 | `logging_config.py` | `get_logger(name, channel)` → `logs/<channel>_<date>.log` + masquage IBAN/email/secrets. |
 | `db/base.py` | Engine SQLite, `SessionLocal`, `get_db`, `init_db`, `PRAGMA foreign_keys=ON`. |
-| `db/models.py` | Modèles SQLAlchemy (archi §4) : Settings, Client, BankAccount, Category, CategoryRule, Transaction, Invoice, Investment. Montants `Numeric`→`Decimal`. `Invoice` porte le cycle de vie `forecast→due→paid` (fusion de l'ex-`ForecastInput`, cf. ADR-007). |
+| `db/models.py` | Modèles SQLAlchemy (archi §4) : Settings, Client, BankAccount, Category, CategoryRule, Transaction, Invoice, Investment. Montants `Numeric`→`Decimal`. `Invoice` porte le cycle de vie `forecast→due→paid` (fusion de l'ex-`ForecastInput`, ADR-007) + `rate_unit` (day/hour). `Client.billing_mode` (tjm/thm). |
 | `services/categorize.py` | Moteur de règles (substring, priorité), fallback « À catégoriser », `recategorize_all`, seed catégories/règles système. |
 | `services/treasury.py` | `consolidated_treasury`, `link_fx_conversion`, `eur_amount`. |
 | `services/pnl.py` | `monthly_pnl(year)` — P&L mensuel EUR, exploitation uniquement. |

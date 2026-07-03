@@ -87,3 +87,14 @@
 **Tests : 100 backend verts** (dont `test_invoice_lifecycle.py` : fusion round-trip, idempotence upsert, anti-doublon ×3, remplissage paiement+variance, forecast hors outstanding). **9 front verts · tsc clean.** E2E live vérifié : PUT forecast → facture `forecast` → cashflow (5980 €, source unique) → nettoyé.
 
 **Reste EPIC-5 :** ③ grille forecast (saisie jours→heures, facturation horaire), ④ génération PDF (numéro/dates/IBAN réception par devise/mentions), ⑤ rapprochement UI (match tx↔facture, variance forecast/réel).
+
+## 2026-07-03 (suite) — EPIC-5 story ③ : grille Forecast horaire (TJM/THM, année, N clients)
+
+**Maquette v6 validée** (ui-mockup) avant code.
+- **Modèle :** `Client.billing_mode` (`tjm|thm`, défaut `tjm`) + `Invoice.rate_unit` (`day|hour`). ALTER live. Clients live SWIB/NWH passés en `thm` (facturent à l'heure).
+- **Backend :** `forecast.upsert_inputs` gère TJM (jours pilotent, montant = jours × taux) et THM (heures pilotent, jours ⇄ heures via h/j, montant = heures × taux) ; EUR = montant × **FX théorique** de la devise client (fin du fx_rate manuel). `ForecastRow` enrichi (`hours`, `rate_unit`, `amount`, `amount_eur`). Route `/api/forecast` : contrat `month, client_id, rate_unit, days, hours, rate, note`. `project`/`cashflow` lisent `amount_eur_forecast`. Page Clients expose le mode.
+- **Frontend :** réécriture `app/forecast/page.tsx` — **sélecteur d'année** (2026/27/28), **mois dynamiques** (écoulés grisés/désactivés en année courante), **une table par client**, bascule **TJM/THM** par client (persistée), **saisie liée jours⇄heures** en THM, lignes dérivées (heures 🔒 en TJM, montant, €), colonne Total, FX auto.
+- **Tests : 105 backend** (+`test_forecast_billing.py` : TJM 16,5 j, THM 6 h, dérivation jours↔heures, FX Réglages) · **9 front** (contrat MAJ) · tsc clean.
+- **E2E live :** THM SWIB 6 h × 120 → facture forecast (jours 0,75, montant 720 $, EUR 662,40) → round-trip GET OK → nettoyé. UI : recalcul lié jours⇄heures vérifié au navigateur (Heures 6 → Jours 0,75 → Montant 720 → € 662,4).
+
+**Reste EPIC-5 :** ④ génération PDF · ⑤ rapprochement/variance UI.

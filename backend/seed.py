@@ -179,9 +179,9 @@ def _forecast(db, swib, nwh):
     items = []
     for m in range(7, 13):  # Juil–Déc projection
         items.append({"month": f"2026-{m:02d}", "client_id": swib.id,
-                      "days": D("15"), "rate": D("650"), "fx_rate": D("0.92"), "note": ""})
+                      "rate_unit": "day", "days": D("15"), "rate": D("650"), "note": ""})
         items.append({"month": f"2026-{m:02d}", "client_id": nwh.id,
-                      "days": D("16"), "rate": D("800"), "fx_rate": D("0.68"), "note": ""})
+                      "rate_unit": "day", "days": D("16"), "rate": D("800"), "note": ""})
     forecast_service.upsert_inputs(db, items)
 
 

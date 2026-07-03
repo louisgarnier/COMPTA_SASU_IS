@@ -79,14 +79,14 @@ def _forecast_incoming(db: Session, year: int) -> dict[str, dict]:
     """
     Encaissements prévisionnels par mois ('YYYY-MM') → {ccy: eur}.
 
-    (jours × TJH × fx) groupé par devise du client (déjà exprimé en EUR).
+    Montant EUR prévisionnel de la facture (`amount_eur_forecast`, taux théorique),
+    groupé par devise du client. Source = factures `status='forecast'`.
     """
     out: dict[str, dict] = {}
     for row in forecast_service.get_inputs(db, year):
-        amount = Decimal(row.days) * Decimal(row.rate) * Decimal(row.fx_rate)
         ccy = ((row.client.currency if row.client else None) or "EUR").upper()
         bucket = out.setdefault(row.month, {})
-        bucket[ccy] = bucket.get(ccy, _ZERO) + amount
+        bucket[ccy] = bucket.get(ccy, _ZERO) + Decimal(row.amount_eur)
     return out
 
 

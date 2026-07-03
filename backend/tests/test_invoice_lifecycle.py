@@ -91,11 +91,12 @@ def test_upsert_forecast_creates_forecast_invoice(db):
     assert inv.amount_eur_forecast == Decimal("900.00")  # 1000 × 0.9
     assert inv.number == "F-%d-2026-08" % client.id  # numéro provisoire
 
-    # get_inputs round-trip → forme historique.
+    # get_inputs round-trip.
     rows = forecast_service.get_inputs(db, 2026)
     assert len(rows) == 1
     assert rows[0].days == Decimal("10")
-    assert rows[0].fx_rate == Decimal("0.9")
+    assert rows[0].rate_unit == "day"
+    assert rows[0].amount_eur == Decimal("900.00")
 
 
 def test_upsert_is_idempotent_on_month_client(db):

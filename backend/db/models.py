@@ -73,6 +73,8 @@ class Client(Base):
     email: Mapped[str] = mapped_column(String, default="")
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     tjh: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    # Mode de facturation : 'tjm' (taux journalier) | 'thm' (taux horaire).
+    billing_mode: Mapped[str] = mapped_column(String, default="tjm")
     default_hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=60)
     pay_iban: Mapped[str] = mapped_column(String, default="")
@@ -198,6 +200,8 @@ class Invoice(Base):
     hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
     hours: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     rate: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    # Unité du taux : 'day' (montant = jours × taux) | 'hour' (= heures × taux).
+    rate_unit: Mapped[str] = mapped_column(String, default="day")
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     amount: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     note: Mapped[str] = mapped_column(Text, default="")

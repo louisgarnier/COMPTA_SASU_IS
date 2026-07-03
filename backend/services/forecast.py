@@ -37,17 +37,20 @@ class ForecastRow:
     """
     Vue « entrée de prévision » adossée à une facture `status='forecast'`.
 
-    Conserve la forme de l'ancien `forecast_inputs` (days × rate × fx) pour ne
-    pas casser le contrat de la route Prévision ni le calcul cashflow, alors que
-    la donnée vit désormais dans `invoices` (fusion).
+    Porte le mode de facturation (`rate_unit` : 'day'/'hour'), les jours ET les
+    heures (liés via h/jour du client), le montant natif et l'EUR (taux
+    théorique). La donnée vit dans `invoices` (fusion, ADR-007).
     """
 
     id: int
     month: str
     client_id: int
     days: Decimal
+    hours: Decimal
     rate: Decimal
-    fx_rate: Decimal
+    rate_unit: str
+    amount: Decimal
+    amount_eur: Decimal
     note: str
     client: Optional[models.Client] = None
 
@@ -58,14 +61,17 @@ def _forecast_number(month: str, client_id: int) -> str:
 
 
 def _to_row(inv: models.Invoice) -> ForecastRow:
-    """Adapte une facture prévisionnelle en `ForecastRow` (forme historique)."""
+    """Adapte une facture prévisionnelle en `ForecastRow`."""
     return ForecastRow(
         id=inv.id,
         month=inv.month,
         client_id=inv.client_id,
         days=inv.days,
+        hours=inv.hours,
         rate=inv.rate,
-        fx_rate=inv.fx_rate_forecast,
+        rate_unit=inv.rate_unit,
+        amount=inv.amount,
+        amount_eur=inv.amount_eur_forecast,
         note=inv.note,
         client=inv.client,
     )
@@ -105,25 +111,41 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
     """
     Upsert des prévisions sur la clé (month, client_id) → factures `forecast`.
 
-    Chaque item : {month:'YYYY-MM', client_id, days, rate, fx_rate, note}.
-    Une prévision EST une facture prévisionnelle : on renseigne le montant natif
-    (days × rate), les heures (days × h/j du client) et l'EUR théorique
-    (days × rate × fx). Numéro provisoire `F-<client>-<month>`.
+    Chaque item : {month, client_id, rate_unit:'day'|'hour', days?, hours?, rate, note}.
+    - `rate_unit='day'` (TJM) : jours = source, heures = jours × h/j, montant = jours × taux.
+    - `rate_unit='hour'` (THM) : heures = source (jours ⇄ heures liés), jours = heures ÷ h/j,
+      montant = heures × taux.
+    - EUR = montant × taux théorique (`fx_rates`) de la devise du client (ADR-006).
+    Numéro provisoire `F-<client>-<month>`.
     """
+    from backend.services.fx import load_rates, to_eur
+
+    rates = load_rates(db)
     result: list[models.Invoice] = []
     for item in items:
         month = item["month"]
         client_id = item["client_id"]
-        days = Decimal(str(item.get("days", 0)))
         rate = Decimal(str(item.get("rate", 0)))
-        fx = Decimal(str(item.get("fx_rate", 1)))
         note = item.get("note", "") or ""
 
         client = db.get(models.Client, client_id)
-        hours_per_day = Decimal(client.default_hours_per_day) if client else Decimal("8")
+        hpd = Decimal(client.default_hours_per_day) if client else Decimal("8")
+        if hpd <= 0:
+            hpd = Decimal("8")
         currency = (client.currency if client else "EUR") or "EUR"
-        amount = days * rate  # natif (rate = TJ ; l'horaire arrive en story ③)
-        amount_eur = amount * fx
+        rate_unit = (item.get("rate_unit") or (client.billing_mode if client else "day"))
+        rate_unit = "hour" if rate_unit in ("hour", "thm") else "day"
+
+        if rate_unit == "hour":
+            hours = Decimal(str(item.get("hours", 0) or 0))
+            days = (hours / hpd).quantize(_CENTS)
+            amount = hours * rate
+        else:
+            days = Decimal(str(item.get("days", 0) or 0))
+            hours = (days * hpd).quantize(_CENTS)
+            amount = days * rate
+
+        amount_eur = to_eur(amount, currency, rates)
 
         row = (
             db.query(models.Invoice)
@@ -135,14 +157,14 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
             .one_or_none()
         )
         values = {
-            "days": days,
-            "hours_per_day": hours_per_day,
-            "hours": days * hours_per_day,
+            "days": _q(days),
+            "hours_per_day": hpd,
+            "hours": _q(hours),
             "rate": rate,
+            "rate_unit": rate_unit,
             "currency": currency,
-            "amount": amount,
-            "fx_rate_forecast": fx,
-            "amount_eur_forecast": amount_eur,
+            "amount": _q(amount),
+            "amount_eur_forecast": _q(amount_eur),
             "note": note,
         }
         if row is None:
@@ -283,8 +305,9 @@ def project(
     inputs = get_inputs(db, year)
     revenue_by_month: dict[str, Decimal] = {}
     for row in inputs:
-        amount = Decimal(row.days) * Decimal(row.rate) * Decimal(row.fx_rate)
-        revenue_by_month[row.month] = revenue_by_month.get(row.month, _ZERO) + amount
+        revenue_by_month[row.month] = revenue_by_month.get(row.month, _ZERO) + Decimal(
+            row.amount_eur
+        )
 
     charges_by_month = _charge_forecast(db, year, today)
 

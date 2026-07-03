@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/forecast", tags=["forecast"])
 
 
 class ForecastInputOut(BaseModel):
-    """Entrée de prévision renvoyée."""
+    """Entrée de prévision renvoyée (facturation TJM/THM)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -36,19 +36,28 @@ class ForecastInputOut(BaseModel):
     month: str
     client_id: int
     days: Decimal
+    hours: Decimal
     rate: Decimal
-    fx_rate: Decimal
+    rate_unit: str
+    amount: Decimal
+    amount_eur: Decimal
     note: str
 
 
 class ForecastInputIn(BaseModel):
-    """Entrée de prévision fournie (upsert sur month + client_id)."""
+    """
+    Entrée de prévision fournie (upsert sur month + client_id).
+
+    `rate_unit='day'` → `days` pilote ; `rate_unit='hour'` → `hours` pilote.
+    Le FX vient des Réglages (taux théorique), plus de fx_rate saisi.
+    """
 
     month: str
     client_id: int
+    rate_unit: str = "day"
     days: Decimal = Decimal("0")
+    hours: Decimal = Decimal("0")
     rate: Decimal = Decimal("0")
-    fx_rate: Decimal = Decimal("1")
     note: str = ""
 
 
