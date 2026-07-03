@@ -78,3 +78,6 @@ logs/*.log
 # Application data and secrets
 data/
 secrets/
+
+# Brainstorm/mockup server scratch
+.superpowers/
