@@ -60,3 +60,35 @@ Facturation **à l'heure** (cf .docx réels : « 152 hours @ 120 $/h »), TVA 29
 **Frontend :** page **Clients** (liste + formulaire create/edit) au style LGC (comme la page Réglages). Ajout au menu latéral. Suit le pattern form existant.
 
 **Tests :** backend (create/update avec nouveaux champs, defaults), front (rendu liste + form).
+
+---
+
+## Story ③ — Grille Forecast (facturation horaire + TJM/THM) — maquette validée v6
+
+**But :** saisir les prévisions de CA par client × mois, en **facturation au jour (TJM)** ou **à l'heure (THM)**, pour toute année (2026, 2027, …).
+
+**Décisions de design (maquette v6 approuvée) :**
+- **Une table par client**, tous affichés ; un client créé sur la page Clients apparaît ici avec ses défauts. Bouton « + Ajouter un client » → page Clients (source unique, pas de double saisie).
+- **Sélecteur d'année** (segmenté, 2026/2027/2028/+). **Mois dynamiques** : année future = 12 mois ; année en cours = mois écoulés grisés (le réel prime), saisie dès le mois courant ; année passée = lecture seule.
+- **Mode de facturation par client** (`billing_mode` ∈ `tjm | thm`, mémorisé sur la fiche client, basculable depuis l'en-tête de la table) :
+  - **TJM** (jour) : **Jours** éditable (décimales, ex. 16,5), **Heures 🔒** = jours × h/j, **Taux $/jour**, **Montant = jours × taux**.
+  - **THM** (heure) : **Jours ⇅ Heures tous deux éditables et liés** (saisir l'un recalcule l'autre via h/j), **Taux $/heure**, **Montant = heures × taux**.
+- **Lignes par table** : Jours → Heures → Taux → **Montant (devise locale)** `[facture]` → **€** (conversion). Colonne **Total** à droite.
+- **Montant devise locale** = ce qui s'imprime sur la facture (ex. « 6 h @ 120 $/h = 720 $ »). **€** = montant × **FX théorique** (Réglages, ADR-006 ; plus de saisie FX manuelle par cellule).
+- KPI en tête (CA projeté / charges / base IS / IS estimé) pour l'année sélectionnée.
+
+**Modèle de données :**
+- `Client.billing_mode` (String, défaut `tjm`) — nouveau champ (ALTER live + page Clients).
+- `Client.tjh` reste le taux par défaut (interprété $/jour en TJM, $/heure en THM).
+- `Invoice` (forecast) porte déjà `days`, `hours_per_day`, `hours`, `rate`, `amount`, `fx_rate_forecast`, `amount_eur_forecast`. Ajout `rate_unit` (String `day|hour`) pour reproduire le montant sans ambiguïté. `amount = days×rate` (day) ou `hours×rate` (hour) ; `amount_eur_forecast = amount × fx(devise client, théorique)`.
+
+**Contrat API (route `/api/forecast`) — évolution :**
+- `ForecastInputIn/Out` : `month, client_id, days, hours, rate, rate_unit, note` (le `fx_rate` manuel disparaît ; le FX vient de `fx_rates` par devise client).
+- `year` déjà paramétrable (`?year=`) ; le front pilote les mois affichés selon année vs today.
+- `upsert_inputs` calcule `hours`/`days` complémentaires via `client.default_hours_per_day`, `amount` selon `rate_unit`, `amount_eur_forecast` via FX théorique de la devise client.
+
+**Backend :** MAJ `services/forecast.py` (upsert/get + `ForecastRow` enrichi `hours`, `rate_unit`), `routes/forecast.py` (modèles Pydantic), `Client.billing_mode` + `Invoice.rate_unit` (models + ALTER), page Clients (champ mode). TDD.
+
+**Frontend :** réécriture `app/forecast/page.tsx` — sélecteur d'année, N tables clients, bascule TJM/THM par client, saisie liée jours⇄heures (THM), lignes dérivées (montant/€), colonne Total, mois dynamiques. E2E via webapp-testing.
+
+**Non-goals :** génération PDF (④), rapprochement/variance UI (⑤).
