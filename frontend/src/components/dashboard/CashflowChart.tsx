@@ -10,8 +10,9 @@ const CCY: Record<string, string> = {
   GBP: '#8b5cf6',
 };
 const CCY_ORDER = ['USD', 'CAD', 'EUR', 'GBP'];
+const NEG = '#dc2626';
 const HATCH =
-  'repeating-linear-gradient(45deg, rgba(255,255,255,.55) 0 2px, transparent 2px 4px)';
+  'repeating-linear-gradient(45deg, rgba(255,255,255,.5) 0 3px, transparent 3px 6px)';
 
 type Month = {
   month: string;
@@ -33,35 +34,35 @@ const num = (v: string | number | undefined) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-function Bar({ map, max, hatch, fc }: { map: Record<string, string | number>; max: number; hatch?: boolean; fc?: boolean }) {
-  const H = 150;
+// Montant compact pour label dans une barre (8704 → "8,7k").
+const kEur = (v: number): string => {
+  const n = Math.abs(v);
+  if (!n) return '';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') + 'k';
+  return String(Math.round(n));
+};
+
+const H = 150;
+
+function Seg({ h, bg, hatch, fc, label }: { h: number; bg: string; hatch?: boolean; fc?: boolean; label: string }) {
   return (
-    <div className="flex w-[42%] flex-col justify-end overflow-hidden rounded-t">
-      {CCY_ORDER.filter((c) => num(map[c]) > 0).map((c) => (
-        <div
-          key={c}
-          style={{
-            height: `${(num(map[c]) / max) * H}px`,
-            background: CCY[c],
-            backgroundImage: hatch ? HATCH : undefined,
-            opacity: fc ? 0.42 : 1,
-          }}
-        />
-      ))}
+    <div
+      className="flex w-full items-center justify-center overflow-hidden"
+      style={{ height: `${h}px`, background: bg, backgroundImage: hatch ? HATCH : undefined, opacity: fc ? 0.42 : 1 }}
+    >
+      {h >= 13 && label && (
+        <span className="tabular text-[8px] font-semibold leading-none text-white">{label}</span>
+      )}
     </div>
   );
 }
 
 export function CashflowChart({ data }: { data: CashflowData }) {
-  const sum = (m: Record<string, string | number>) =>
-    Object.values(m).reduce((a: number, v) => a + num(v), 0);
-  const max = Math.max(
-    1,
-    ...data.months.flatMap((m) => [sum(m.incoming_by_ccy), sum(m.outgoing_by_ccy)]),
-  );
-  const usedCcy = CCY_ORDER.filter((c) =>
-    data.months.some((m) => num(m.incoming_by_ccy[c]) > 0 || num(m.outgoing_by_ccy[c]) > 0),
-  );
+  const inTotal = (m: Month) => CCY_ORDER.reduce((a, c) => a + num(m.incoming_by_ccy[c]), 0);
+  const outTotal = (m: Month) => num(m.outgoing_eur);
+  const max = Math.max(1, ...data.months.map((m) => Math.max(inTotal(m), outTotal(m))));
+  const usedCcy = CCY_ORDER.filter((c) => data.months.some((m) => num(m.incoming_by_ccy[c]) > 0));
+
   return (
     <Card>
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
@@ -73,23 +74,44 @@ export function CashflowChart({ data }: { data: CashflowData }) {
               {c}
             </span>
           ))}
-          <span>· plein = <b>entrées</b> · hachuré = <b>sorties</b> · pâle = prévision</span>
+          <span>
+            <span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: NEG, backgroundImage: HATCH }} />
+            Sorties
+          </span>
+          <span>· pâle = prévision</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-[1fr_190px] md:items-center">
-        <div className="flex items-end gap-2" style={{ height: 170 }}>
-          {data.months.map((m, i) => (
-            <div key={m.month} className="flex flex-1 flex-col items-center gap-1">
-              <div className="flex w-full items-end justify-center gap-[3px]" style={{ height: 150 }}>
-                <Bar map={m.incoming_by_ccy} max={max} fc={m.is_forecast} />
-                <Bar map={m.outgoing_by_ccy} max={max} hatch fc={m.is_forecast} />
+        <div className="flex items-end gap-2">
+          {data.months.map((m, i) => {
+            const net = num(m.incoming_eur) - num(m.outgoing_eur);
+            return (
+              <div key={m.month} className="flex flex-1 flex-col items-center gap-1">
+                <div className="flex w-full items-end justify-center gap-[3px]" style={{ height: H }}>
+                  {/* Entrées : empilées par devise */}
+                  <div className="flex w-[42%] flex-col justify-end overflow-hidden rounded-t">
+                    {CCY_ORDER.filter((c) => num(m.incoming_by_ccy[c]) > 0).map((c) => (
+                      <Seg key={c} h={(num(m.incoming_by_ccy[c]) / max) * H} bg={CCY[c]} fc={m.is_forecast} label={kEur(num(m.incoming_by_ccy[c]))} />
+                    ))}
+                  </div>
+                  {/* Sorties : bloc rouge hachuré */}
+                  <div className="flex w-[42%] flex-col justify-end overflow-hidden rounded-t">
+                    {num(m.outgoing_eur) > 0 && (
+                      <Seg h={(num(m.outgoing_eur) / max) * H} bg={NEG} hatch fc={m.is_forecast} label={kEur(num(m.outgoing_eur))} />
+                    )}
+                  </div>
+                </div>
+                <div className={`text-[10px] leading-tight text-[var(--muted)] ${m.is_forecast ? 'italic' : ''}`}>
+                  {MONTH_LABELS[i]}
+                </div>
+                <div className={`tabular text-[9px] font-semibold leading-none ${net >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
+                  {net >= 0 ? '+' : '−'}
+                  {kEur(net) || '0'}
+                </div>
               </div>
-              <div className={`text-[10px] text-[var(--muted)] ${m.is_forecast ? 'italic' : ''}`}>
-                {MONTH_LABELS[i]}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="flex flex-col gap-3">
@@ -103,9 +125,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
           </div>
           <div className="border-t border-[var(--border)] pt-2.5">
             <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Solde net (EUR)</div>
-            <div
-              className={`tabular text-xl font-bold ${num(data.totals.net_eur) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}
-            >
+            <div className={`tabular text-xl font-bold ${num(data.totals.net_eur) >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
               {num(data.totals.net_eur) >= 0 ? '+' : ''}
               {eur(data.totals.net_eur)}
             </div>
