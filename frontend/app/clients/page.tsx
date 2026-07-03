@@ -20,12 +20,21 @@ type Client = {
   counterparty_match: string;
 };
 
-type Field = { key: keyof Client; label: string; type?: string; group: string; ph?: string };
+type Field = {
+  key: keyof Client;
+  label: string;
+  type?: string;
+  group: string;
+  ph?: string;
+  options?: string[];
+};
+
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CAD', 'CHF'];
 
 const FIELDS: Field[] = [
   { key: 'code', label: 'Code', group: 'Identité', ph: 'SWIB' },
   { key: 'legal_name', label: 'Raison sociale', group: 'Identité', ph: 'Alpha Financial…' },
-  { key: 'currency', label: 'Devise', group: 'Identité', ph: 'USD' },
+  { key: 'currency', label: 'Devise', type: 'select', options: CURRENCIES, group: 'Identité' },
   { key: 'contact_name', label: 'Contact', group: 'Envoi facture', ph: 'Jane Doe' },
   { key: 'email', label: 'Email', group: 'Envoi facture', type: 'email', ph: 'billing@…' },
   { key: 'address', label: 'Adresse', group: 'Envoi facture', ph: '437 Madison Ave…' },
@@ -161,14 +170,28 @@ export default function ClientsPage() {
                   {FIELDS.filter((f) => f.group === g).map((f) => (
                     <label key={f.key} className="flex flex-col gap-1 text-sm">
                       <span className="text-[var(--muted)]">{f.label}</span>
-                      <input
-                        type={f.type ?? 'text'}
-                        step={f.type === 'number' ? 'any' : undefined}
-                        value={String(form[f.key] ?? '')}
-                        placeholder={f.ph}
-                        onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                        className="rounded-lg border border-[var(--border)] px-3 py-1.5 outline-none focus:border-[var(--accent)]"
-                      />
+                      {f.type === 'select' ? (
+                        <select
+                          value={String(form[f.key] ?? '')}
+                          onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                          className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 outline-none focus:border-[var(--accent)]"
+                        >
+                          {(f.options ?? []).map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={f.type ?? 'text'}
+                          step={f.type === 'number' ? 'any' : undefined}
+                          value={String(form[f.key] ?? '')}
+                          placeholder={f.ph}
+                          onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                          className="rounded-lg border border-[var(--border)] px-3 py-1.5 outline-none focus:border-[var(--accent)]"
+                        />
+                      )}
                     </label>
                   ))}
                 </div>

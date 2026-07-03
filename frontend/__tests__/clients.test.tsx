@@ -25,5 +25,9 @@ describe('ClientsPage', () => {
     // Champs de facturation présents dans le formulaire
     expect(screen.getByText('Taux horaire')).toBeInTheDocument();
     expect(screen.getByText('Échéance (jours)')).toBeInTheDocument();
+    // La devise est un menu déroulant (pas un texte libre) avec les devises supportées
+    const devise = screen.getByRole('combobox') as HTMLSelectElement;
+    const options = Array.from(devise.options).map((o) => o.value);
+    expect(options).toEqual(expect.arrayContaining(['EUR', 'USD', 'CAD', 'GBP']));
   });
 });
