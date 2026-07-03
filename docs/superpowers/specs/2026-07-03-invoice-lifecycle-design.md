@@ -1,7 +1,7 @@
 # Cycle de vie des factures (forecast → due → paid) — Design
 
 **Date:** 2026-07-03
-**Status:** Architecture approuvée (Option A — fusion). Build story par story.
+**Status:** ✅ Implémenté (Option A — fusion). Toutes les stories ①–⑤ terminées (2026-07-03).
 **Epic:** EPIC-5 (facturation)
 
 ## Vision

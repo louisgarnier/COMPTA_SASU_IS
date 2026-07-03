@@ -111,3 +111,12 @@
 - **E2E live :** prévision SWIB Mai 152 h × 120 → Générer → n°64, due, échéance +60 j → page imprimable rendue (screenshot) fidèle au Word (client, IBAN, 152 h @ 120 USD/h, 18 240,00 USD, 293 B, SIRET). Nettoyé.
 
 **Reste EPIC-5 :** ⑤ rapprochement/variance UI (le backend fige déjà paiement + variance).
+
+## 2026-07-03 (suite) — EPIC-5 story ⑤ : rapprochement manuel + variance forecast/réel (dernière story EPIC-5)
+
+- **Backend :** service `invoices` étendu — `reconcile_candidates(db, invoice_id)` (revenus non rattachés, triés par proximité de montant natif), `manual_reconcile(db, invoice_id, transaction_id)` (404/409 si prévision ou tx déjà liée, appelle `_apply_payment`), `unreconcile(db, invoice_id)` (repasse `due`, libère la tx, efface `paid_*`/`variance_eur`). `_apply_payment` partagé auto (sync) / manuel : fige `paid_transaction_id`, `paid_date`, `amount_received`, `fx_rate`, `amount_eur_received`, `variance_eur = reçu − prévu`, et `tx.invoice_id`. Routes `GET /candidates`, `POST /reconcile` (`{transaction_id}`), `POST /unreconcile`. InvoiceOut enrichi (`amount_received`, `amount_eur_received`).
+- **Frontend Factures :** colonne **Encaissé / écart** (montant EUR reçu + variance colorée ±), bouton **Rapprocher** (liste déroulante des transactions candidates, plus proches d'abord) et **Annuler rappr.** sur les factures payées.
+- **Tests : 117 backend** (+`test_invoice_reconcile.py` ×4 : fige paiement+variance, refus prévision/tx liée, unreconcile → due, candidates triés par proximité) · **9 front** · tsc clean.
+- **E2E live :** prévision Alpha Mai 100 h × 120 → Générer n°69 due → tx STORY5TX 12 060 USD (11 095 €) → Rapprocher → **payée, encaissé 11 095 €, variance +55 €** (screenshot Factures). Nettoyé (facture + tx supprimées, compteur remis à 69).
+
+**EPIC-5 terminé** (① client card · ② cycle de vie fusion · ③ grille horaire · ④ génération facture · ⑤ rapprochement/variance).

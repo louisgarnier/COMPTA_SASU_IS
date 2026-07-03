@@ -59,6 +59,8 @@ class InvoiceOut(BaseModel):
     status: str
     paid_transaction_id: Optional[int] = None
     paid_date: Optional[date] = None
+    amount_received: Optional[Decimal] = None
+    amount_eur_received: Optional[Decimal] = None
     variance_eur: Optional[Decimal] = None
     pdf_path: str
 
@@ -121,6 +123,48 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
     """Retourne une facture (404 si absente)."""
     logger.info("📥 [Invoices] get: id=%d", invoice_id)
     return _to_out(_get_or_404(db, invoice_id))
+
+
+class TxCandidate(BaseModel):
+    """Transaction candidate au rapprochement manuel."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    booked_date: Optional[date] = None
+    amount: Decimal
+    currency: str
+    counterparty: str
+    description: str
+    amount_eur: Optional[Decimal] = None
+
+
+class ReconcileIn(BaseModel):
+    """Payload de rapprochement manuel."""
+
+    transaction_id: int
+
+
+@router.get("/{invoice_id}/candidates", response_model=list[TxCandidate])
+def reconcile_candidates(invoice_id: int, db: Session = Depends(get_db)) -> list[models.Transaction]:
+    """Transactions candidates (revenus non rattachés), les plus proches d'abord."""
+    return invoices_service.reconcile_candidates(db, invoice_id)
+
+
+@router.post("/{invoice_id}/reconcile", response_model=InvoiceOut)
+def reconcile_route(
+    invoice_id: int, payload: ReconcileIn, db: Session = Depends(get_db)
+) -> InvoiceOut:
+    """Rapproche manuellement la facture avec la transaction choisie."""
+    invoice = invoices_service.manual_reconcile(db, invoice_id, payload.transaction_id)
+    return _to_out(invoice)
+
+
+@router.post("/{invoice_id}/unreconcile", response_model=InvoiceOut)
+def unreconcile_route(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
+    """Annule le rapprochement (repasse la facture à « À encaisser »)."""
+    invoice = invoices_service.unreconcile(db, invoice_id)
+    return _to_out(invoice)
 
 
 @router.post("/{invoice_id}/generate", response_model=InvoiceOut)

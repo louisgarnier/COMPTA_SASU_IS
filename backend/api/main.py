@@ -60,6 +60,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    # Accès LAN (téléphone sur le même Wi-Fi) : autorise l'origine du front servi
+    # depuis une IP privée 10.x / 172.16-31.x / 192.168.x sur le port front.
+    allow_origin_regex=r"http://(10|172\.(1[6-9]|2\d|3[01])|192\.168)(\.\d{1,3}){2}:3001",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

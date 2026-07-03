@@ -409,6 +409,112 @@ def _amount_matches(tx: models.Transaction, invoice: models.Invoice) -> bool:
     return abs(abs(tx_amount) - abs(target)) <= _RECONCILE_TOLERANCE
 
 
+def _apply_payment(invoice: models.Invoice, tx: models.Transaction) -> None:
+    """
+    Rattache une transaction encaissée à une facture (passe la facture `paid`).
+
+    Fige le réel : date, montant natif reçu, taux FX réel, montant EUR reçu, et la
+    variance EUR = réel encaissé − prévisionnel (0 si pas de prévision).
+    """
+    invoice.paid_transaction_id = tx.id
+    invoice.status = "paid"
+    invoice.paid_date = tx.booked_date
+    invoice.amount_received = tx.amount
+    invoice.fx_rate = tx.fx_rate
+    eur_received = tx.amount_eur if tx.amount_eur is not None else tx.amount
+    invoice.amount_eur_received = eur_received
+    forecast_eur = invoice.amount_eur_forecast or Decimal("0")
+    invoice.variance_eur = _q(eur_received or Decimal("0")) - _q(forecast_eur)
+    tx.invoice_id = invoice.id
+
+
+def reconcile_candidates(db: Session, invoice_id: int) -> list[models.Transaction]:
+    """
+    Transactions candidates au rapprochement manuel d'une facture.
+
+    Revenus (kind='revenue' ou montant positif) non encore rattachés à une
+    facture, triés par proximité de montant puis date décroissante.
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    txs = (
+        db.execute(
+            select(models.Transaction).where(models.Transaction.invoice_id.is_(None))
+        )
+        .scalars()
+        .all()
+    )
+    revenue = [
+        t for t in txs if t.kind == "revenue" or (t.amount is not None and t.amount > 0)
+    ]
+
+    def _key(t: models.Transaction):
+        tx_amt = t.amount if t.currency == invoice.currency else (t.amount_eur or t.amount)
+        target = invoice.amount if t.currency == invoice.currency else (
+            invoice.amount_eur_forecast or invoice.amount
+        )
+        gap = abs(abs(tx_amt or Decimal("0")) - abs(target or Decimal("0")))
+        return (gap, -(t.booked_date.toordinal() if t.booked_date else 0))
+
+    revenue.sort(key=_key)
+    return revenue
+
+
+def manual_reconcile(
+    db: Session, invoice_id: int, transaction_id: int
+) -> models.Invoice:
+    """
+    Rapproche manuellement une facture avec une transaction choisie.
+
+    404 si l'un est absent ; 409 si la facture est prévisionnelle (à générer
+    d'abord) ou si la transaction est déjà rattachée à une autre facture.
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    tx = db.get(models.Transaction, transaction_id)
+    if tx is None:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if invoice.status == "forecast":
+        raise HTTPException(status_code=409, detail="Générer la facture avant rapprochement")
+    if tx.invoice_id is not None and tx.invoice_id != invoice.id:
+        raise HTTPException(status_code=409, detail="Transaction déjà rattachée")
+
+    _apply_payment(invoice, tx)
+    db.commit()
+    db.refresh(invoice)
+    logger.info("✅ [Invoices] manual_reconcile: n°%s ↔ tx#%d ✅", invoice.number, tx.id)
+    return invoice
+
+
+def unreconcile(db: Session, invoice_id: int) -> models.Invoice:
+    """
+    Annule le rapprochement d'une facture payée : repasse `due`, libère la
+    transaction et efface les champs de paiement/variance. 404 si absente.
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    if invoice.paid_transaction_id is not None:
+        tx = db.get(models.Transaction, invoice.paid_transaction_id)
+        if tx is not None:
+            tx.invoice_id = None
+    invoice.status = "due"
+    invoice.paid_transaction_id = None
+    invoice.paid_date = None
+    invoice.amount_received = None
+    invoice.fx_rate = None
+    invoice.amount_eur_received = None
+    invoice.variance_eur = None
+    db.commit()
+    db.refresh(invoice)
+    logger.info("↩️ [Invoices] unreconcile: n°%s → due ✅", invoice.number)
+    return invoice
+
+
 def reconcile_payments(db: Session) -> int:
     """
     Rapproche les factures non payées avec des transactions de revenu.
@@ -457,17 +563,7 @@ def reconcile_payments(db: Session) -> int:
                 if match_token not in haystack:
                     continue
 
-            invoice.paid_transaction_id = tx.id
-            invoice.status = "paid"
-            invoice.paid_date = tx.booked_date
-            invoice.amount_received = tx.amount
-            invoice.fx_rate = tx.fx_rate
-            eur_received = tx.amount_eur if tx.amount_eur is not None else tx.amount
-            invoice.amount_eur_received = eur_received
-            # Variance = réel encaissé − prévisionnel (0 si pas de prévision).
-            forecast_eur = invoice.amount_eur_forecast or Decimal("0")
-            invoice.variance_eur = _q(eur_received) - _q(forecast_eur)
-            tx.invoice_id = invoice.id
+            _apply_payment(invoice, tx)
             reconciled += 1
             logger.info(
                 "✅ [Invoices] reconcile: facture n°%s ↔ tx#%d (%s)",

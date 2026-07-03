@@ -24,7 +24,18 @@ interface Invoice {
   due_date: string | null;
   status: Status;
   paid_date: string | null;
+  amount_eur_received: number | null;
   variance_eur: number | null;
+}
+
+interface Tx {
+  id: number;
+  booked_date: string | null;
+  amount: number;
+  currency: string;
+  counterparty: string;
+  description: string;
+  amount_eur: number | null;
 }
 
 const TODAY = new Date('2026-07-03T00:00:00');
@@ -47,6 +58,8 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState<Record<number, string>>({});
+  const [cands, setCands] = useState<Record<number, Tx[]>>({});
+  const [matching, setMatching] = useState<number | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -96,6 +109,39 @@ export default function InvoicesPage() {
     }
   };
 
+  const openMatch = async (id: number) => {
+    if (matching === id) {
+      setMatching(null);
+      return;
+    }
+    setMatching(id);
+    try {
+      const list = (await invoicesAPI.candidates(id)) as Tx[];
+      setCands((c) => ({ ...c, [id]: list }));
+    } catch (e) {
+      setMsg((m) => ({ ...m, [id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
+  const reconcile = async (id: number, txId: number) => {
+    try {
+      await invoicesAPI.reconcile(id, txId);
+      setMatching(null);
+      await load();
+    } catch (e) {
+      setMsg((m) => ({ ...m, [id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
+  const unreconcile = async (id: number) => {
+    try {
+      await invoicesAPI.unreconcile(id);
+      await load();
+    } catch (e) {
+      setMsg((m) => ({ ...m, [id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
   // Ordre d'affichage : dues/retard d'abord, puis prévisions, puis payées.
   const sorted = useMemo(() => {
     const rank: Record<string, number> = { overdue: 0, due: 1, forecast: 2, paid: 3 };
@@ -134,7 +180,8 @@ export default function InvoicesPage() {
                 <th className="px-4 py-3 font-medium">Client</th>
                 <th className="px-4 py-3 font-medium">Mois</th>
                 <th className="px-4 py-3 text-right font-medium">Montant</th>
-                <th className="px-4 py-3 text-right font-medium">€ (théo.)</th>
+                <th className="px-4 py-3 text-right font-medium">€ (prév.)</th>
+                <th className="px-4 py-3 text-right font-medium">Encaissé / écart</th>
                 <th className="px-4 py-3 font-medium">Échéance</th>
                 <th className="px-4 py-3 font-medium">Statut</th>
                 <th className="px-4 py-3 font-medium">Actions</th>
@@ -158,6 +205,20 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3 text-right tabular">{money(i.amount, i.currency)}</td>
                     <td className="px-4 py-3 text-right tabular text-[var(--muted)]">{money(i.amount_eur_forecast, 'EUR')}</td>
+                    <td className="px-4 py-3 text-right tabular">
+                      {i.status === 'paid' && i.amount_eur_received != null ? (
+                        <div>
+                          <div>{money(i.amount_eur_received, 'EUR')}</div>
+                          {i.variance_eur != null && (
+                            <div className={`text-xs ${Number(i.variance_eur) < 0 ? 'text-[var(--neg)]' : 'text-[var(--pos)]'}`}>
+                              {Number(i.variance_eur) >= 0 ? '+' : ''}{money(i.variance_eur, 'EUR')}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[var(--muted)]">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs">{i.due_date ? dateFR(i.due_date) : '—'}</td>
                     <td className="px-4 py-3">
                       <Badge tone={TONE[st]}>{LABEL[st]}</Badge>
@@ -181,18 +242,50 @@ export default function InvoicesPage() {
                             >
                               Ouvrir la facture
                             </a>
-                            <select
-                              value={i.status}
-                              onChange={(e) => changeStatus(i.id, e.target.value as Status)}
-                              className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs outline-none focus:border-[var(--accent)]"
-                            >
-                              <option value="due">À encaisser</option>
-                              <option value="paid">Payée</option>
-                            </select>
+                            {i.status === 'paid' ? (
+                              <button
+                                onClick={() => unreconcile(i.id)}
+                                className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--neg)] hover:bg-red-50"
+                              >
+                                Annuler rappr.
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openMatch(i.id)}
+                                className="rounded-lg border border-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent)] hover:bg-blue-50"
+                              >
+                                {matching === i.id ? 'Fermer' : 'Rapprocher'}
+                              </button>
+                            )}
                           </>
                         )}
                         {msg[i.id] && <span className="text-xs text-[var(--neg)]">{msg[i.id]}</span>}
                       </div>
+                      {matching === i.id && (
+                        <div className="mt-2 rounded-lg border border-[var(--border)] bg-gray-50 p-2">
+                          <div className="mb-1 text-xs font-medium text-[var(--muted)]">
+                            Transaction à rapprocher (revenus non liés) :
+                          </div>
+                          {(cands[i.id] ?? []).length === 0 ? (
+                            <div className="text-xs text-[var(--muted)]">Aucune transaction candidate.</div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              {(cands[i.id] ?? []).slice(0, 6).map((t) => (
+                                <button
+                                  key={t.id}
+                                  onClick={() => reconcile(i.id, t.id)}
+                                  className="flex items-center justify-between rounded-md border border-[var(--border)] bg-white px-2 py-1 text-left text-xs hover:border-[var(--accent)]"
+                                >
+                                  <span>
+                                    {t.booked_date ? dateFR(t.booked_date) : '—'} · {t.counterparty || t.description || 'tx'}
+                                  </span>
+                                  <span className="tabular font-medium">{money(t.amount, t.currency)}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

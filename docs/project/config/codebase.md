@@ -17,7 +17,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `services/treasury.py` | `consolidated_treasury`, `link_fx_conversion`, `eur_amount`. |
 | `services/pnl.py` | `monthly_pnl(year)` — P&L mensuel EUR, exploitation uniquement. |
 | `services/forecast.py` | `project`, `estimate_is` (15%/25% seuil 42 500), `upsert_inputs`. |
-| `services/invoices.py` | `create_invoice`, `generate_invoice` (forecast→due : n°+dates+désignation), `render_html`/`designation` (template imprimable FR), `timeline`, `reconcile_payments` (fige paiement+variance, match natif↔natif). Routes `/generate`, `/print` (HTML Cmd+P→PDF). |
+| `services/invoices.py` | `create_invoice`, `generate_invoice` (forecast→due : n°+dates+désignation), `render_html`/`designation` (template imprimable FR), `timeline`, `reconcile_payments`/`_apply_payment` (fige paiement+variance, match natif↔natif), `reconcile_candidates` (revenus non liés triés par proximité), `manual_reconcile`/`unreconcile`. Routes `/generate`, `/print` (HTML Cmd+P→PDF), `/candidates`, `/reconcile`, `/unreconcile`. |
 | `services/banking.py` | Enable Banking : `list_aspsps`, `start_auth`, `create_session`, `sync` (dédup `(account_uid, external_id)`, signe DBIT/CRDT). Seam **mock/live** (`is_live()`). |
 | `api/routes/*.py` | settings, clients, investments, transactions, categories (+rules), treasury (+pnl), forecast, invoices, banking. |
 | `seed.py` | Données démo 2026 + `make seed` / `make seed-reset`. |
@@ -33,7 +33,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `app/transactions/page.tsx` | Liste filtrable, catégorisation inline, bouton Synchroniser. |
 | `app/categories/page.tsx` | Catégories + éditeur de règles. |
 | `app/forecast/page.tsx` | Grille prévisionnelle éditable + déroulé tréso + estimation IS. |
-| `app/invoices/page.tsx` | Création facture, statut, PDF/téléchargement. |
+| `app/invoices/page.tsx` | Factures : cycle prévision→à encaisser→payée, Générer, Ouvrir (page imprimable), rapprochement manuel tx↔facture + colonne écart forecast/réel. |
 | `app/banking/page.tsx` | Statut Enable Banking (mock/live), connexion, synchro, comptes. |
 | `app/settings/page.tsx` | Paramètres société / IS / facturation / change. |
 | `src/api/client.ts` | Client fetch typé (une API par domaine). |

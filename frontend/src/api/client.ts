@@ -2,8 +2,10 @@
  * Client API front LGC — communication avec le backend FastAPI local.
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Base vide = appels relatifs (même origine que le front) : le rewrite Next
+// (next.config.ts) proxifie /api vers le backend. Marche sur Mac et téléphone
+// sans CORS. Un override absolu via NEXT_PUBLIC_API_URL reste possible.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -139,6 +141,10 @@ export const invoicesAPI = {
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/invoices/${id}`, b),
   generate: (id: number) => post<any>(`/api/invoices/${id}/generate`),
+  candidates: (id: number) => get<any[]>(`/api/invoices/${id}/candidates`),
+  reconcile: (id: number, transaction_id: number) =>
+    post<any>(`/api/invoices/${id}/reconcile`, { transaction_id }),
+  unreconcile: (id: number) => post<any>(`/api/invoices/${id}/unreconcile`),
   printUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/print`,
   generatePdf: (id: number) => post<{ pdf_path: string }>(`/api/invoices/${id}/pdf`),
   downloadUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/download`,
