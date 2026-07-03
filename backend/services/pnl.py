@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import models
 from backend.logging_config import get_logger
+from backend.services import forecast as forecast_service
 from backend.services.fx import load_rates
 from backend.services.treasury import eur_amount, q2
 
@@ -137,4 +138,81 @@ def monthly_pnl(db: Session, year: int) -> dict:
                 c: q2(charges_native_ccy.get(c, _ZERO)) for c in charge_ccy_order
             },
         },
+    }
+
+
+def _get_settings(db: Session) -> models.Settings:
+    """Retourne le singleton Settings (id=1), le crée avec les défauts si absent."""
+    row = db.get(models.Settings, 1)
+    if row is None:
+        row = models.Settings(id=1)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
+
+
+def summary(db: Session, year: int, today=None) -> dict:
+    """
+    Résumé P&L pour le dashboard (équation façon FreeAgent).
+
+    Revenus − Charges = Résultat ; Résultat − IS estimé = Résultat net ;
+    Résultat net + Report à nouveau = Distribuable. Toutes les charges sont
+    exposées en **magnitude positive** (l'équation retranche les charges).
+
+    Tous les montants sont des `Decimal` quantifiés à 2 décimales.
+    """
+    pnl = monthly_pnl(db, year)
+    totals = pnl["totals"]
+
+    revenue_eur = q2(totals["revenue_eur"])
+    # monthly_pnl stocke les charges en négatif → magnitude positive ici.
+    charges_eur = q2(abs(totals["charges_eur"]))
+    result_eur = q2(revenue_eur - charges_eur)
+
+    # IS estimé sur le résultat RÉALISÉ (P&L "live"), pas sur la base forecast :
+    # sinon un exercice bénéficiaire afficherait un IS nul tant qu'aucun revenu
+    # prévisionnel n'est saisi. base_override = résultat P&L de l'année.
+    is_estimate_eur = q2(
+        forecast_service.estimate_is(
+            db, year, base_override=result_eur, today=today
+        )["is_total_eur"]
+    )
+    net_result_eur = q2(result_eur - is_estimate_eur)
+
+    settings = _get_settings(db)
+    retained_earnings_eur = q2(Decimal(settings.retained_earnings_eur or 0))
+    distributable_eur = q2(net_result_eur + retained_earnings_eur)
+
+    rev_ccy = totals["revenue_by_currency"]
+    rev_native_ccy = totals["revenue_native_by_currency"]
+    chg_ccy = totals["charges_by_currency"]
+    currencies = sorted(set(rev_ccy) | set(chg_ccy))
+    by_currency = [
+        {
+            "currency": c,
+            "revenue_native": q2(rev_native_ccy.get(c, _ZERO)),
+            "revenue_eur": q2(rev_ccy.get(c, _ZERO)),
+            "charges_eur": q2(abs(chg_ccy.get(c, _ZERO))),
+        }
+        for c in currencies
+    ]
+
+    logger.info(
+        "📤 [PnL] summary: année=%s résultat=%s net=%s distribuable=%s ✅",
+        year,
+        result_eur,
+        net_result_eur,
+        distributable_eur,
+    )
+    return {
+        "year": year,
+        "revenue_eur": revenue_eur,
+        "charges_eur": charges_eur,
+        "result_eur": result_eur,
+        "is_estimate_eur": is_estimate_eur,
+        "net_result_eur": net_result_eur,
+        "retained_earnings_eur": retained_earnings_eur,
+        "distributable_eur": distributable_eur,
+        "by_currency": by_currency,
     }

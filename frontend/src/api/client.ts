@@ -141,6 +141,14 @@ export const invoicesAPI = {
   downloadUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/download`,
 };
 
+export const dashboardAPI = {
+  cashflow: (year = 2026) => get<any>(`/api/dashboard/cashflow?year=${year}`),
+  balanceTimeline: (year = 2026) =>
+    get<any>(`/api/dashboard/balance-timeline?year=${year}`),
+  pnlSummary: (year = 2026) => get<any>(`/api/dashboard/pnl-summary?year=${year}`),
+  invoiceTimeline: () => get<any>('/api/dashboard/invoice-timeline'),
+};
+
 export const bankingAPI = {
   status: () => get<{ live: boolean; message: string }>('/api/banking/status'),
   aspsps: (country = 'FR') => get<any[]>(`/api/banking/aspsps?country=${country}`),

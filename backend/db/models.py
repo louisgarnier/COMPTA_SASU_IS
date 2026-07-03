@@ -50,6 +50,10 @@ class Settings(Base):
     is_threshold: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("42500"))
     is_high_rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.25"))
 
+    # Report à nouveau (résultat distribuable cumulé des exercices antérieurs).
+    # Éditable dans les Réglages ; 0 le 1er exercice, se cumule ensuite.
+    retained_earnings_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+
     next_invoice_number: Mapped[int] = mapped_column(Integer, default=62)
     default_fx_usd: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.92"))
     default_fx_cad: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.68"))

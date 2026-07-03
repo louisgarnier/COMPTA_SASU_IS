@@ -25,6 +25,23 @@
 
 **Prochaine story :** S1.2 — Couche base de données (SQLAlchemy + Alembic + SQLite, entités archi §4, montants `Decimal`).
 
+## 2026-07-03 — Refonte dashboard FreeAgent × multi-devise (EPIC-4)
+
+**Demande :** dashboard inspiré de FreeAgent (widgets focalisés) tout en gardant le multi-devise. Mockup ui-mockup v3 validé → spec `docs/superpowers/specs/2026-07-03-dashboard-freeagent-design.md`.
+
+**Backend (4 endpoints `/api/dashboard/*`, 4 agents parallèles en TDD) :**
+- `pnl-summary` (`pnl.summary`) : équation Revenus−Charges=Résultat−IS=Net, +Report à nouveau=Distribuable, détail par devise. **IS estimé sur le résultat réalisé** (`base_override`) et non sur la base forecast (sinon IS=0).
+- `cashflow` (`services/cashflow.py`) : entrées/sorties mensuelles par devise, réel passé + forecast futur, hors transfer/conversion/investment.
+- `balance-timeline` (`treasury.balance_timeline`) : ligne de solde **ancrée au vrai solde consolidé** (= KPI), passé reconstruit à rebours (solde actuel − mouvements postérieurs), futur = +cumul net forecast.
+- `invoice-timeline` (`invoices.timeline`) : barres Payé/Dû/En retard (statut dérivé via due_date vs today) + factures ouvertes.
+- Nouveau champ `Settings.retained_earnings_eur` (report à nouveau, éditable Réglages) — colonne ajoutée à `data/lgc.db` (pas d'Alembic).
+
+**Frontend :** `app/page.tsx` réécrit (KPI + 4 cartes) ; composants isolés `components/dashboard/{CashflowChart,BalanceChart,PnlWidget,InvoiceTimeline}.tsx` ; champ Report à nouveau dans Réglages ; palette LGC, axe € unique (règle dataviz), palette validée (script dataviz : rouge/vert/bleu tout PASS).
+
+**Preuves :** backend **92 tests** verts, front **8** verts, `tsc` clean, `next build` OK (9 routes). Rendu live sur vraies données : Tréso 49 660,77 € (KPI = ligne solde, cohérent), Résultat 184 010 €, IS 41 752 €, Distribuable 142 258 €.
+
+**Dette / à voir :** cashflow futur ~0 en entrées (aucun `forecast_input` saisi) ; Invoice Timeline vide (0 facture en base) ; ligne de solde passée inclut transferts/conversions (relief) ; carte « Comptes/justificatifs » retirée du dashboard (à réintégrer si besoin).
+
 ## 2026-07-01 — Build MVP complet (EPIC-1 → 6) *(mode "bombarde tout", sans checkpoints)*
 
 **Demande utilisateur :** tout construire d'un coup, tester le front à la fin. Foundation posée manuellement, puis 6 agents backend + 6 agents front en parallèle.

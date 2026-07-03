@@ -40,6 +40,7 @@ class SettingsOut(BaseModel):
     is_low_rate: Decimal
     is_threshold: Decimal
     is_high_rate: Decimal
+    retained_earnings_eur: Decimal
     next_invoice_number: int
     default_fx_usd: Decimal
     default_fx_cad: Decimal
@@ -56,6 +57,7 @@ class SettingsUpdate(BaseModel):
     is_low_rate: Optional[Decimal] = None
     is_threshold: Optional[Decimal] = None
     is_high_rate: Optional[Decimal] = None
+    retained_earnings_eur: Optional[Decimal] = None
     next_invoice_number: Optional[int] = None
     default_fx_usd: Optional[Decimal] = None
     default_fx_cad: Optional[Decimal] = None

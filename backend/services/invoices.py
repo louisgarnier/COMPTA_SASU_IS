@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import models
 from backend.logging_config import get_logger
+from backend.services import fx
 
 logger = get_logger("invoices", channel="backend")
 
@@ -158,6 +159,122 @@ def generate_pdf(db: Session, invoice: models.Invoice) -> str:
     db.refresh(invoice)
     logger.info("📤 [Invoices] generate_pdf: n°%s → %s ✅", invoice.number, pdf_path)
     return str(pdf_path)
+
+
+_CENTS = Decimal("0.01")
+
+
+def _q(amount: Decimal) -> Decimal:
+    """Arrondit un Decimal à 2 décimales (centimes)."""
+    return Decimal(amount).quantize(_CENTS)
+
+
+def _month_key(d: date) -> str:
+    """Clé mois 'YYYY-MM'."""
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _last_six_months(today: date) -> list[str]:
+    """Les 6 derniers mois (clés 'YYYY-MM') jusqu'au mois courant inclus, chronologiques."""
+    keys: list[str] = []
+    year, month = today.year, today.month
+    for _ in range(6):
+        keys.append(f"{year:04d}-{month:02d}")
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    return list(reversed(keys))
+
+
+def _derive_status(invoice: models.Invoice, today: date) -> str:
+    """paid / overdue (due_date < today) / due (sinon)."""
+    if invoice.status == "paid":
+        return "paid"
+    if invoice.due_date is not None and invoice.due_date < today:
+        return "overdue"
+    return "due"
+
+
+def timeline(db: Session, today: Optional[date] = None) -> dict:
+    """
+    Timeline de facturation : montants mensuels (payé / dû / en retard) empilés
+    + liste des factures ouvertes (non payées).
+
+    - Statut dérivé par facture : paid, overdue (due_date < today), due (sinon).
+    - `months` : 6 derniers mois jusqu'au mois courant inclus (par issue_date),
+      chronologiques ; montants natifs convertis en EUR (taux théoriques FX).
+    - `outstanding_eur` : somme EUR des factures non payées.
+    - `open` : factures non payées triées par due_date, avec statut due|overdue.
+    Tous les montants en `Decimal` à 2 décimales.
+    """
+    if today is None:
+        today = date.today()
+
+    rates = fx.load_rates(db)
+    invoices = db.query(models.Invoice).all()
+
+    month_keys = _last_six_months(today)
+    buckets: dict[str, dict[str, Decimal]] = {
+        key: {
+            "paid_eur": Decimal("0"),
+            "due_eur": Decimal("0"),
+            "overdue_eur": Decimal("0"),
+        }
+        for key in month_keys
+    }
+
+    outstanding = Decimal("0")
+    open_rows: list[dict] = []
+
+    for inv in invoices:
+        status = _derive_status(inv, today)
+        amount_eur = fx.to_eur(inv.amount, inv.currency, rates)
+
+        if inv.issue_date is not None:
+            key = _month_key(inv.issue_date)
+            if key in buckets:
+                buckets[key][f"{status}_eur"] += amount_eur
+
+        if status != "paid":
+            outstanding += amount_eur
+            open_rows.append(
+                {
+                    "number": inv.number,
+                    "client_code": inv.client.code if inv.client is not None else None,
+                    "currency": inv.currency,
+                    "amount": _q(inv.amount),
+                    "amount_eur": _q(amount_eur),
+                    "status": status,
+                    "_due_date": inv.due_date,
+                }
+            )
+
+    # Tri par due_date (les factures sans due_date en dernier).
+    open_rows.sort(key=lambda r: (r["_due_date"] is None, r["_due_date"] or date.max))
+    for row in open_rows:
+        row.pop("_due_date")
+
+    months = [
+        {
+            "month": key,
+            "paid_eur": _q(buckets[key]["paid_eur"]),
+            "due_eur": _q(buckets[key]["due_eur"]),
+            "overdue_eur": _q(buckets[key]["overdue_eur"]),
+        }
+        for key in month_keys
+    ]
+
+    logger.info(
+        "📤 [Invoices] timeline: %d mois, outstanding=%s, open=%d ✅",
+        len(months), _q(outstanding), len(open_rows),
+    )
+    return {
+        "months": months,
+        "outstanding_eur": _q(outstanding),
+        "open": open_rows,
+        "open_count": len(open_rows),
+    }
 
 
 def _amount_matches(tx: models.Transaction, target: Decimal) -> bool:

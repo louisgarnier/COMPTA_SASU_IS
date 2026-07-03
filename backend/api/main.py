@@ -19,6 +19,10 @@ from backend.api.routes import balance_docs as balance_docs_routes
 from backend.api.routes import banking as banking_routes
 from backend.api.routes import categories as categories_routes
 from backend.api.routes import clients as clients_routes
+from backend.api.routes import dashboard_balance as dashboard_balance_routes
+from backend.api.routes import dashboard_cashflow as dashboard_cashflow_routes
+from backend.api.routes import dashboard_invoices as dashboard_invoices_routes
+from backend.api.routes import dashboard_pnl as dashboard_pnl_routes
 from backend.api.routes import forecast as forecast_routes
 from backend.api.routes import fx as fx_routes
 from backend.api.routes import investments as investments_routes
@@ -74,6 +78,10 @@ app.include_router(invoices_routes.router)
 app.include_router(banking_routes.router)
 app.include_router(balance_docs_routes.router)
 app.include_router(fx_routes.router)
+app.include_router(dashboard_pnl_routes.router)
+app.include_router(dashboard_cashflow_routes.router)
+app.include_router(dashboard_balance_routes.router)
+app.include_router(dashboard_invoices_routes.router)
 
 
 @app.get("/")

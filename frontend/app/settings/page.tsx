@@ -14,6 +14,7 @@ const FIELDS: { key: string; label: string; type?: string; group: string }[] = [
   { key: 'is_low_rate', label: 'Taux IS réduit', type: 'number', group: 'Impôt société' },
   { key: 'is_threshold', label: 'Seuil IS (€)', type: 'number', group: 'Impôt société' },
   { key: 'is_high_rate', label: 'Taux IS normal', type: 'number', group: 'Impôt société' },
+  { key: 'retained_earnings_eur', label: 'Report à nouveau (€)', type: 'number', group: 'Résultat & distribution' },
   { key: 'next_invoice_number', label: 'Prochain n° facture', type: 'number', group: 'Facturation' },
 ];
 

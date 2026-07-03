@@ -10,6 +10,7 @@ Règles monnaie (architecture) :
 
 from __future__ import annotations
 
+import calendar
 from datetime import date as date_type
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
@@ -154,6 +155,105 @@ def consolidated_treasury(db: Session, as_of: Optional[date_type] = None) -> dic
         "bank_total_eur": q2(bank_total_eur),
         "investments_total_eur": q2(investments_total_eur),
         "total_eur": q2(total_eur),
+    }
+
+
+def _bank_movements_eur(
+    db: Session,
+    accounts: list[models.BankAccount],
+    rates: dict,
+    after: date_type,
+    upto: date_type,
+) -> Decimal:
+    """
+    Σ des mouvements en EUR (tous comptes) avec `after < booked_date <= upto`.
+
+    Sert à remonter le solde à rebours depuis le solde réel actuel.
+    """
+    total = _ZERO
+    for acc in accounts:
+        cur = (acc.currency or "EUR").upper()
+        for t in _account_transactions(db, acc, as_of=upto):
+            if t.booked_date and t.booked_date > after:
+                total += to_eur(Decimal(t.amount or 0), cur, rates)
+    return total
+
+
+def balance_timeline(
+    db: Session, year: int, today: Optional[date_type] = None
+) -> dict:
+    """
+    Déroulé mensuel du solde de trésorerie cumulé en EUR sur `year`.
+
+    - Ancrage : le solde COURANT = vrai solde consolidé actuel
+      `consolidated_treasury(as_of=today)["bank_total_eur"]` (solde synchronisé du
+      provider si dispo) — même source que le KPI « Trésorerie ». La ligne finit
+      donc exactement sur le vrai solde.
+    - Mois passés (< mois courant) : solde de fin de mois reconstruit À REBOURS =
+      solde actuel − Σ mouvements postérieurs à la fin de ce mois. Trajectoire
+      continue qui aboutit au solde réel. is_forecast=False.
+    - Mois futurs (> mois courant) : solde actuel + cumul des nets de prévision
+      (`forecast.project(...).months[*].net_eur`). is_forecast=True.
+
+    Retour : {year, months:[{month, balance_eur, is_forecast}],
+              current_balance_eur, projected_year_end_eur}. Montants 2 décimales.
+    """
+    if today is None:
+        today = date_type.today()
+
+    rates = load_rates(db)
+    accounts = db.query(models.BankAccount).order_by(models.BankAccount.id).all()
+    current = (today.year, today.month)
+
+    # Ancre = vrai solde actuel (synchronisé si dispo), source de vérité du KPI.
+    current_real = Decimal(consolidated_treasury(db, as_of=today)["bank_total_eur"])
+
+    # Nets de prévision par mois (mêmes clés 'YYYY-MM').
+    from backend.services import forecast as forecast_service
+
+    projection = forecast_service.project(db, year, today=today)
+    net_by_month = {m["month"]: Decimal(m["net_eur"]) for m in projection["months"]}
+
+    months_out: list[dict] = []
+    running = current_real  # base pour les mois futurs (≈ fin du mois courant)
+    for m in range(1, 13):
+        key = f"{year:04d}-{m:02d}"
+        pos = (year, m)
+        last_day = calendar.monthrange(year, m)[1]
+        month_end = date_type(year, m, last_day)
+
+        if pos < current:
+            # Rebours : solde réel actuel − mouvements postérieurs à ce mois.
+            balance = current_real - _bank_movements_eur(
+                db, accounts, rates, after=month_end, upto=today
+            )
+            is_forecast = False
+        elif pos == current:
+            balance = current_real
+            is_forecast = False
+        else:
+            running = running + net_by_month.get(key, _ZERO)
+            balance = running
+            is_forecast = True
+
+        months_out.append(
+            {"month": key, "balance_eur": q2(balance), "is_forecast": is_forecast}
+        )
+
+    current_balance_eur = current_real
+    projected_year_end_eur = months_out[-1]["balance_eur"]
+
+    logger.info(
+        "📤 [Treasury] balance_timeline: year=%d courant=%s fin=%s ✅",
+        year,
+        q2(current_balance_eur),
+        projected_year_end_eur,
+    )
+    return {
+        "year": year,
+        "months": months_out,
+        "current_balance_eur": q2(current_balance_eur),
+        "projected_year_end_eur": projected_year_end_eur,
     }
 
 
