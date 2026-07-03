@@ -117,17 +117,13 @@ def get_client(client_id: int, db: Session = Depends(get_db)) -> models.Client:
 def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
     """Supprime un client (404 si absent, 409 s'il a des factures/prévisions)."""
     row = _get_or_404(db, client_id)
+    # Les prévisions sont désormais des factures `status='forecast'` (fusion),
+    # donc couvertes par ce seul contrôle.
     has_invoices = (
         db.query(models.Invoice).filter(models.Invoice.client_id == client_id).first()
         is not None
     )
-    has_forecast = (
-        db.query(models.ForecastInput)
-        .filter(models.ForecastInput.client_id == client_id)
-        .first()
-        is not None
-    )
-    if has_invoices or has_forecast:
+    if has_invoices:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Client lié à des factures/prévisions — impossible à supprimer",

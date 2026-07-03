@@ -15,6 +15,7 @@ from decimal import Decimal
 
 from backend.db.base import SessionLocal, init_db
 from backend.db import models
+from backend.services import forecast as forecast_service
 from backend.services.categorize import (
     recategorize_all,
     seed_default_categories_and_rules,
@@ -25,7 +26,7 @@ D = Decimal
 
 def _reset(db):
     for m in (
-        models.Transaction, models.Invoice, models.ForecastInput,
+        models.Transaction, models.Invoice,
         models.Investment, models.CategoryRule, models.Category,
         models.BankAccount, models.Client, models.Settings, models.FxRate,
     ):
@@ -164,7 +165,7 @@ def _invoices(db, swib, nwh):
         number="63", client_id=nwh.id, period_label="Février 2026",
         period_start=date(2026, 2, 1), period_end=date(2026, 2, 28),
         hours=D("16"), rate=D("800"), currency="CAD", amount=D("12800"),
-        issue_date=date(2026, 3, 1), due_date=date(2026, 3, 31), status="sent",
+        issue_date=date(2026, 3, 1), due_date=date(2026, 3, 31), status="due",
     )
     db.add_all([inv1, inv2])
     # prochaine facture = 64
@@ -174,16 +175,14 @@ def _invoices(db, swib, nwh):
 
 
 def _forecast(db, swib, nwh):
-    rows = []
+    # Fusion : une prévision EST une facture `status='forecast'` (via upsert).
+    items = []
     for m in range(7, 13):  # Juil–Déc projection
-        rows.append(models.ForecastInput(
-            month=f"2026-{m:02d}", client_id=swib.id,
-            days=D("15"), rate=D("650"), fx_rate=D("0.92"), note=""))
-        rows.append(models.ForecastInput(
-            month=f"2026-{m:02d}", client_id=nwh.id,
-            days=D("16"), rate=D("800"), fx_rate=D("0.68"), note=""))
-    db.add_all(rows)
-    db.commit()
+        items.append({"month": f"2026-{m:02d}", "client_id": swib.id,
+                      "days": D("15"), "rate": D("650"), "fx_rate": D("0.92"), "note": ""})
+        items.append({"month": f"2026-{m:02d}", "client_id": nwh.id,
+                      "days": D("16"), "rate": D("800"), "fx_rate": D("0.68"), "note": ""})
+    forecast_service.upsert_inputs(db, items)
 
 
 def _demo_rules(db):

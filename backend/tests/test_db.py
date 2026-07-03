@@ -20,7 +20,7 @@ def test_all_tables_created():
     tables = set(inspect(engine).get_table_names())
     expected = {
         "settings", "clients", "bank_accounts", "categories", "category_rules",
-        "transactions", "invoices", "investments", "forecast_inputs",
+        "transactions", "invoices", "investments",
     }
     assert expected.issubset(tables)
 

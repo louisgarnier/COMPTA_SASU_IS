@@ -28,9 +28,9 @@ Pour un couple **client × mois**, le Cashflow / la tréso comptent le revenu de
 Facturation **à l'heure** (cf .docx réels : « 152 hours @ 120 $/h »), TVA 293B, délai 60 j.
 
 ## Roadmap (stories, une spec/plan chacune si besoin)
-1. **Client card** — enrichir `Client`, UI CRUD. ⟵ *cette story*
-2. **Cycle de vie** — migration `forecast_inputs`→`Invoice`, statut, règle anti-doublon dans cashflow/treasury.
-3. **Forecast grille** — saisie prévisionnelle client × mois (jours→heures→montant).
+1. **Client card** — enrichir `Client`, UI CRUD. ✅ *fait (commit 6e273a9)*
+2. **Cycle de vie** — migration `forecast_inputs`→`Invoice`, statut, règle anti-doublon dans cashflow/treasury. ✅ *fait (ADR-007, 100 tests backend)*
+3. **Forecast grille** — saisie prévisionnelle client × mois (jours→heures→montant). ⟵ *prochaine*
 4. **Génération PDF** — au format des .docx (numéro, dates, IBAN de réception par devise, mentions légales).
 5. **Rapprochement** — match transaction↔facture, FX réel, variance forecast/réel.
 

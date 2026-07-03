@@ -69,3 +69,21 @@
 - Enable Banking : mode démo (mock) ; `pyjwt`/creds requis pour la synchro **réelle**.
 - Alembic : pas encore de migrations versionnées (tables via `init_db` en dev).
 - Détail financier : "Total facturé" additionne des devises différentes (cosmétique) ; soldes bruts des comptes = 0 tant que non synchronisés via le flux (le dashboard calcule à la volée).
+
+---
+
+## 2026-07-03 — EPIC-5 facturation : cycle de vie (fusion forecast→facture)
+
+**Story ① Client card** (commit `6e273a9`) : `Client` enrichi (`country`, `contact_name`, `email`, `default_hours_per_day`=8, `payment_terms_days`=60) + page **Clients** CRUD (liste + formulaire groupé, devise en menu déroulant) + `DELETE /api/clients/{id}` (409 si factures liées). ALTER live.
+
+**Story ② Cycle de vie** (fusion `forecast_inputs` → `Invoice`, cf. ADR-007) :
+- `Invoice` devient l'objet unique du cycle `forecast → due → paid` : ajout de `month`, `days`, `hours_per_day`, `note`, `fx_rate_forecast`, `amount_eur_forecast`, `paid_date`, `amount_received`, `fx_rate`, `amount_eur_received`, `variance_eur` ; défaut `status='forecast'`. Modèle `ForecastInput` **supprimé** (table live laissée dormante). ALTER live (+11 colonnes).
+- **Règle anti-doublon** (ADR-007) appliquée dans `cashflow`/`forecast.project` : revenu = transactions réelles + factures non payées ; une facture `paid` compte via sa transaction, jamais deux fois.
+- `forecast.get_inputs/upsert_inputs` repointés sur `Invoice(status='forecast')` en **conservant le contrat de la route** (`ForecastRow` de forme historique) → la page Forecast et la grille marchent sans changement.
+- `reconcile_payments` cible `status='due'` et fige les champs de paiement (`paid_date`, `amount_received`, `fx_rate`, `amount_eur_received`, `variance_eur`). Statuts `draft/sent` → `due`.
+- Bug corrigé **ERR-002** : `_amount_matches` comparait EUR vs natif → factures en devise jamais rapprochées ; désormais natif↔natif si même devise, repli EUR sinon.
+- `seed.py` : forecast via `upsert_inputs` (factures `forecast`), facture démo `sent`→`due`.
+
+**Tests : 100 backend verts** (dont `test_invoice_lifecycle.py` : fusion round-trip, idempotence upsert, anti-doublon ×3, remplissage paiement+variance, forecast hors outstanding). **9 front verts · tsc clean.** E2E live vérifié : PUT forecast → facture `forecast` → cashflow (5980 €, source unique) → nettoyé.
+
+**Reste EPIC-5 :** ③ grille forecast (saisie jours→heures, facturation horaire), ④ génération PDF (numéro/dates/IBAN réception par devise/mentions), ⑤ rapprochement UI (match tx↔facture, variance forecast/réel).

@@ -79,7 +79,6 @@ class Client(Base):
     counterparty_match: Mapped[str] = mapped_column(String, default="")
 
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="client")
-    forecast_inputs: Mapped[list["ForecastInput"]] = relationship(back_populates="client")
 
 
 class BankAccount(Base):
@@ -173,27 +172,56 @@ class Transaction(Base):
 
 
 class Invoice(Base):
-    """Facture émise."""
+    """
+    Facture — objet unique parcourant le cycle de vie `forecast → due → paid`.
+
+    Fusion de l'ancien `forecast_inputs` : une prévision de CA EST une facture
+    prévisionnelle (`status='forecast'`, `month` renseigné, sans numéro réel).
+    À la génération elle passe `due` (numéro, dates), au paiement `paid`
+    (transaction rapprochée, montant reçu, taux réel, variance).
+    """
 
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     number: Mapped[str] = mapped_column(String, unique=True, index=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"))
+
+    # Période / rattachement mensuel (source anti-doublon : client × month).
+    month: Mapped[str] = mapped_column(String, default="", index=True)  # 'YYYY-MM'
     period_label: Mapped[str] = mapped_column(String, default="")
     period_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     period_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    # Assiette de facturation (à l'heure : hours = days × hours_per_day).
+    days: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
     hours: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     rate: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     amount: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    # Prévisionnel (taux théorique).
+    fx_rate_forecast: Mapped[Decimal] = mapped_column(RATE, default=Decimal("1"))
+    amount_eur_forecast: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+
+    # Génération.
     issue_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    status: Mapped[str] = mapped_column(String, default="draft")  # draft|sent|paid
+    status: Mapped[str] = mapped_column(String, default="forecast")  # forecast|due|paid
+    pdf_path: Mapped[str] = mapped_column(String, default="")
+
+    # Rapprochement / paiement (réel).
     paid_transaction_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("transactions.id"), nullable=True
     )
-    pdf_path: Mapped[str] = mapped_column(String, default="")
+    paid_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    amount_received: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
+    fx_rate: Mapped[Optional[Decimal]] = mapped_column(RATE, nullable=True)
+    amount_eur_received: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
+    variance_eur: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     client: Mapped["Client"] = relationship(back_populates="invoices")
@@ -244,20 +272,6 @@ class BalanceDocument(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
-class ForecastInput(Base):
-    """Entrée de prévision mensuelle (jours × TJH × fx par client)."""
-
-    __tablename__ = "forecast_inputs"
-    __table_args__ = (
-        UniqueConstraint("month", "client_id", name="uq_month_client"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    month: Mapped[str] = mapped_column(String, index=True)  # 'YYYY-MM'
-    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"))
-    days: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
-    rate: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
-    fx_rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("1"))
-    note: Mapped[str] = mapped_column(Text, default="")
-
-    client: Mapped["Client"] = relationship(back_populates="forecast_inputs")
+# Note : l'ancien modèle `ForecastInput` (table `forecast_inputs`) a été fusionné
+# dans `Invoice` (status='forecast'). La table physique éventuelle est laissée
+# dormante en base locale ; plus aucun code ne la lit ni ne l'écrit.

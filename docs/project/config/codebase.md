@@ -12,12 +12,12 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `config.py` | Config env (`DATABASE_URL`, `LOG_LEVEL`, creds Enable Banking). |
 | `logging_config.py` | `get_logger(name, channel)` → `logs/<channel>_<date>.log` + masquage IBAN/email/secrets. |
 | `db/base.py` | Engine SQLite, `SessionLocal`, `get_db`, `init_db`, `PRAGMA foreign_keys=ON`. |
-| `db/models.py` | Modèles SQLAlchemy (archi §4) : Settings, Client, BankAccount, Category, CategoryRule, Transaction, Invoice, Investment, ForecastInput. Montants `Numeric`→`Decimal`. |
+| `db/models.py` | Modèles SQLAlchemy (archi §4) : Settings, Client, BankAccount, Category, CategoryRule, Transaction, Invoice, Investment. Montants `Numeric`→`Decimal`. `Invoice` porte le cycle de vie `forecast→due→paid` (fusion de l'ex-`ForecastInput`, cf. ADR-007). |
 | `services/categorize.py` | Moteur de règles (substring, priorité), fallback « À catégoriser », `recategorize_all`, seed catégories/règles système. |
 | `services/treasury.py` | `consolidated_treasury`, `link_fx_conversion`, `eur_amount`. |
 | `services/pnl.py` | `monthly_pnl(year)` — P&L mensuel EUR, exploitation uniquement. |
 | `services/forecast.py` | `project`, `estimate_is` (15%/25% seuil 42 500), `upsert_inputs`. |
-| `services/invoices.py` | `create_invoice` (num continue), `render_html` (Jinja2), `generate_pdf` (WeasyPrint lazy → 503 si absent), `reconcile_payments`. |
+| `services/invoices.py` | `create_invoice` (statut `due`), `render_html` (Jinja2), `generate_pdf` (WeasyPrint lazy → 503 si absent), `timeline` (payé/dû/retard, exclut `forecast`), `reconcile_payments` (cible `due`, fige paiement+variance, match natif↔natif). |
 | `services/banking.py` | Enable Banking : `list_aspsps`, `start_auth`, `create_session`, `sync` (dédup `(account_uid, external_id)`, signe DBIT/CRDT). Seam **mock/live** (`is_live()`). |
 | `api/routes/*.py` | settings, clients, investments, transactions, categories (+rules), treasury (+pnl), forecast, invoices, banking. |
 | `seed.py` | Données démo 2026 + `make seed` / `make seed-reset`. |

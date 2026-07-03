@@ -52,6 +52,7 @@
 | ID | Category | Short Description | Status | First Seen | Epic |
 |---|---|---|---|---|---|
 | ERR-001 | INFRA | Dashboard bloqué « Chargement… » — port 8000 pris par un autre projet | Resolved | 2026-07-01 | EPIC-4 |
+| ERR-002 | LOGIC | Rapprochement facture en devise impossible (matcher comparait EUR vs montant natif) | Resolved | 2026-07-03 | EPIC-5 |
 
 ---
 
@@ -102,6 +103,37 @@ LGC déplacé sur des ports isolés : **back :8001**, **front :3001**.
 
 #### Test Added
 - [x] Vérif manuelle : Dashboard charge sur :3001 → :8001 (screenshot). N/A pour test auto.
+
+---
+
+### ERR-002: Rapprochement d'une facture en devise impossible
+**Category:** LOGIC
+**Status:** `Resolved`
+**First seen:** 2026-07-03 — EPIC-5 (story ② cycle de vie)
+
+#### Symptoms
+Une facture en USD (`amount` natif) ne se rapprochait jamais de sa transaction USD
+dès que la transaction portait un `amount_eur`. `reconcile_payments` renvoyait 0.
+
+#### Root Cause
+`_amount_matches` comparait `tx.amount_eur` (ex. 9045 €) au montant **natif** de la
+facture (`invoice.amount`, ex. 10050 $) → écart énorme, jamais dans la tolérance.
+Ça ne « marchait » que par coïncidence quand facture et tx avaient la même valeur
+numérique (cas EUR).
+
+#### Fix
+`_amount_matches(tx, invoice)` : **même devise → compare les montants natifs**
+(rapprochement FX exact) ; devises différentes → repli sur l'EUR (théorique côté
+facture). Le taux réel encaissé + la variance sont figés sur la facture au paiement.
+
+#### Prevention Rule
+> 🔒 **RULE ERR-002:** Pour rapprocher deux montants, comparer d'abord **dans la même
+> devise** (natif ↔ natif). Ne jamais comparer un montant EUR converti à un montant
+> natif — la conversion masque/fausse l'égalité.
+
+#### Test Added
+- [x] `test_invoice_lifecycle.py::test_reconcile_fills_payment_fields_and_variance`
+  (facture USD 10050 ↔ tx USD 10050, EUR reçu 9045, variance +45).
 
 ---
 

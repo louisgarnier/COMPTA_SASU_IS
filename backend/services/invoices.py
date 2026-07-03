@@ -88,9 +88,11 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
     if issue_date is None:
         issue_date = date.today()
 
+    month = data.get("month") or _month_key(issue_date)
     invoice = models.Invoice(
         number=number,
         client_id=data["client_id"],
+        month=month,
         period_label=data.get("period_label", ""),
         period_start=data.get("period_start"),
         period_end=data.get("period_end"),
@@ -99,7 +101,7 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
         currency=data.get("currency", "USD"),
         amount=amount,
         issue_date=issue_date,
-        status="draft",
+        status="due",
     )
     db.add(invoice)
 
@@ -188,7 +190,9 @@ def _last_six_months(today: date) -> list[str]:
 
 
 def _derive_status(invoice: models.Invoice, today: date) -> str:
-    """paid / overdue (due_date < today) / due (sinon)."""
+    """forecast / paid / overdue (due_date < today) / due (sinon)."""
+    if invoice.status == "forecast":
+        return "forecast"
     if invoice.status == "paid":
         return "paid"
     if invoice.due_date is not None and invoice.due_date < today:
@@ -229,6 +233,9 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
 
     for inv in invoices:
         status = _derive_status(inv, today)
+        # Les factures prévisionnelles ne sont pas encore dues : hors timeline/outstanding.
+        if status == "forecast":
+            continue
         amount_eur = fx.to_eur(inv.amount, inv.currency, rates)
 
         if inv.issue_date is not None:
@@ -277,10 +284,19 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
     }
 
 
-def _amount_matches(tx: models.Transaction, target: Decimal) -> bool:
-    """Vrai si le montant de la transaction (EUR sinon brut) matche à tolérance près."""
-    tx_amount = tx.amount_eur if tx.amount_eur is not None else tx.amount
-    if tx_amount is None:
+def _amount_matches(tx: models.Transaction, invoice: models.Invoice) -> bool:
+    """
+    Vrai si le montant de la transaction matche la facture (à tolérance près).
+
+    Même devise → comparaison des montants natifs (rapprochement FX exact).
+    Devises différentes → repli sur l'EUR (théorique côté facture).
+    """
+    if tx.currency and invoice.currency and tx.currency == invoice.currency:
+        tx_amount, target = tx.amount, invoice.amount
+    else:
+        tx_amount = tx.amount_eur if tx.amount_eur is not None else tx.amount
+        target = invoice.amount_eur_forecast or invoice.amount
+    if tx_amount is None or target is None:
         return False
     return abs(abs(tx_amount) - abs(target)) <= _RECONCILE_TOLERANCE
 
@@ -299,7 +315,7 @@ def reconcile_payments(db: Session) -> int:
     invoices = (
         db.execute(
             select(models.Invoice)
-            .where(models.Invoice.status.in_(("draft", "sent")))
+            .where(models.Invoice.status == "due")
             .where(models.Invoice.paid_transaction_id.is_(None))
             .order_by(models.Invoice.id.asc())
         )
@@ -326,7 +342,7 @@ def reconcile_payments(db: Session) -> int:
             is_revenue = tx.kind == "revenue" or (tx.amount is not None and tx.amount > 0)
             if not is_revenue:
                 continue
-            if not _amount_matches(tx, invoice.amount):
+            if not _amount_matches(tx, invoice):
                 continue
             if match_token:
                 haystack = f"{tx.counterparty or ''} {tx.description or ''}".lower()
@@ -335,6 +351,14 @@ def reconcile_payments(db: Session) -> int:
 
             invoice.paid_transaction_id = tx.id
             invoice.status = "paid"
+            invoice.paid_date = tx.booked_date
+            invoice.amount_received = tx.amount
+            invoice.fx_rate = tx.fx_rate
+            eur_received = tx.amount_eur if tx.amount_eur is not None else tx.amount
+            invoice.amount_eur_received = eur_received
+            # Variance = réel encaissé − prévisionnel (0 si pas de prévision).
+            forecast_eur = invoice.amount_eur_forecast or Decimal("0")
+            invoice.variance_eur = _q(eur_received) - _q(forecast_eur)
             tx.invoice_id = invoice.id
             reconciled += 1
             logger.info(

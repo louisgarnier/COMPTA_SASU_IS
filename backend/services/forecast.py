@@ -13,6 +13,7 @@ Tous les montants sont manipulés en `Decimal`, jamais en float.
 from __future__ import annotations
 
 import calendar
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Iterable, Optional
@@ -31,6 +32,45 @@ _ZERO = Decimal("0")
 _EXCLUDED_KINDS = {"investment", "conversion", "transfer"}
 
 
+@dataclass
+class ForecastRow:
+    """
+    Vue « entrée de prévision » adossée à une facture `status='forecast'`.
+
+    Conserve la forme de l'ancien `forecast_inputs` (days × rate × fx) pour ne
+    pas casser le contrat de la route Prévision ni le calcul cashflow, alors que
+    la donnée vit désormais dans `invoices` (fusion).
+    """
+
+    id: int
+    month: str
+    client_id: int
+    days: Decimal
+    rate: Decimal
+    fx_rate: Decimal
+    note: str
+    client: Optional[models.Client] = None
+
+
+def _forecast_number(month: str, client_id: int) -> str:
+    """Numéro provisoire d'une facture prévisionnelle (unique par client × mois)."""
+    return f"F-{client_id}-{month}"
+
+
+def _to_row(inv: models.Invoice) -> ForecastRow:
+    """Adapte une facture prévisionnelle en `ForecastRow` (forme historique)."""
+    return ForecastRow(
+        id=inv.id,
+        month=inv.month,
+        client_id=inv.client_id,
+        days=inv.days,
+        rate=inv.rate,
+        fx_rate=inv.fx_rate_forecast,
+        note=inv.note,
+        client=inv.client,
+    )
+
+
 def _q(value: Decimal) -> Decimal:
     """Quantifie un montant à 2 décimales (arrondi comptable)."""
     return Decimal(value).quantize(_CENTS)
@@ -41,46 +81,79 @@ def _months(year: int) -> list[str]:
     return [f"{year:04d}-{m:02d}" for m in range(1, 13)]
 
 
-def get_inputs(db: Session, year: int) -> list[models.ForecastInput]:
-    """Retourne les entrées de prévision des 12 mois de `year`, triées."""
+def get_inputs(db: Session, year: int) -> list[ForecastRow]:
+    """
+    Retourne les prévisions des 12 mois de `year` (factures `status='forecast'`).
+
+    Forme historique (`ForecastRow`) pour compat route/cashflow.
+    """
     months = _months(year)
-    rows = (
-        db.query(models.ForecastInput)
-        .filter(models.ForecastInput.month.in_(months))
-        .order_by(models.ForecastInput.month, models.ForecastInput.client_id)
+    invoices = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.status == "forecast",
+            models.Invoice.month.in_(months),
+        )
+        .order_by(models.Invoice.month, models.Invoice.client_id)
         .all()
     )
-    logger.info("📥 [Forecast] get_inputs: year=%d → %d ligne(s)", year, len(rows))
-    return rows
+    logger.info("📥 [Forecast] get_inputs: year=%d → %d ligne(s)", year, len(invoices))
+    return [_to_row(inv) for inv in invoices]
 
 
-def upsert_inputs(db: Session, items: Iterable[dict]) -> list[models.ForecastInput]:
+def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
     """
-    Upsert des entrées de prévision sur la clé (month, client_id).
+    Upsert des prévisions sur la clé (month, client_id) → factures `forecast`.
 
     Chaque item : {month:'YYYY-MM', client_id, days, rate, fx_rate, note}.
-    Retourne les lignes persistées (créées ou mises à jour).
+    Une prévision EST une facture prévisionnelle : on renseigne le montant natif
+    (days × rate), les heures (days × h/j du client) et l'EUR théorique
+    (days × rate × fx). Numéro provisoire `F-<client>-<month>`.
     """
-    result: list[models.ForecastInput] = []
+    result: list[models.Invoice] = []
     for item in items:
         month = item["month"]
         client_id = item["client_id"]
+        days = Decimal(str(item.get("days", 0)))
+        rate = Decimal(str(item.get("rate", 0)))
+        fx = Decimal(str(item.get("fx_rate", 1)))
+        note = item.get("note", "") or ""
+
+        client = db.get(models.Client, client_id)
+        hours_per_day = Decimal(client.default_hours_per_day) if client else Decimal("8")
+        currency = (client.currency if client else "EUR") or "EUR"
+        amount = days * rate  # natif (rate = TJ ; l'horaire arrive en story ③)
+        amount_eur = amount * fx
+
         row = (
-            db.query(models.ForecastInput)
+            db.query(models.Invoice)
             .filter(
-                models.ForecastInput.month == month,
-                models.ForecastInput.client_id == client_id,
+                models.Invoice.status == "forecast",
+                models.Invoice.month == month,
+                models.Invoice.client_id == client_id,
             )
             .one_or_none()
         )
         values = {
-            "days": Decimal(str(item.get("days", 0))),
-            "rate": Decimal(str(item.get("rate", 0))),
-            "fx_rate": Decimal(str(item.get("fx_rate", 1))),
-            "note": item.get("note", "") or "",
+            "days": days,
+            "hours_per_day": hours_per_day,
+            "hours": days * hours_per_day,
+            "rate": rate,
+            "currency": currency,
+            "amount": amount,
+            "fx_rate_forecast": fx,
+            "amount_eur_forecast": amount_eur,
+            "note": note,
         }
         if row is None:
-            row = models.ForecastInput(month=month, client_id=client_id, **values)
+            row = models.Invoice(
+                number=_forecast_number(month, client_id),
+                client_id=client_id,
+                month=month,
+                period_label=month,
+                status="forecast",
+                **values,
+            )
             db.add(row)
         else:
             for field, value in values.items():
@@ -90,8 +163,8 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[models.ForecastInp
     db.commit()
     for row in result:
         db.refresh(row)
-    logger.info("📤 [Forecast] upsert_inputs: %d ligne(s) ✅", len(result))
-    return result
+    logger.info("📤 [Forecast] upsert_inputs: %d prévision(s) ✅", len(result))
+    return [_to_row(inv) for inv in result]
 
 
 def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:

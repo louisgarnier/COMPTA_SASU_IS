@@ -77,10 +77,13 @@ def _seed(db):
 
     # Prévision : un client + une entrée en août → revenu 1000 EUR (10 j × 100 × 1).
     db.add(models.Client(id=1, code="ACME", legal_name="Acme", currency="EUR"))
-    db.add(models.ForecastInput(
-        month="2026-08", client_id=1, days=Decimal("10"), rate=Decimal("100"),
-        fx_rate=Decimal("1"),
-    ))
+    db.commit()
+    # Fusion : prévision = facture status='forecast' (via le service).
+    from backend.services import forecast as _fc
+    _fc.upsert_inputs(db, [{
+        "month": "2026-08", "client_id": 1,
+        "days": Decimal("10"), "rate": Decimal("100"), "fx_rate": Decimal("1"), "note": "",
+    }])
 
     db.commit()
 

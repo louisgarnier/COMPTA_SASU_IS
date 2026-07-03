@@ -58,13 +58,13 @@ def _seed(db):
     db.add(models.Invoice(
         number="101", client_id=client.id, currency="USD",
         amount=Decimal("2000"), issue_date=date(2026, 6, 15),
-        due_date=date(2026, 8, 1), status="sent",
+        due_date=date(2026, 8, 1), status="due",
     ))
     # Envoyée, due dans le passé, émise en juin 2026, 500 USD → 460 EUR (overdue)
     db.add(models.Invoice(
         number="102", client_id=client.id, currency="USD",
         amount=Decimal("500"), issue_date=date(2026, 6, 20),
-        due_date=date(2026, 6, 30), status="sent",
+        due_date=date(2026, 6, 30), status="due",
     ))
     db.commit()
     return client

@@ -73,7 +73,7 @@ def test_create_invoice_numbering_and_amount(session):
     inv1 = invoices_service.create_invoice(session, data, issue_date=date(2026, 7, 1))
     assert inv1.number == "62"
     assert inv1.amount == Decimal("10200")  # 120 * 85
-    assert inv1.status == "draft"
+    assert inv1.status == "due"
     assert inv1.issue_date == date(2026, 7, 1)
     assert session.get(models.Settings, 1).next_invoice_number == 63
 
@@ -147,7 +147,7 @@ def test_reconcile_no_match_when_counterparty_differs(session):
 
     assert invoices_service.reconcile_payments(session) == 0
     session.refresh(inv)
-    assert inv.status == "draft"
+    assert inv.status == "due"
 
 
 # --------------------------------------------------------------------------- #
@@ -175,7 +175,7 @@ def test_route_create_and_get_invoice(client, session):
     assert body["number"] == "62"
     assert Decimal(body["amount"]) == Decimal("10200")
     assert body["client_name"] == "Swib Corp"
-    assert body["status"] == "draft"
+    assert body["status"] == "due"
 
     inv_id = body["id"]
     got = client.get(f"/api/invoices/{inv_id}")
@@ -195,9 +195,9 @@ def test_route_list_and_patch_status(client, session):
     assert len(listing.json()) == 1
     assert listing.json()[0]["client_name"] == "Swib Corp"
 
-    patched = client.patch(f"/api/invoices/{created['id']}", json={"status": "sent"})
+    patched = client.patch(f"/api/invoices/{created['id']}", json={"status": "paid"})
     assert patched.status_code == 200
-    assert patched.json()["status"] == "sent"
+    assert patched.json()["status"] == "paid"
 
 
 def test_route_create_unknown_client_404(client):
