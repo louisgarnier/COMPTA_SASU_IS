@@ -206,6 +206,58 @@ def test_monthly_pnl_totals(session):
     assert result["totals"]["result_eur"] == Decimal("1900.00")
 
 
+# --- Tests P&L accrual (revenu = mois travaillé, pas mois payé) ------------
+
+
+def _add_client(db, **kw):
+    c = models.Client(code=kw.pop("code", "ACME"), legal_name="ACME", currency="EUR", **kw)
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+
+def test_pnl_counts_issued_invoice_in_service_month(session):
+    # Facture émise (non encore payée) pour AVRIL, échéance juin (45j).
+    client = _add_client(session)
+    session.add(models.Invoice(
+        number="200", client_id=client.id, month="2026-04", status="due",
+        currency="EUR", amount=Decimal("2000"), amount_eur_forecast=Decimal("2000"),
+        issue_date=date(2026, 4, 30), due_date=date(2026, 6, 14),
+    ))
+    session.commit()
+
+    apr = next(m for m in monthly_pnl(session, 2026)["months"] if m["month"] == "2026-04")
+    # Revenu reconnu en avril (mois travaillé), bien qu'encaissé plus tard.
+    assert apr["revenue_eur"] == Decimal("2000.00")
+
+
+def test_pnl_no_double_count_when_payment_reconciled(session):
+    # Facture payée rattachée à sa transaction d'encaissement : comptée UNE fois,
+    # au mois travaillé (mai), pas au mois d'encaissement (juillet).
+    client = _add_client(session, code="NWH")
+    inv = models.Invoice(
+        number="201", client_id=client.id, month="2026-05", status="paid",
+        currency="EUR", amount=Decimal("1000"), amount_eur_received=Decimal("1000"),
+        issue_date=date(2026, 5, 31), due_date=date(2026, 7, 15),
+        paid_date=date(2026, 7, 1),
+    )
+    session.add(inv)
+    session.commit()
+    session.refresh(inv)
+    # Encaissement importé, rattaché à la facture (invoice_id) → exclu du P&L.
+    session.add(models.Transaction(
+        account_uid="eur-1", external_id="paid1", booked_date=date(2026, 7, 1),
+        amount=Decimal("1000"), currency="EUR", kind="revenue", category_id=1,
+        amount_eur=Decimal("1000"), invoice_id=inv.id,
+    ))
+    session.commit()
+
+    by = {m["month"]: m for m in monthly_pnl(session, 2026)["months"]}
+    assert by["2026-05"]["revenue_eur"] == Decimal("1000.00")  # facture, mois travaillé
+    assert by["2026-07"]["revenue_eur"] == Decimal("0.00")     # tx rattachée exclue
+
+
 # --- Tests routes ---------------------------------------------------------
 
 

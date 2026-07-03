@@ -4,79 +4,97 @@
   <meta charset="utf-8" />
   <title>Facture {{ invoice.number }}</title>
   <style>
-    @page { size: A4; margin: 2cm; }
-    body { font-family: "Helvetica", "Arial", sans-serif; color: #1a1a1a; font-size: 12px; }
-    h1 { font-size: 22px; margin: 0 0 4px 0; }
-    .muted { color: #666; }
-    .row { display: flex; justify-content: space-between; }
-    .box { width: 48%; }
-    .box h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin: 0 0 6px 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 24px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #ddd; }
-    th { background: #f4f4f4; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
-    td.num, th.num { text-align: right; }
-    tfoot td { font-weight: bold; font-size: 14px; border-top: 2px solid #333; border-bottom: none; }
-    .mention { margin-top: 28px; padding: 10px 12px; background: #f9f9f9; border-left: 3px solid #999; font-size: 11px; color: #444; }
-    .meta { margin-top: 4px; }
+    @page { size: A4; margin: 18mm 16mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #476388; font-size: 13px; margin: 0; }
+    .blue { color: #5D9CF1; }
+    .dk { color: #476388; }
+    .top { display: flex; justify-content: space-between; align-items: flex-start; }
+    .from { line-height: 1.5; }
+    .from .name { font-weight: 700; }
+    .client { text-align: right; line-height: 1.4; }
+    .client .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #9bb0c9; }
+    .client .cname { font-weight: 600; }
+    .invmeta { margin-top: 26px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .invno { font-size: 26px; font-weight: 700; color: #5D9CF1; }
+    .invsub { font-size: 12px; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 22px; }
+    thead th { background: #5D9CF1; color: #fff; font-size: 11px; font-weight: 700; text-align: left; padding: 6px 8px; }
+    thead th.r { text-align: right; }
+    tbody td { padding: 10px 8px; border-bottom: 1px solid #e3e9f1; font-size: 12.5px; vertical-align: top; }
+    tbody td.r { text-align: right; }
+    .totals td { padding: 6px 8px; font-weight: 700; color: #5D9CF1; }
+    .totals .lab { text-align: right; }
+    .totals .ttc td { background: #5D9CF1; color: #fff; }
+    .mentions { margin-top: 22px; font-size: 11.5px; font-weight: 700; }
+    .bank { margin-top: 14px; padding: 10px 12px; background: #f3f7fd; border-left: 3px solid #5D9CF1; font-size: 11.5px; line-height: 1.5; }
+    .bank .strong { font-weight: 700; }
+    .foot { margin-top: 26px; border-top: 1px solid #dfe6ef; padding-top: 8px; font-size: 10.5px; color: #8aa0bd; text-align: center; line-height: 1.5; }
+    @media screen { body { background: #e9ebee; } .sheet { background: #fff; max-width: 210mm; margin: 20px auto; padding: 18mm 16mm; box-shadow: 0 2px 16px rgba(0,0,0,.15); } }
+    @media print { .sheet { padding: 0; } }
   </style>
 </head>
 <body>
-  <div class="row">
-    <div class="box">
-      <h1>{{ company.company_name }}</h1>
-      <div class="muted meta">SIRET : {{ company.siret }}</div>
-      {% if company.tva_intracom %}<div class="muted meta">TVA intracom : {{ company.tva_intracom }}</div>{% endif %}
-      <div class="muted meta">{{ company.address }}</div>
+  <div class="sheet">
+    <div class="top">
+      <div class="from">
+        <div class="name">{{ company.company_name }}</div>
+        <div>{{ company.address }}</div>
+        {% if company.email %}<div>@ : {{ company.email }}</div>{% endif %}
+      </div>
+      <div class="client">
+        <div class="lab">Facturé à</div>
+        <div class="cname">{{ client.legal_name }}</div>
+        {% if client.address %}<div>{{ client.address }}</div>{% endif %}
+        {% if client.country %}<div>{{ client.country }}</div>{% endif %}
+      </div>
     </div>
-    <div class="box" style="text-align: right;">
-      <h1>FACTURE</h1>
-      <div class="meta"><strong>N° {{ invoice.number }}</strong></div>
-      {% if invoice.issue_date %}<div class="muted meta">Date : {{ invoice.issue_date }}</div>{% endif %}
-    </div>
-  </div>
 
-  <div class="row" style="margin-top: 28px;">
-    <div class="box">
-      <h2>Prestataire</h2>
-      <div>{{ company.company_name }}</div>
-      <div class="muted">{{ company.address }}</div>
+    <div class="invmeta">
+      <div>
+        <div class="invno">Invoice {{ invoice.number }}</div>
+        {% if invoice.issue_date %}<div class="invsub">Date d'émission : {{ invoice.issue_date.strftime('%d/%m/%Y') }}</div>{% endif %}
+        <div class="invsub">Période de validité : {{ client.payment_terms_days }} jours</div>
+      </div>
     </div>
-    <div class="box">
-      <h2>Client</h2>
-      <div>{{ client.legal_name }}</div>
-      <div class="muted">{{ client.address }}</div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Désignation</th>
+          <th class="r">TVA</th>
+          <th class="r">Total HT ({{ invoice.currency }})</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{ designation }}</td>
+          <td class="r">0 %</td>
+          <td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <table class="totals">
+      <tbody>
+        <tr><td class="lab" style="width:75%">Sub Total HT</td><td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
+        <tr class="ttc"><td class="lab">Total TTC ({{ invoice.currency }})</td><td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="mentions dk">TVA non applicable, art. 293 B du CGI.</div>
+
+    <div class="bank">
+      <div class="strong dk">Bank details : {{ company.company_name }} ({{ invoice.currency }} account)</div>
+      {% if client.pay_iban %}<div>IBAN : {{ client.pay_iban }}{% if company.bank_bic %} · BIC : {{ company.bank_bic }}{% endif %}</div>{% endif %}
+      <div>Adresse : {{ company.address }}</div>
+      {% if company.bank_name %}<div>Bank : {{ company.bank_name }}{% if company.bank_address %} — {{ company.bank_address }}{% endif %}</div>{% endif %}
     </div>
-  </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Prestation</th>
-        <th class="num">Heures</th>
-        <th class="num">Taux ({{ invoice.currency }})</th>
-        <th class="num">Montant ({{ invoice.currency }})</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Prestation de services{% if invoice.period_label %} — {{ invoice.period_label }}{% endif %}
-          {% if invoice.period_start and invoice.period_end %}<br /><span class="muted">du {{ invoice.period_start }} au {{ invoice.period_end }}</span>{% endif %}
-        </td>
-        <td class="num">{{ invoice.hours }}</td>
-        <td class="num">{{ invoice.rate }}</td>
-        <td class="num">{{ invoice.amount }}</td>
-      </tr>
-    </tbody>
-    <tfoot>
-      <tr>
-        <td colspan="3">Total à régler</td>
-        <td class="num">{{ invoice.amount }} {{ invoice.currency }}</td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <div class="mention">
-    TVA non applicable, art. 293 B du CGI.
+    <div class="foot">
+      SASU au capital de {{ company.capital_eur | fr }} € · SIRET {{ company.siret }} · NAF {{ company.naf }}{% if company.tva_intracom %} · TVA intracommunautaire {{ company.tva_intracom }}{% endif %}<br />
+      Page 1/1
+    </div>
   </div>
 </body>
 </html>

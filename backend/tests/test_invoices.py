@@ -82,6 +82,19 @@ def test_create_invoice_numbering_and_amount(session):
     assert session.get(models.Settings, 1).next_invoice_number == 64
 
 
+def test_create_invoice_sets_due_date_from_client_terms(session):
+    # Le cashflow prévisionnel a besoin d'une échéance : create_invoice la pose
+    # (émission + délai de paiement du client).
+    client = _seed(session)
+    client.payment_terms_days = 45
+    session.commit()
+    data = {"client_id": client.id, "hours": Decimal("10"), "rate": Decimal("100"),
+            "currency": "USD"}
+    inv = invoices_service.create_invoice(session, data, issue_date=date(2026, 1, 31))
+    # 31 janv + 45j = 17 mars 2026.
+    assert inv.due_date == date(2026, 3, 17)
+
+
 def test_render_html_contains_key_fields(session):
     client = _seed(session)
     inv = invoices_service.create_invoice(
@@ -94,7 +107,7 @@ def test_render_html_contains_key_fields(session):
     assert "LGC SASU" in html          # société
     assert "Swib Corp" in html         # client
     assert "art. 293 B" in html        # mention TVA
-    assert "1000" in html              # montant 10 * 100
+    assert "1 000" in html             # montant 10 * 100 (format espace)
 
 
 def test_reconcile_links_matching_transaction(session):

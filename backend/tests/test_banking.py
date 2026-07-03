@@ -11,6 +11,7 @@ données déterministes. On vérifie :
 - les routes répondent (TestClient + dependency_overrides[get_db]).
 """
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -277,3 +278,32 @@ def test_sync_auto_categorizes(session):
     )
     assert urssaf is not None
     assert urssaf.category_id == cat.id  # catégorisée pendant le sync, sans appel manuel
+
+
+# --- Le sync rapproche automatiquement les paiements (boucle accrual) ---------
+
+
+def test_sync_auto_reconciles_open_invoice(session):
+    # Facture SWIB de 5400 EUR en attente : l'encaissement mock « SWIB LLC »
+    # (5400 EUR) doit la solder pendant le sync, sans appel manuel à reconcile.
+    client = models.Client(
+        code="SWIB", legal_name="SWIB LLC", currency="EUR",
+        counterparty_match="SWIB",
+    )
+    session.add(client)
+    session.commit()
+    session.refresh(client)
+    session.add(models.Invoice(
+        number="90", client_id=client.id, month="2026-01", status="due",
+        currency="EUR", amount=Decimal("5400.00"),
+        issue_date=date(2025, 12, 1), due_date=date(2026, 1, 15),
+    ))
+    session.commit()
+
+    banking_service.create_session(session, "mock-code")
+    res = banking_service.sync(session)
+
+    assert res["invoices_reconciled"] >= 1
+    inv = session.query(models.Invoice).filter_by(number="90").one()
+    assert inv.status == "paid"
+    assert inv.paid_transaction_id is not None

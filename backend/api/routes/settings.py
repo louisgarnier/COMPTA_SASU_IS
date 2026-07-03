@@ -37,6 +37,11 @@ class SettingsOut(BaseModel):
     naf: str
     tva_intracom: str
     address: str
+    email: str
+    capital_eur: Decimal
+    bank_name: str
+    bank_bic: str
+    bank_address: str
     is_low_rate: Decimal
     is_threshold: Decimal
     is_high_rate: Decimal
@@ -54,6 +59,11 @@ class SettingsUpdate(BaseModel):
     naf: Optional[str] = None
     tva_intracom: Optional[str] = None
     address: Optional[str] = None
+    email: Optional[str] = None
+    capital_eur: Optional[Decimal] = None
+    bank_name: Optional[str] = None
+    bank_bic: Optional[str] = None
+    bank_address: Optional[str] = None
     is_low_rate: Optional[Decimal] = None
     is_threshold: Optional[Decimal] = None
     is_high_rate: Optional[Decimal] = None

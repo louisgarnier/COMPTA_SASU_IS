@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -43,17 +43,23 @@ class InvoiceOut(BaseModel):
     number: str
     client_id: int
     client_name: Optional[str] = None
+    month: str
     period_label: str
     period_start: Optional[date] = None
     period_end: Optional[date] = None
+    days: Decimal
     hours: Decimal
     rate: Decimal
+    rate_unit: str
     currency: str
     amount: Decimal
+    amount_eur_forecast: Decimal
     issue_date: Optional[date] = None
     due_date: Optional[date] = None
     status: str
     paid_transaction_id: Optional[int] = None
+    paid_date: Optional[date] = None
+    variance_eur: Optional[Decimal] = None
     pdf_path: str
 
 
@@ -115,6 +121,23 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
     """Retourne une facture (404 si absente)."""
     logger.info("📥 [Invoices] get: id=%d", invoice_id)
     return _to_out(_get_or_404(db, invoice_id))
+
+
+@router.post("/{invoice_id}/generate", response_model=InvoiceOut)
+def generate_invoice_route(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
+    """Génère la facture (forecast → due) : numéro réel, dates, désignation."""
+    invoice = invoices_service.generate_invoice(db, invoice_id)
+    logger.info("📤 [Invoices] generate: n°%s ✅", invoice.number)
+    return _to_out(invoice)
+
+
+@router.get("/{invoice_id}/print", response_class=HTMLResponse)
+def print_invoice(invoice_id: int, db: Session = Depends(get_db)) -> HTMLResponse:
+    """Renvoie la facture en HTML imprimable (Cmd+P → PDF côté navigateur)."""
+    invoice = _get_or_404(db, invoice_id)
+    html = invoices_service.render_html(db, invoice)
+    logger.info("📤 [Invoices] print: n°%s ✅", invoice.number)
+    return HTMLResponse(content=html)
 
 
 @router.post("/{invoice_id}/pdf")

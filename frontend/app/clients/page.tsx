@@ -45,12 +45,13 @@ const FIELDS: Field[] = [
   { key: 'default_hours_per_day', label: 'Heures / jour', type: 'number', group: 'Facturation', ph: '8' },
   { key: 'payment_terms_days', label: 'Échéance (jours)', type: 'number', group: 'Facturation', ph: '60' },
   { key: 'counterparty_match', label: 'Libellé rapprochement', group: 'Facturation', ph: 'texte relevé bancaire' },
+  { key: 'pay_iban', label: 'IBAN de réception', group: 'Paiement', ph: 'FR76… (ton compte où ce client paie)' },
 ];
 
 const EMPTY: Partial<Client> = {
   code: '', legal_name: '', currency: 'USD', address: '', country: '',
   contact_name: '', email: '', tjh: '', billing_mode: 'tjm',
-  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '',
+  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '', pay_iban: '',
 };
 
 // Libellé lisible pour les options de select.
@@ -204,7 +205,7 @@ export default function ClientsPage() {
             ))}
           </div>
           <p className="mt-4 text-xs text-[var(--muted)]">
-            💡 Les coordonnées bancaires de <b>réception</b> (tes IBAN par devise) seront gérées dans les Réglages à l'étape « Génération de facture ».
+            💡 L'<b>IBAN de réception</b> (ton compte où ce client paie, dans sa devise) s'imprimera sur la facture générée.
           </p>
         </Card>
       </div>

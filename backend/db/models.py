@@ -45,6 +45,13 @@ class Settings(Base):
     naf: Mapped[str] = mapped_column(String, default="")
     tva_intracom: Mapped[str] = mapped_column(String, default="")
     address: Mapped[str] = mapped_column(Text, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    capital_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("100"))
+
+    # Bloc bancaire (constant Revolut ; l'IBAN de réception vit sur le client).
+    bank_name: Mapped[str] = mapped_column(String, default="")
+    bank_bic: Mapped[str] = mapped_column(String, default="")
+    bank_address: Mapped[str] = mapped_column(Text, default="")
 
     is_low_rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.15"))
     is_threshold: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("42500"))

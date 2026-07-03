@@ -17,7 +17,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `services/treasury.py` | `consolidated_treasury`, `link_fx_conversion`, `eur_amount`. |
 | `services/pnl.py` | `monthly_pnl(year)` — P&L mensuel EUR, exploitation uniquement. |
 | `services/forecast.py` | `project`, `estimate_is` (15%/25% seuil 42 500), `upsert_inputs`. |
-| `services/invoices.py` | `create_invoice` (statut `due`), `render_html` (Jinja2), `generate_pdf` (WeasyPrint lazy → 503 si absent), `timeline` (payé/dû/retard, exclut `forecast`), `reconcile_payments` (cible `due`, fige paiement+variance, match natif↔natif). |
+| `services/invoices.py` | `create_invoice`, `generate_invoice` (forecast→due : n°+dates+désignation), `render_html`/`designation` (template imprimable FR), `timeline`, `reconcile_payments` (fige paiement+variance, match natif↔natif). Routes `/generate`, `/print` (HTML Cmd+P→PDF). |
 | `services/banking.py` | Enable Banking : `list_aspsps`, `start_auth`, `create_session`, `sync` (dédup `(account_uid, external_id)`, signe DBIT/CRDT). Seam **mock/live** (`is_live()`). |
 | `api/routes/*.py` | settings, clients, investments, transactions, categories (+rules), treasury (+pnl), forecast, invoices, banking. |
 | `seed.py` | Données démo 2026 + `make seed` / `make seed-reset`. |

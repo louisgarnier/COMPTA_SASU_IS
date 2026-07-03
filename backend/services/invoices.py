@@ -18,7 +18,8 @@ None) pour rester déterministe en test.
 
 from __future__ import annotations
 
-from datetime import date
+import calendar
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -46,6 +47,14 @@ _jinja_env = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),
     autoescape=select_autoescape(["html", "xml"]),
 )
+
+
+def _fr_amount(value) -> str:
+    """Montant au format français : 18240 → '18 240,00' (espace milliers, virgule)."""
+    return f"{Decimal(value or 0):,.2f}".replace(",", " ").replace(".", ",")
+
+
+_jinja_env.filters["fr"] = _fr_amount
 
 
 def _get_settings(db: Session) -> models.Settings:
@@ -88,6 +97,12 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
     if issue_date is None:
         issue_date = date.today()
 
+    # Échéance = émission + délai de paiement du client (indispensable au cashflow
+    # prévisionnel qui bucketise sur la date d'encaissement attendue).
+    client = db.get(models.Client, data["client_id"])
+    terms = client.payment_terms_days if client and client.payment_terms_days else 60
+    due_date = issue_date + timedelta(days=terms)
+
     month = data.get("month") or _month_key(issue_date)
     invoice = models.Invoice(
         number=number,
@@ -101,6 +116,7 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
         currency=data.get("currency", "USD"),
         amount=amount,
         issue_date=issue_date,
+        due_date=due_date,
         status="due",
     )
     db.add(invoice)
@@ -117,6 +133,93 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
     return invoice
 
 
+_EN_MONTHS = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _ordinal(day: int) -> str:
+    """1 → 1st, 2 → 2nd, 3 → 3rd, 30 → 30th (style factures Word)."""
+    if 11 <= day % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
+def designation(invoice: models.Invoice) -> str:
+    """
+    Libellé de prestation (style .docx) selon le mode de facturation.
+
+    THM → « … — 152 hours @ 120 USD/h » · TJM → « … — 20 days @ 900 USD/day ».
+    Inclut la période si connue (« 1st to the 30th of May 2026 »).
+    """
+    period = ""
+    if invoice.period_start and invoice.period_end:
+        start = _ordinal(invoice.period_start.day)
+        end = _ordinal(invoice.period_end.day)
+        month = _EN_MONTHS[invoice.period_end.month]
+        period = f" for period {start} to the {end} of {month} {invoice.period_end.year}"
+    if invoice.rate_unit == "hour":
+        qty, unit, per = invoice.hours, "hours", "h"
+    else:
+        qty, unit, per = invoice.days, "days", "day"
+    return (
+        f"Consultancy fees{period} — {_plain(qty)} {unit} @ {_plain(invoice.rate)} "
+        f"{invoice.currency}/{per}"
+    )
+
+
+def _plain(value: Decimal) -> str:
+    """Formate un Decimal sans zéros décimaux inutiles (152.00 → 152, 16.50 → 16.5)."""
+    text = f"{Decimal(value):f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def generate_invoice(
+    db: Session, invoice_id: int, issue_date: Optional[date] = None
+) -> models.Invoice:
+    """
+    Génère une facture prévisionnelle : `forecast` → `due`.
+
+    Attribue le numéro réel (compteur Settings, incrémenté), pose `issue_date`
+    (défaut aujourd'hui), `due_date = issue_date + payment_terms_days` du client,
+    la période (mois de `invoice.month`) et passe le statut à `due`.
+    Lève 404 si absente, 409 si déjà générée (statut ≠ forecast).
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if invoice.status != "forecast":
+        raise HTTPException(status_code=409, detail="Facture déjà générée")
+
+    settings = _get_settings(db)
+    client = db.get(models.Client, invoice.client_id)
+    if issue_date is None:
+        issue_date = date.today()
+
+    terms = client.payment_terms_days if client else 60
+    year, month = int(invoice.month[:4]), int(invoice.month[5:7])
+
+    invoice.number = str(settings.next_invoice_number)
+    invoice.issue_date = issue_date
+    invoice.due_date = issue_date + timedelta(days=terms)
+    invoice.period_start = date(year, month, 1)
+    invoice.period_end = date(year, month, calendar.monthrange(year, month)[1])
+    invoice.period_label = f"{_EN_MONTHS[month]} {year}"
+    invoice.status = "due"
+
+    settings.next_invoice_number = settings.next_invoice_number + 1
+    db.commit()
+    db.refresh(invoice)
+    logger.info(
+        "📤 [Invoices] generate: n°%s client=%d (forecast→due) ✅",
+        invoice.number, invoice.client_id,
+    )
+    return invoice
+
+
 def render_html(db: Session, invoice: models.Invoice) -> str:
     """
     Rend le HTML de la facture (Jinja2) avec infos société + client.
@@ -129,7 +232,12 @@ def render_html(db: Session, invoice: models.Invoice) -> str:
         raise HTTPException(status_code=404, detail="Client de la facture introuvable")
 
     template = _jinja_env.get_template("invoice.html")
-    html = template.render(company=settings, client=client, invoice=invoice)
+    html = template.render(
+        company=settings,
+        client=client,
+        invoice=invoice,
+        designation=designation(invoice),
+    )
     logger.info("📤 [Invoices] render_html: n°%s ✅", invoice.number)
     return html
 

@@ -98,3 +98,16 @@
 - **E2E live :** THM SWIB 6 h × 120 → facture forecast (jours 0,75, montant 720 $, EUR 662,40) → round-trip GET OK → nettoyé. UI : recalcul lié jours⇄heures vérifié au navigateur (Heures 6 → Jours 0,75 → Montant 720 → € 662,4).
 
 **Reste EPIC-5 :** ④ génération PDF · ⑤ rapprochement/variance UI.
+
+## 2026-07-03 (suite) — EPIC-5 story ④ : génération de facture (PDF via page imprimable)
+
+**Maquette facture validée** (fidèle aux .docx) · moteur choisi : **page imprimable** (Cmd+P → PDF, zéro install).
+- **IBAN client** : champ `pay_iban` ajouté au formulaire Clients (IBAN de réception, s'imprime sur la facture). IBAN réels posés (SWIB/NWH).
+- **Réglages enrichis** : `email`, `capital_eur`, bloc banque (`bank_name`, `bank_bic`, `bank_address`). ALTER live + **vraies valeurs légales** (SASU LGC, 12 Place Paul Mistral 38000 Grenoble, SIRET 89218975400013, NAF 6202A, TVA FR65892189754, capital 100 €, Revolut Bank UAB / REVOFRP2). Compteur n° → 69 (tes factures Word vont à 68).
+- **Génération** `generate_invoice` (forecast → due) : numéro réel + incrément, `issue_date`, `due_date = issue + payment_terms_days`, période (mois), désignation style .docx (« Consultancy fees for period 1st to the 31st of May 2026 — 152 hours @ 120 USD/h »). Route `POST /api/invoices/{id}/generate`.
+- **Template imprimable** `invoice.html` réécrit fidèle (en-tête, client, table Désignation/TVA/Total, Sub Total/Total TTC, mentions 293 B, bloc banque IBAN client + BIC, pied SIRET/NAF/capital). Montants au format FR (`18 240,00`). Route `GET /api/invoices/{id}/print` (HTML). InvoiceOut enrichi (month, days, hours, rate_unit, amount_eur_forecast, paid_date, variance_eur).
+- **Frontend Factures** réécrit : KPI (à encaisser / payées / prévisions), liste triée par statut (prévision/à encaisser/retard/payée), bouton **Générer** (forecast) et **Ouvrir la facture** (`/print` nouvel onglet). Réglages : champs email/capital/banque.
+- **Tests : 108 backend** (+`test_invoice_generation` : transition, dates, refus si déjà générée, rendu HTML) · **9 front** · tsc clean.
+- **E2E live :** prévision SWIB Mai 152 h × 120 → Générer → n°64, due, échéance +60 j → page imprimable rendue (screenshot) fidèle au Word (client, IBAN, 152 h @ 120 USD/h, 18 240,00 USD, 293 B, SIRET). Nettoyé.
+
+**Reste EPIC-5 :** ⑤ rapprochement/variance UI (le backend fige déjà paiement + variance).

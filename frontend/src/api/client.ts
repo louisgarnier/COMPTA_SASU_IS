@@ -138,6 +138,8 @@ export const invoicesAPI = {
   create: (b: Record<string, unknown>) => post<any>('/api/invoices', b),
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/invoices/${id}`, b),
+  generate: (id: number) => post<any>(`/api/invoices/${id}/generate`),
+  printUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/print`,
   generatePdf: (id: number) => post<{ pdf_path: string }>(`/api/invoices/${id}/pdf`),
   downloadUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/download`,
 };

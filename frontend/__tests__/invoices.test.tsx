@@ -6,40 +6,34 @@ jest.mock('@/api/client', () => ({
   invoicesAPI: {
     list: jest.fn().mockResolvedValue([
       {
-        id: 1,
-        number: 'F-2026-001',
-        client_id: 1,
-        client_name: 'Acme Corp',
-        period_label: 'Juin 2026',
-        period_start: '2026-06-01',
-        period_end: '2026-06-30',
-        hours: 10,
-        rate: 800,
-        currency: 'EUR',
-        amount: 8000,
-        issue_date: '2026-07-01',
-        due_date: '2026-07-31',
-        status: 'sent',
-        paid_transaction_id: null,
-        pdf_path: null,
+        id: 1, number: '68', client_name: 'Acme Corp', month: '2026-05',
+        period_label: 'May 2026', days: 0, hours: 152, rate: 120, rate_unit: 'hour',
+        currency: 'USD', amount: 18240, amount_eur_forecast: 16780.8,
+        issue_date: '2026-06-01', due_date: '2026-07-31', status: 'due',
+        paid_date: null, variance_eur: null,
+      },
+      {
+        id: 2, number: 'F-2-2026-08', client_name: 'Acme Corp', month: '2026-08',
+        period_label: '', days: 0, hours: 120, rate: 120, rate_unit: 'hour',
+        currency: 'USD', amount: 14400, amount_eur_forecast: 13248,
+        issue_date: null, due_date: null, status: 'forecast',
+        paid_date: null, variance_eur: null,
       },
     ]),
     update: jest.fn(),
-    create: jest.fn(),
-    generatePdf: jest.fn(),
-    downloadUrl: (id: number) => `http://localhost:8000/api/invoices/${id}/download`,
-  },
-  clientsAPI: {
-    list: jest.fn().mockResolvedValue([
-      { id: 1, code: 'ACME', legal_name: 'Acme Corp', currency: 'EUR', tjh: 800 },
-    ]),
+    generate: jest.fn(),
+    printUrl: (id: number) => `http://localhost:8000/api/invoices/${id}/print`,
   },
 }));
 
 describe('InvoicesPage', () => {
-  it('affiche le titre et le numéro de facture', async () => {
+  it('affiche le titre, le numéro généré et les actions du cycle de vie', async () => {
     render(<InvoicesPage />);
     expect(screen.getByRole('heading', { name: 'Factures' })).toBeInTheDocument();
-    expect(await screen.findByText('F-2026-001')).toBeInTheDocument();
+    // Facture 'due' → numéro + bouton "Ouvrir la facture"
+    expect(await screen.findByText('68')).toBeInTheDocument();
+    expect(await screen.findByText('Ouvrir la facture')).toBeInTheDocument();
+    // Facture 'forecast' → bouton "Générer"
+    expect(await screen.findByText('Générer')).toBeInTheDocument();
   });
 });
