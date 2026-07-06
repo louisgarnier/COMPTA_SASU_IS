@@ -102,7 +102,9 @@ def status() -> dict[str, Any]:
     """État lisible du service (pour l'endpoint /status)."""
     live = is_live()
     if live:
-        message = "Enable Banking connecté (mode live)."
+        # Honnêteté : « live » ne signifie que « creds présents », pas que les
+        # consentements bancaires (90 j) sont valides — ça se vérifie à la synchro.
+        message = "Enable Banking en mode live — la validité des consentements est vérifiée à la synchro."
     else:
         reasons = []
         if not settings.enable_banking_app_id:
@@ -518,45 +520,63 @@ def sync(db: Session) -> dict[str, Any]:
     accounts = db.query(models.BankAccount).all()
     added = 0
     skipped = 0
+    synced = 0
+    errors: list[dict] = []
 
     for account in accounts:
-        # IDs déjà présents pour ce compte (dedup scoping (account_uid, external_id)).
-        existing_ids = {
-            row[0]
-            for row in db.query(models.Transaction.external_id)
-            .filter(models.Transaction.account_uid == account.account_uid)
-            .all()
-        }
+        # Chaque compte est isolé par un SAVEPOINT : une erreur (ex. consentement
+        # expiré → 401) n'avorte PAS toute la synchro ni les comptes déjà traités —
+        # seul le compte en échec est annulé, on le note et on passe au suivant.
+        added_before, skipped_before = added, skipped
+        try:
+            with db.begin_nested():
+                # IDs déjà présents pour ce compte (dedup (account_uid, external_id)).
+                existing_ids = {
+                    row[0]
+                    for row in db.query(models.Transaction.external_id)
+                    .filter(models.Transaction.account_uid == account.account_uid)
+                    .all()
+                }
 
-        raw_txns = _fetch_raw_transactions(account)
-        seen_this_run: set[str] = set()
+                raw_txns = _fetch_raw_transactions(account)
+                seen_this_run: set[str] = set()
 
-        for raw in raw_txns:
-            norm = _normalize_txn(raw, account)
-            ext_id = norm["external_id"]
-            if not ext_id:
-                skipped += 1
-                continue
-            if ext_id in existing_ids or ext_id in seen_this_run:
-                skipped += 1
-                continue
-            seen_this_run.add(ext_id)
-            db.add(models.Transaction(**norm))
-            added += 1
+                for raw in raw_txns:
+                    norm = _normalize_txn(raw, account)
+                    ext_id = norm["external_id"]
+                    if not ext_id:
+                        skipped += 1
+                        continue
+                    if ext_id in existing_ids or ext_id in seen_this_run:
+                        skipped += 1
+                        continue
+                    seen_this_run.add(ext_id)
+                    db.add(models.Transaction(**norm))
+                    added += 1
 
-        # Solde : live → API ; mock → opening_balance + somme des transactions.
-        balance = _fetch_balance(account)
-        if balance is None:
-            total = (
-                db.query(models.Transaction)
-                .filter(models.Transaction.account_uid == account.account_uid)
-                .all()
+                # Solde : live → API ; mock → opening_balance + somme des transactions.
+                balance = _fetch_balance(account)
+                if balance is None:
+                    total = (
+                        db.query(models.Transaction)
+                        .filter(models.Transaction.account_uid == account.account_uid)
+                        .all()
+                    )
+                    balance = account.opening_balance + sum(
+                        (t.amount for t in total), Decimal("0")
+                    )
+                account.balance = balance
+                account.last_synced_at = datetime.now(tz=timezone.utc)
+            synced += 1
+        except Exception as exc:  # noqa: BLE001 — on isole chaque compte
+            added, skipped = added_before, skipped_before  # compteurs annulés avec le savepoint
+            msg = str(exc) or exc.__class__.__name__
+            logger.warning(
+                "⚠️ [Banking] sync: compte %s en échec (%s) — reconnexion requise ?",
+                account.account_uid,
+                msg,
             )
-            balance = account.opening_balance + sum(
-                (t.amount for t in total), Decimal("0")
-            )
-        account.balance = balance
-        account.last_synced_at = datetime.now(tz=timezone.utc)
+            errors.append({"account_uid": account.account_uid, "error": msg})
 
     # Re-catégorisation automatique des nouvelles écritures (spec S3.3).
     db.flush()  # rendre les transactions ajoutées visibles au moteur de règles
@@ -572,18 +592,38 @@ def sync(db: Session) -> dict[str, Any]:
 
     reconciled = reconcile_payments(db)
     logger.info(
-        "✅ [Banking] sync: comptes=%d ajoutées=%d ignorées=%d catégorisées=%d "
-        "rapprochées=%d",
+        "✅ [Banking] sync: comptes=%d/%d ajoutées=%d ignorées=%d catégorisées=%d "
+        "rapprochées=%d erreurs=%d",
+        synced,
         len(accounts),
         added,
         skipped,
         categorized,
         reconciled,
+        len(errors),
     )
     return {
-        "accounts_synced": len(accounts),
+        "accounts_synced": synced,
+        "accounts_total": len(accounts),
         "transactions_added": added,
         "transactions_skipped": skipped,
         "transactions_categorized": categorized,
         "invoices_reconciled": reconciled,
+        "errors": errors,
     }
+
+
+def disconnect_account(db: Session, account_id: int) -> bool:
+    """
+    Déconnecte (supprime) un compte bancaire. Retourne False s'il n'existe pas.
+
+    Les transactions déjà importées sont conservées (historique) ; seul le compte
+    disparaît de la liste et cesse d'être synchronisé / compté dans la trésorerie.
+    """
+    account = db.get(models.BankAccount, account_id)
+    if account is None:
+        return False
+    db.delete(account)
+    db.commit()
+    logger.info("🗑️ [Banking] disconnect: compte id=%d (%s) ✅", account_id, account.account_uid)
+    return True

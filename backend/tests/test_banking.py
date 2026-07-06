@@ -160,6 +160,38 @@ def test_sync_updates_balance_and_last_synced(session):
         assert acc.last_synced_at is not None
 
 
+def test_sync_isolates_failing_account(session, monkeypatch):
+    """Un compte en échec (ex. consentement expiré) n'avorte pas toute la synchro."""
+    banking_service.create_session(session, code="c")
+    accounts = session.query(models.BankAccount).all()
+    fail_uid = accounts[0].account_uid
+    real_fetch = banking_service._fetch_raw_transactions
+
+    def flaky(account):
+        if account.account_uid == fail_uid:
+            raise RuntimeError("consentement expiré (401)")
+        return real_fetch(account)
+
+    monkeypatch.setattr(banking_service, "_fetch_raw_transactions", flaky)
+    res = banking_service.sync(session)
+
+    # Le compte fautif est isolé et noté ; les autres sont bien synchronisés.
+    assert res["accounts_synced"] == len(accounts) - 1
+    assert res["accounts_total"] == len(accounts)
+    assert any(e["account_uid"] == fail_uid for e in res["errors"])
+    assert res["transactions_added"] > 0  # les autres comptes ont importé
+
+
+def test_disconnect_account(session, client):
+    banking_service.create_session(session, code="c")
+    acc = session.query(models.BankAccount).first()
+    resp = client.delete(f"/api/banking/connections/{acc.id}")
+    assert resp.status_code == 204
+    assert session.get(models.BankAccount, acc.id) is None
+    # 404 si le compte n'existe pas.
+    assert client.delete("/api/banking/connections/999999").status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Routes (TestClient)
 # ---------------------------------------------------------------------------

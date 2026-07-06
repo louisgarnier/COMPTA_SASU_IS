@@ -18,7 +18,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -72,10 +72,19 @@ class SessionOut(BaseModel):
     accounts: list[AccountOut]
 
 
+class SyncError(BaseModel):
+    account_uid: str
+    error: str
+
+
 class SyncOut(BaseModel):
     accounts_synced: int
+    accounts_total: int = 0
     transactions_added: int
     transactions_skipped: int
+    transactions_categorized: int = 0
+    invoices_reconciled: int = 0
+    errors: list[SyncError] = []
 
 
 class StatusOut(BaseModel):
@@ -122,6 +131,14 @@ def sync(db: Session = Depends(get_db)) -> dict:
     """Synchronise les transactions de tous les comptes."""
     logger.info("📥 [Banking] POST /sync")
     return banking_service.sync(db)
+
+
+@router.delete("/connections/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect_connection(account_id: int, db: Session = Depends(get_db)) -> None:
+    """Déconnecte un compte bancaire (404 s'il n'existe pas). Les transactions restent."""
+    logger.info("📥 [Banking] DELETE /connections/%d", account_id)
+    if not banking_service.disconnect_account(db, account_id):
+        raise HTTPException(status_code=404, detail="Compte introuvable")
 
 
 @router.get("/status", response_model=StatusOut)

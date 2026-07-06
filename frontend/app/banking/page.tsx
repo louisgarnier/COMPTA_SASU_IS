@@ -8,6 +8,7 @@ import { money, dateFR } from '@/lib/format';
 type Status = { live: boolean; message: string };
 type Aspsp = { name: string; country?: string };
 type Connection = {
+  id: number;
   account_uid: string;
   name: string;
   provider: string;
@@ -18,8 +19,12 @@ type Connection = {
 };
 type SyncResult = {
   accounts_synced: number;
+  accounts_total: number;
   transactions_added: number;
   transactions_skipped: number;
+  transactions_categorized: number;
+  invoices_reconciled: number;
+  errors: { account_uid: string; error: string }[];
 };
 
 export default function BankingPage() {
@@ -105,14 +110,27 @@ export default function BankingPage() {
     setError('');
     try {
       const res = (await bankingAPI.sync()) as SyncResult;
-      setSyncMsg(
-        `✅ ${res.accounts_synced} compte(s), ${res.transactions_added} transaction(s) ajoutée(s), ${res.transactions_skipped} ignorée(s)`,
-      );
+      const nErr = res.errors?.length ?? 0;
+      let msg = `✅ ${res.accounts_synced}/${res.accounts_total ?? res.accounts_synced} compte(s), ${res.transactions_added} ajoutée(s), ${res.transactions_skipped} ignorée(s), ${res.transactions_categorized ?? 0} catégorisée(s), ${res.invoices_reconciled ?? 0} rapprochée(s)`;
+      if (nErr > 0) {
+        msg += ` — ⚠️ ${nErr} compte(s) en échec (reconnexion requise) : ${res.errors.map((e) => e.account_uid).join(', ')}`;
+      }
+      setSyncMsg(msg);
       await loadConnections();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleDisconnect = async (c: Connection) => {
+    if (!confirm(`Déconnecter le compte « ${c.name || c.account_uid} » ? Les transactions déjà importées sont conservées.`)) return;
+    try {
+      await bankingAPI.disconnect(c.id);
+      await loadConnections();
+    } catch (e) {
+      setError((e as Error).message);
     }
   };
 
@@ -252,6 +270,7 @@ export default function BankingPage() {
                       <th className="py-2 pr-4 font-medium">
                         Dernière synchro
                       </th>
+                      <th className="py-2 font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,6 +290,15 @@ export default function BankingPage() {
                         </td>
                         <td className="py-2 pr-4">
                           {dateFR(c.last_synced_at)}
+                        </td>
+                        <td className="py-2 text-right">
+                          <button
+                            onClick={() => handleDisconnect(c)}
+                            className="text-xs text-[var(--muted)] hover:text-[var(--neg)]"
+                            title="Déconnecter ce compte"
+                          >
+                            Déconnecter
+                          </button>
                         </td>
                       </tr>
                     ))}

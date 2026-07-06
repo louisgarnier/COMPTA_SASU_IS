@@ -194,4 +194,5 @@ export const bankingAPI = {
   createSession: (code: string) => post<any>('/api/banking/sessions', { code }),
   connections: () => get<any[]>('/api/banking/connections'),
   sync: () => post<any>('/api/banking/sync'),
+  disconnect: (id: number) => del(`/api/banking/connections/${id}`),
 };
