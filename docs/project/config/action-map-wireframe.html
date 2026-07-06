@@ -1,0 +1,308 @@
+<title>LGC — Blueprint des actions</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --ink: #1a1f2e; --muted: #5b6472;
+    --line: #e2e5ea; --accent: #2563eb; --accent-soft: #e8effc;
+    --ok: #157a4e; --ok-bg: #e4f4ec;
+    --warn: #a9631a; --warn-bg: #fbeede;
+    --err: #c0392b; --err-bg: #fbe6e3;
+    --miss: #6b7280; --miss-bg: #eceef1;
+    --hi: #c0392b; --med: #a9631a; --lo: #9aa0aa;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --panel: #1c2027; --ink: #e7eaf0; --muted: #949cab;
+      --line: #2b303a; --accent: #6a9dfb; --accent-soft: #1e2a40;
+      --ok: #4bbd86; --ok-bg: #12271e;
+      --warn: #d69a4c; --warn-bg: #2c2213;
+      --err: #e0705f; --err-bg: #2e1815;
+      --miss: #9aa2ae; --miss-bg: #23272f;
+      --hi: #e0705f; --med: #d69a4c; --lo: #767d88;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171d; --panel: #1c2027; --ink: #e7eaf0; --muted: #949cab;
+    --line: #2b303a; --accent: #6a9dfb; --accent-soft: #1e2a40;
+    --ok: #4bbd86; --ok-bg: #12271e; --warn: #d69a4c; --warn-bg: #2c2213;
+    --err: #e0705f; --err-bg: #2e1815; --miss: #9aa2ae; --miss-bg: #23272f;
+    --hi: #e0705f; --med: #d69a4c; --lo: #767d88;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --panel: #ffffff; --ink: #1a1f2e; --muted: #5b6472;
+    --line: #e2e5ea; --accent: #2563eb; --accent-soft: #e8effc;
+    --ok: #157a4e; --ok-bg: #e4f4ec; --warn: #a9631a; --warn-bg: #fbeede;
+    --err: #c0392b; --err-bg: #fbe6e3; --miss: #6b7280; --miss-bg: #eceef1;
+    --hi: #c0392b; --med: #a9631a; --lo: #9aa0aa;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.5; font-size: 14px; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+  h1 { font-size: 26px; font-weight: 680; letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; font-weight: 650; color: var(--accent); }
+
+  /* summary tiles */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 8px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .n { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1; }
+  .tile .lbl { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .tile.hi .n { color: var(--err); } .tile.med .n { color: var(--warn); }
+  .tile.ok .n { color: var(--ok); } .tile.miss .n { color: var(--miss); }
+
+  /* controls */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 22px 0 18px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+    padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 550; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; user-select: none; }
+  .chip:hover { border-color: var(--accent); color: var(--ink); }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  /* module grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .mod { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    display: flex; flex-direction: column; }
+  .mod > .head { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+  .mod .title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .mod h2 { font-size: 15.5px; font-weight: 640; margin: 0; letter-spacing: -0.01em; }
+  .mod .count { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .health { display: flex; height: 5px; border-radius: 999px; overflow: hidden; margin-top: 11px; background: var(--line); }
+  .health i { display: block; height: 100%; }
+  .health i.ok { background: var(--ok); } .health i.warn { background: var(--warn); }
+  .health i.err { background: var(--err); } .health i.miss { background: var(--miss); }
+
+  ul.acts { list-style: none; margin: 0; padding: 4px 0; flex: 1; }
+  li.act { display: grid; grid-template-columns: 20px 1fr auto; align-items: baseline; gap: 9px;
+    padding: 8px 16px; border-top: 1px solid transparent; }
+  li.act + li.act { border-top-color: var(--line); }
+  li.act .badge { font-size: 11px; font-weight: 700; width: 20px; text-align: center; line-height: 1.4; }
+  li.act.state-ok .badge { color: var(--ok); } li.act.state-warn .badge { color: var(--warn); }
+  li.act.state-err .badge { color: var(--err); } li.act.state-miss .badge { color: var(--miss); }
+  li.act .label { font-size: 13px; }
+  li.act .note { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+  li.act .note code { font-family: var(--mono); font-size: 10.5px; background: var(--miss-bg); padding: 0 3px; border-radius: 3px; }
+  .sev { font-size: 9.5px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 2px 6px; border-radius: 5px; white-space: nowrap; align-self: center; }
+  .sev.hi { color: var(--err); background: var(--err-bg); }
+  .sev.med { color: var(--warn); background: var(--warn-bg); }
+  .sev.lo { color: var(--miss); background: var(--miss-bg); }
+  li.act.hidden { display: none; }
+  .mod.dim { opacity: 0.32; }
+
+  /* flows */
+  .flows { margin-top: 34px; }
+  .flows h2 { font-size: 18px; font-weight: 660; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .flow-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 10px; margin-top: 16px; }
+  .flow { background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+    padding: 11px 14px; font-size: 12.5px; }
+  .flow.ok { border-left-color: var(--ok); } .flow.warn { border-left-color: var(--warn); }
+  .flow .path { font-weight: 600; }
+  .flow .arr { color: var(--accent); font-weight: 700; padding: 0 3px; }
+  .flow .desc { color: var(--muted); margin-top: 3px; }
+
+  .note-git { background: var(--warn-bg); border: 1px solid var(--warn); color: var(--ink);
+    border-radius: 12px; padding: 14px 16px; margin: 20px 0 4px; font-size: 13px; }
+  .note-git b { color: var(--warn); }
+  footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }
+  @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2,1fr); } .legend { margin-left: 0; width: 100%; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Audit 2026-07-06 · 9 modules</div>
+      <h1>Blueprint des actions — LGC</h1>
+      <p class="sub">Chaque action de chaque module, son état réel et sa sévérité. Cliquez une pastille pour filtrer.</p>
+    </div>
+  </header>
+
+  <div class="note-git">
+    <b>⚠️ À traiter d'abord — git.</b> Le working tree contient du travail <b>non committé</b> de deux sessions
+    (suppression de facture déjà écrite mais jamais committée + fix client/reprice). À commiter en lots propres
+    avant toute correction.
+  </div>
+
+  <div class="tiles">
+    <div class="tile hi"><div class="n">7</div><div class="lbl">Sévérité haute 🔴</div></div>
+    <div class="tile med"><div class="n">18</div><div class="lbl">Sévérité moyenne 🟠</div></div>
+    <div class="tile miss"><div class="n">12</div><div class="lbl">Orphelins / manquants 🚫</div></div>
+    <div class="tile ok"><div class="n">9</div><div class="lbl">Modules audités</div></div>
+  </div>
+
+  <div class="controls">
+    <span style="font-size:12px;color:var(--muted);font-weight:600;">Filtrer :</span>
+    <button class="chip" data-filter="all" aria-pressed="true">Tout</button>
+    <button class="chip" data-filter="hi" aria-pressed="false"><span class="dot" style="background:var(--err)"></span>Haute</button>
+    <button class="chip" data-filter="med" aria-pressed="false"><span class="dot" style="background:var(--warn)"></span>Moyenne</button>
+    <button class="chip" data-filter="broken" aria-pressed="false"><span class="dot" style="background:var(--err)"></span>❌ / 🚫 seulement</button>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--ok)"></i>✅ marche</span>
+      <span><i class="sw" style="background:var(--warn)"></i>⚠️ trou/risque</span>
+      <span><i class="sw" style="background:var(--err)"></i>❌ cassé</span>
+      <span><i class="sw" style="background:var(--miss)"></i>🚫 manquant</span>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <section class="flows">
+    <h2>Flux inter-modules</h2>
+    <p class="sub">Les chaînes qui traversent les modules — c'est là que se cachent les incohérences.</p>
+    <div class="flow-list" id="flows"></div>
+  </section>
+
+  <footer>Généré par audit parallèle (9 agents, lecture seule) · source détaillée : <code>docs/project/config/action-map.md</code></footer>
+</div>
+
+<script>
+  const S = { ok:{b:'✓',c:'state-ok'}, warn:{b:'⚠',c:'state-warn'}, err:{b:'✗',c:'state-err'}, miss:{b:'∅',c:'state-miss'} };
+  const modules = [
+    { name:'Transactions', acts:[
+      {l:'Lister', s:'ok'},
+      {l:'Filtre catégorie (id)', s:'ok'},
+      {l:'Filtre « À catégoriser »', s:'err', sev:'hi', n:'retourne 0 — fourre-tout au lieu de <code>category_id NULL</code>'},
+      {l:'Filtre Type (kind)', s:'err', sev:'hi', n:'toutes les tx en <code>kind=\'other\'</code>, jamais assigné'},
+      {l:'Filtre dates', s:'ok'},
+      {l:'Catégoriser inline', s:'warn', sev:'lo', n:'à vérifier live'},
+      {l:'Synchroniser', s:'warn', sev:'lo'},
+      {l:'Recherche texte', s:'miss', sev:'med', n:'ni UI ni endpoint'},
+    ]},
+    { name:'Catégories', acts:[
+      {l:'Lister catégories / règles', s:'ok'},
+      {l:'Créer catégorie', s:'ok'},
+      {l:'Éditer catégorie', s:'miss', sev:'med', n:'endpoint existe, aucune UI (orphelin)'},
+      {l:'Supprimer catégorie', s:'miss', sev:'med', n:'ni endpoint ni UI'},
+      {l:'CRUD règles', s:'ok'},
+      {l:'Éditer motif / priorité règle', s:'warn', sev:'med', n:'UI ne patche que enabled/catégorie'},
+      {l:'Ré-appliquer les règles', s:'err', sev:'med', n:'non exposé — n\'agit qu\'à la prochaine sync'},
+    ]},
+    { name:'Forecast', acts:[
+      {l:'Charger / changer d\'année', s:'ok'},
+      {l:'Saisir jours / heures / taux (liés)', s:'ok'},
+      {l:'Enregistrer la grille', s:'ok'},
+      {l:'Supprimer / vider une prévision', s:'err', sev:'med', n:'vider une cellule n\'efface pas la facture forecast'},
+      {l:'Note par prévision', s:'miss', sev:'lo', n:'champ mort (envoie toujours vide)'},
+      {l:'Trésorerie de départ', s:'warn', sev:'med', n:'jamais transmise → cumul démarre à 0'},
+      {l:'Bascule TJM / THM', s:'warn', sev:'med', n:'persiste le mode mais ne re-price pas'},
+      {l:'Charges d\'une année future', s:'warn', sev:'med', n:'=0 → IS surévalué'},
+    ]},
+    { name:'Clients', acts:[
+      {l:'CRUD complet (+ 422/409)', s:'ok'},
+      {l:'Reprice preview / apply / annuler', s:'ok'},
+      {l:'Erreur validation 422', s:'warn', sev:'med', n:'affichée « [object Object] »'},
+      {l:'Suppression', s:'warn', sev:'med', n:'fonctionne mais non testée'},
+      {l:'GET /clients/{id}', s:'miss', sev:'lo', n:'endpoint orphelin'},
+    ]},
+    { name:'Factures', acts:[
+      {l:'Lister / générer / imprimer', s:'ok'},
+      {l:'Rapprocher / annuler rappr.', s:'ok'},
+      {l:'Supprimer', s:'warn', sev:'hi', n:'déjà écrit mais NON COMMITTÉ (à risque)'},
+      {l:'Marquer payé (manuel)', s:'err', sev:'med', n:'seul le rapprochement clôt une facture'},
+      {l:'changeStatus', s:'miss', sev:'med', n:'code mort, jamais branché'},
+      {l:'PATCH statut sans validation', s:'warn', sev:'med', n:'aucun contrôle d\'enum'},
+      {l:'PDF / download WeasyPrint', s:'miss', sev:'lo', n:'orphelins (choix : page imprimable)'},
+    ]},
+    { name:'Banques', acts:[
+      {l:'Statut / ASPSP / comptes', s:'ok'},
+      {l:'Badge « Connecté »', s:'warn', sev:'hi', n:'teste les creds, pas la validité du consentement 90j'},
+      {l:'Connexion OAuth / coller code', s:'warn', sev:'hi', n:'redirect ngrok mort, copie manuelle du ?code='},
+      {l:'Synchroniser', s:'warn', sev:'hi', n:'aucun try/except → consentement expiré = 500, tout avorte'},
+      {l:'Déconnecter un compte', s:'err', sev:'med', n:'aucun endpoint ni bouton'},
+      {l:'Compteurs sync (catég./rappr.)', s:'warn', sev:'med', n:'SyncOut les tronque'},
+    ]},
+    { name:'Réglages', acts:[
+      {l:'Société / IS / facturation', s:'ok'},
+      {l:'Éditer / enregistrer taux FX', s:'ok'},
+      {l:'Ajouter une devise FX', s:'miss', sev:'med', n:'impossible tant qu\'aucune tx ne l\'utilise'},
+      {l:'default_fx_usd / cad', s:'err', sev:'med', n:'colonnes mortes (double source FX)'},
+      {l:'Validation (IS, FX>0, SIRET)', s:'warn', sev:'med', n:'aucune borne'},
+      {l:'Save si champ numérique vidé', s:'warn', sev:'med', n:'échec 422 sur tout le PUT'},
+    ]},
+    { name:'Placements', acts:[
+      {l:'CRUD placements + résumé', s:'miss', sev:'hi', n:'backend complet, AUCUNE UI ni lien nav'},
+      {l:'Base IS (plus-values latentes)', s:'warn', sev:'hi', n:'branchée mais aucune saisie possible'},
+      {l:'Taux FX (list / save)', s:'ok'},
+    ]},
+    { name:'Dashboard', acts:[
+      {l:'KPI (tréso / résultat / IS / factures)', s:'ok', n:'chiffres croisés cohérents'},
+      {l:'Ligne de solde vs cashflow', s:'warn', sev:'hi', n:'solde futur ignore les encaissements factures (−57 960 €)'},
+      {l:'FX 1:1 silencieux', s:'err', sev:'hi', n:'devise sans taux → convertie à 1, fausse tréso/P&L/IS'},
+      {l:'Boutons « Tous les comptes » / « + Facture »', s:'miss', sev:'med', n:'décoratifs, sans action'},
+      {l:'Sélecteur d\'année', s:'err', sev:'lo', n:'figé à 2026'},
+    ]},
+  ];
+
+  const flows = [
+    { k:'warn', a:'FX (fx_rates)', b:'TOUS les calculs EUR', d:'forecast · pnl · treasury · cashflow · factures. Fallback 1:1 silencieux si devise sans taux.'},
+    { k:'warn', a:'Transactions', b:'Catégories', d:'catégorisation auto par règles à la sync. Fourre-tout vs NULL ; règles non ré-applicables hors sync.'},
+    { k:'ok', a:'Forecast', b:'Facture', d:'prévision = facture forecast → génération forecast→due.'},
+    { k:'ok', a:'Client', b:'Forecast (reprice)', d:'taux/mode → recalcul des prévisions futures (câblé page Clients uniquement).'},
+    { k:'ok', a:'Facture', b:'Transaction', d:'rapprochement : reconcile / unreconcile / delete libèrent tx.invoice_id.'},
+    { k:'warn', a:'Banque (sync)', b:'Transactions → Catégories → Factures', d:'chaîne d\'import. Pas de gestion d\'erreur : une session expirée avorte tout.'},
+    { k:'warn', a:'Placements', b:'Base IS', d:'plus-values latentes → base imposable. Branché, mais aucune UI pour saisir.'},
+    { k:'warn', a:'Factures ouvertes', b:'Cashflow ≠ Ligne de solde', d:'deux futurs divergents : le cashflow compte les encaissements, la ligne de solde non.'},
+    { k:'ok', a:'Réglages', b:'Génération facture · IS · distribuable', d:'compteur n° · barème IS · report à nouveau.'},
+  ];
+
+  const grid = document.getElementById('grid');
+  modules.forEach(m => {
+    const counts = { ok:0, warn:0, err:0, miss:0 };
+    m.acts.forEach(a => counts[a.s]++);
+    const total = m.acts.length;
+    const seg = k => counts[k] ? `<i class="${k}" style="flex:${counts[k]}"></i>` : '';
+    const el = document.createElement('div');
+    el.className = 'mod';
+    el.innerHTML = `
+      <div class="head">
+        <div class="title-row"><h2>${m.name}</h2><span class="count">${counts.ok}/${total} ✓</span></div>
+        <div class="health">${seg('ok')}${seg('warn')}${seg('err')}${seg('miss')}</div>
+      </div>
+      <ul class="acts">
+        ${m.acts.map(a => {
+          const sev = a.sev ? `<span class="sev ${a.sev}">${a.sev==='hi'?'haute':a.sev==='med'?'moy.':'basse'}</span>` : '<span></span>';
+          const note = a.n ? `<span class="note">${a.n}</span>` : '';
+          return `<li class="act ${S[a.s].c}" data-sev="${a.sev||''}" data-state="${a.s}">
+            <span class="badge">${S[a.s].b}</span>
+            <span class="label">${a.l}${note}</span>
+            ${sev}
+          </li>`;
+        }).join('')}
+      </ul>`;
+    grid.appendChild(el);
+  });
+
+  const flowsEl = document.getElementById('flows');
+  flows.forEach(f => {
+    const el = document.createElement('div');
+    el.className = 'flow ' + f.k;
+    el.innerHTML = `<div class="path">${f.a}<span class="arr">→</span>${f.b}</div><div class="desc">${f.d}</div>`;
+    flowsEl.appendChild(el);
+  });
+
+  // filtering
+  const chips = [...document.querySelectorAll('.chip')];
+  chips.forEach(c => c.addEventListener('click', () => {
+    chips.forEach(x => x.setAttribute('aria-pressed', x === c));
+    const f = c.dataset.filter;
+    document.querySelectorAll('li.act').forEach(li => {
+      let show = true;
+      if (f === 'hi') show = li.dataset.sev === 'hi';
+      else if (f === 'med') show = li.dataset.sev === 'med';
+      else if (f === 'broken') show = li.dataset.state === 'err' || li.dataset.state === 'miss';
+      li.classList.toggle('hidden', !show);
+    });
+    document.querySelectorAll('.mod').forEach(mod => {
+      const anyVisible = [...mod.querySelectorAll('li.act')].some(li => !li.classList.contains('hidden'));
+      mod.classList.toggle('dim', !anyVisible);
+    });
+  }));
+</script>
