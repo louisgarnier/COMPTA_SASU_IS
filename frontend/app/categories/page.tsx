@@ -158,6 +158,36 @@ export default function CategoriesPage() {
     }
   };
 
+  const removeCategory = async (c: Category) => {
+    if (!confirm(`Supprimer la catégorie « ${c.name} » ? Les transactions dessus repassent à « À catégoriser ».`)) return;
+    try {
+      await categoriesAPI.remove(c.id);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const patchRule = async (rule: Rule, body: Record<string, unknown>) => {
+    try {
+      await categoriesAPI.updateRule(rule.id, body);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const [recatMsg, setRecatMsg] = useState('');
+  const reapplyRules = async () => {
+    setRecatMsg('Ré-application…');
+    try {
+      const res = await categoriesAPI.recategorize();
+      setRecatMsg(`✅ ${res.changed} transaction(s) recatégorisée(s)`);
+    } catch (e) {
+      setRecatMsg(`❌ ${(e as Error).message}`);
+    }
+  };
+
   return (
     <div className="max-w-4xl">
       <PageTitle
@@ -192,6 +222,15 @@ export default function CategoriesPage() {
                       <Badge tone="neutral">système</Badge>
                     )}
                     <Badge tone={typeTone(c.type)}>{typeLabel(c.type)}</Badge>
+                    {!c.is_system && (
+                      <button
+                        onClick={() => removeCategory(c)}
+                        className="text-xs text-[var(--muted)] hover:text-[var(--neg)]"
+                        title="Supprimer la catégorie"
+                      >
+                        🗑️
+                      </button>
+                    )}
                   </span>
                 </li>
               ))}
@@ -231,13 +270,24 @@ export default function CategoriesPage() {
 
         {/* Section Règles */}
         <Card>
-          <div className="mb-1 text-sm font-semibold">
-            Règles de catégorisation
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">Règles de catégorisation</div>
+            <div className="flex items-center gap-2">
+              {recatMsg && <span className="text-xs text-[var(--muted)]">{recatMsg}</span>}
+              <button
+                onClick={reapplyRules}
+                className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10"
+                title="Rejoue les règles sur toutes les transactions existantes"
+              >
+                Ré-appliquer les règles
+              </button>
+            </div>
           </div>
           <p className="mb-4 text-xs text-[var(--muted)]">
             Les règles s'appliquent par correspondance de sous-chaîne, sans
             tenir compte de la casse. La règle avec le plus petit numéro de
-            priorité est évaluée en premier.
+            priorité est évaluée en premier. « Ré-appliquer » les rejoue sur
+            l'historique (sinon elles n'agissent qu'à la prochaine synchro).
           </p>
 
           <div className="overflow-x-auto">
@@ -259,7 +309,18 @@ export default function CategoriesPage() {
                       {FIELD_OPTIONS.find((f) => f.value === r.match_field)
                         ?.label ?? r.match_field}
                     </td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.pattern}</td>
+                    <td className="py-2 pr-3">
+                      <input
+                        type="text"
+                        aria-label={`Motif de la règle ${r.id}`}
+                        defaultValue={r.pattern}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if (v && v !== r.pattern) patchRule(r, { pattern: v });
+                        }}
+                        className={`${inputClass} w-36 font-mono text-xs`}
+                      />
+                    </td>
                     <td className="py-2 pr-3">
                       <select
                         aria-label={`Catégorie de la règle ${r.id}`}
@@ -281,7 +342,18 @@ export default function CategoriesPage() {
                         )}
                       </select>
                     </td>
-                    <td className="py-2 pr-3 tabular">{r.priority}</td>
+                    <td className="py-2 pr-3">
+                      <input
+                        type="number"
+                        aria-label={`Priorité de la règle ${r.id}`}
+                        defaultValue={r.priority}
+                        onBlur={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v !== r.priority) patchRule(r, { priority: v });
+                        }}
+                        className={`${inputClass} w-16 tabular`}
+                      />
+                    </td>
                     <td className="py-2 pr-3">
                       <input
                         type="checkbox"

@@ -123,6 +123,8 @@ export const categoriesAPI = {
   create: (b: Record<string, unknown>) => post<any>('/api/categories', b),
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/categories/${id}`, b),
+  remove: (id: number) => del(`/api/categories/${id}`),
+  recategorize: () => post<{ changed: number }>('/api/categories/recategorize'),
   listRules: () => get<any[]>('/api/category-rules'),
   createRule: (b: Record<string, unknown>) => post<any>('/api/category-rules', b),
   updateRule: (id: number, b: Record<string, unknown>) =>

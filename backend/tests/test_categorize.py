@@ -279,6 +279,38 @@ def test_get_transactions_filters_and_category_name(client, db_session):
     assert [t["external_id"] for t in body] == ["mar"]
 
 
+def test_delete_category_reassigns_tx_and_refuses_system(client, db_session):
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    # Catégorie utilisateur + une tx dessus.
+    cat = models.Category(name="Perso", type="charge", is_system=False)
+    db_session.add(cat)
+    db_session.commit()
+    tx = _tx(db_session, external_id="d1", category_id=cat.id)
+
+    # Suppression OK → tx réaffectée au fourre-tout.
+    resp = client.delete(f"/api/categories/{cat.id}")
+    assert resp.status_code == 204
+    db_session.refresh(tx)
+    assert tx.category_id == _category_id(db_session, UNCATEGORIZED_NAME)
+    assert db_session.get(models.Category, cat.id) is None
+
+    # Catégorie système → 409.
+    sys_id = _category_id(db_session, "URSSAF")
+    assert client.delete(f"/api/categories/{sys_id}").status_code == 409
+    # Absente → 404.
+    assert client.delete("/api/categories/999999").status_code == 404
+
+
+def test_recategorize_endpoint(client, db_session):
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    _tx(db_session, external_id="r1", counterparty="URSSAF PACA")
+    resp = client.post("/api/categories/recategorize")
+    assert resp.status_code == 200
+    assert resp.json()["changed"] >= 1
+
+
 def test_patch_transaction_updates_and_404(client, db_session):
     seed_default_categories_and_rules(db_session)
     _account(db_session)

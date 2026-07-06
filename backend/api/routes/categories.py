@@ -125,6 +125,51 @@ def update_category(
     return cat
 
 
+@router.delete("/{category_id}", status_code=204)
+def delete_category(category_id: int, db: Session = Depends(get_db)) -> None:
+    """
+    Supprime une catégorie utilisateur (404 si absente, 409 si système).
+
+    FK-safe : les transactions rattachées sont réaffectées au fourre-tout
+    « À catégoriser » et les règles ciblant cette catégorie sont supprimées,
+    afin de ne pas violer les contraintes d'intégrité (RESTRICT).
+    """
+    from backend.services.categorize import get_or_create_uncategorized
+
+    cat = db.get(models.Category, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="Catégorie introuvable")
+    if cat.is_system:
+        raise HTTPException(
+            status_code=409, detail="Catégorie système — suppression interdite"
+        )
+
+    uncategorized = get_or_create_uncategorized(db)
+    # Réaffecte les transactions de cette catégorie au fourre-tout.
+    (
+        db.query(models.Transaction)
+        .filter(models.Transaction.category_id == category_id)
+        .update({models.Transaction.category_id: uncategorized.id})
+    )
+    # Supprime les règles qui ciblaient cette catégorie.
+    db.query(models.CategoryRule).filter(
+        models.CategoryRule.category_id == category_id
+    ).delete()
+    db.delete(cat)
+    db.commit()
+    logger.info("🗑️ [Categories] delete: id=%s (tx réaffectées au fourre-tout) ✅", category_id)
+
+
+@router.post("/recategorize")
+def recategorize(db: Session = Depends(get_db)) -> dict:
+    """Rejoue les règles sur TOUTES les transactions ; retourne le nombre modifié."""
+    from backend.services.categorize import recategorize_all
+
+    changed = recategorize_all(db)
+    logger.info("📤 [Categories] recategorize: %d transaction(s) modifiée(s) ✅", changed)
+    return {"changed": changed}
+
+
 # --------------------------------------------------------------------------- #
 # Endpoints Règles
 # --------------------------------------------------------------------------- #
