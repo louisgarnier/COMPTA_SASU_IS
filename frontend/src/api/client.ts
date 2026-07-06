@@ -220,7 +220,10 @@ export const bankingAPI = {
   aspsps: (country = 'FR') => get<any[]>(`/api/banking/aspsps?country=${country}`),
   connect: (aspsp_name: string) =>
     post<any>('/api/banking/connect', { aspsp_name }),
-  createSession: (code: string) => post<any>('/api/banking/sessions', { code }),
+  createSession: (code: string, state?: string) =>
+    post<any>('/api/banking/sessions', { code, state }),
+  selectAccounts: (accounts: Record<string, unknown>[]) =>
+    post<any[]>('/api/banking/connections/select', { accounts }),
   connections: () => get<any[]>('/api/banking/connections'),
   sync: () => post<any>('/api/banking/sync'),
   disconnect: (id: number) => del(`/api/banking/connections/${id}`),

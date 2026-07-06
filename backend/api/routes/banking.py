@@ -52,6 +52,17 @@ class ConnectOut(BaseModel):
 
 class SessionIn(BaseModel):
     code: str
+    state: Optional[str] = None
+
+
+class AccountPreview(BaseModel):
+    """Compte disponible (aperçu), avant rattachement."""
+
+    account_uid: str
+    provider: str
+    currency: str
+    iban_masked: str
+    name: str
 
 
 class AccountOut(BaseModel):
@@ -68,8 +79,16 @@ class AccountOut(BaseModel):
 
 
 class SessionOut(BaseModel):
+    """Retour de l'échange OAuth : comptes disponibles (non encore rattachés)."""
+
     session_id: str
-    accounts: list[AccountOut]
+    accounts: list[AccountPreview]
+
+
+class SelectIn(BaseModel):
+    """Comptes choisis par l'utilisateur à rattacher."""
+
+    accounts: list[AccountPreview]
 
 
 class SyncError(BaseModel):
@@ -112,9 +131,18 @@ def connect(payload: ConnectIn) -> dict:
 
 @router.post("/sessions", response_model=SessionOut)
 def create_session(payload: SessionIn, db: Session = Depends(get_db)) -> dict:
-    """Échange le code d'autorisation contre une session + comptes."""
+    """Échange le code contre la liste des comptes disponibles (non rattachés)."""
     logger.info("📥 [Banking] POST /sessions")
-    return banking_service.create_session(db, payload.code)
+    return banking_service.create_session(db, payload.code, payload.state)
+
+
+@router.post("/connections/select", response_model=list[AccountOut])
+def select_accounts(payload: SelectIn, db: Session = Depends(get_db)):
+    """Rattache les comptes choisis par l'utilisateur (persistés)."""
+    logger.info("📥 [Banking] POST /connections/select (%d)", len(payload.accounts))
+    return banking_service.select_accounts(
+        db, [a.model_dump() for a in payload.accounts]
+    )
 
 
 @router.get("/connections", response_model=list[AccountOut])

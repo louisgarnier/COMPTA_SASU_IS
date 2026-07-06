@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -67,6 +67,12 @@ def client(session):
     return TestClient(app)
 
 
+def _connect(db):
+    """Helper : échange le code puis rattache TOUS les comptes mock (comme avant)."""
+    res = banking_service.create_session(db, code="c")
+    return banking_service.select_accounts(db, res["accounts"])
+
+
 # ---------------------------------------------------------------------------
 # Service (mode mock)
 # ---------------------------------------------------------------------------
@@ -85,20 +91,42 @@ def test_list_aspsps_contains_revolut_and_qonto():
     assert "Qonto" in names
 
 
-def test_create_session_creates_accounts(session):
+def test_create_session_returns_previews_without_persisting(session):
+    """L'échange renvoie l'aperçu des comptes sans rien persister."""
     result = banking_service.create_session(session, code="dummy-code")
     accounts = result["accounts"]
     assert len(accounts) >= 2
+    providers = {a["provider"] for a in accounts}
+    assert {"revolut", "qonto"} <= providers
+    # Rien n'est encore rattaché tant qu'on n'a pas sélectionné.
+    assert session.query(models.BankAccount).count() == 0
+
+
+def test_select_accounts_persists_only_chosen(session):
+    """select_accounts ne rattache que les comptes choisis, de façon idempotente."""
+    preview = banking_service.create_session(session, code="c")["accounts"]
+    chosen = [a for a in preview if a["provider"] == "revolut"]
+
+    banking_service.select_accounts(session, chosen)
+    accounts = session.query(models.BankAccount).all()
+    assert len(accounts) == 1
+    assert accounts[0].provider == "revolut"
+
+    # Ré-appliquer la même sélection ne duplique pas.
+    banking_service.select_accounts(session, chosen)
+    assert session.query(models.BankAccount).count() == 1
+
+
+def test_create_session_creates_accounts_two_step(session):
+    accounts = _connect(session)
+    assert len(accounts) >= 2
     providers = {a.provider for a in accounts}
-    assert "revolut" in providers
-    assert "qonto" in providers
-    # Idempotent : une 2e session ne duplique pas les comptes.
-    banking_service.create_session(session, code="dummy-code")
+    assert {"revolut", "qonto"} <= providers
     assert session.query(models.BankAccount).count() == len(accounts)
 
 
 def test_sync_inserts_and_signs_amounts(session):
-    banking_service.create_session(session, code="c")
+    _connect(session)
     result = banking_service.sync(session)
 
     assert result["accounts_synced"] >= 2
@@ -128,7 +156,7 @@ def test_sync_inserts_and_signs_amounts(session):
 
 
 def test_second_sync_is_deduped(session):
-    banking_service.create_session(session, code="c")
+    _connect(session)
     first = banking_service.sync(session)
     count_after_first = session.query(models.Transaction).count()
 
@@ -142,7 +170,7 @@ def test_second_sync_is_deduped(session):
 
 def test_fx_shared_external_id_not_deduped_across_accounts(session):
     """Un même external_id sur deux comptes différents = deux transactions."""
-    banking_service.create_session(session, code="c")
+    _connect(session)
     banking_service.sync(session)
     fx_legs = (
         session.query(models.Transaction)
@@ -154,7 +182,7 @@ def test_fx_shared_external_id_not_deduped_across_accounts(session):
 
 
 def test_sync_updates_balance_and_last_synced(session):
-    banking_service.create_session(session, code="c")
+    _connect(session)
     banking_service.sync(session)
     for acc in session.query(models.BankAccount).all():
         assert acc.last_synced_at is not None
@@ -162,7 +190,7 @@ def test_sync_updates_balance_and_last_synced(session):
 
 def test_sync_isolates_failing_account(session, monkeypatch):
     """Un compte en échec (ex. consentement expiré) n'avorte pas toute la synchro."""
-    banking_service.create_session(session, code="c")
+    _connect(session)
     accounts = session.query(models.BankAccount).all()
     fail_uid = accounts[0].account_uid
     real_fetch = banking_service._fetch_raw_transactions
@@ -183,7 +211,7 @@ def test_sync_isolates_failing_account(session, monkeypatch):
 
 
 def test_disconnect_account(session, client):
-    banking_service.create_session(session, code="c")
+    _connect(session)
     acc = session.query(models.BankAccount).first()
     resp = client.delete(f"/api/banking/connections/{acc.id}")
     assert resp.status_code == 204
@@ -217,23 +245,56 @@ def test_route_connect(client):
     assert body["state"]
 
 
-def test_route_sessions_then_connections_then_sync(client):
+def test_verify_state_rejects_unknown_in_live(monkeypatch):
+    """En live, un state inconnu/absent est refusé (anti-CSRF)."""
+    monkeypatch.setattr(banking_service, "is_live", lambda: True)
+    with pytest.raises(HTTPException) as ei:
+        banking_service._verify_state("bogus-state")
+    assert ei.value.status_code == 400
+    with pytest.raises(HTTPException):
+        banking_service._verify_state(None)
+
+
+def test_state_roundtrip_consumed_once_in_live(monkeypatch):
+    """Un state émis passe une fois puis est consommé (rejoue impossible)."""
+    monkeypatch.setattr(banking_service, "is_live", lambda: True)
+    st = "known-state-123"
+    banking_service._register_state(st)
+    banking_service._verify_state(st)  # OK, consommé
+    with pytest.raises(HTTPException):
+        banking_service._verify_state(st)  # rejeu refusé
+
+
+def test_route_sessions_then_select_then_sync(client):
+    # 1) Échange du code → aperçu des comptes disponibles (rien de persisté).
     r1 = client.post("/api/banking/sessions", json={"code": "abc"})
     assert r1.status_code == 200
-    assert len(r1.json()["accounts"]) >= 2
+    previews = r1.json()["accounts"]
+    assert len(previews) >= 2
+    assert client.get("/api/banking/connections").json() == []
 
-    r2 = client.get("/api/banking/connections")
+    # 2) Sélection d'UN seul compte → seul celui-ci est rattaché.
+    chosen = [a for a in previews if a["provider"] == "qonto"]
+    r2 = client.post("/api/banking/connections/select", json={"accounts": chosen})
     assert r2.status_code == 200
-    assert len(r2.json()) >= 2
+    assert len(r2.json()) == 1
 
+    conns = client.get("/api/banking/connections").json()
+    assert len(conns) == 1
+    assert conns[0]["provider"] == "qonto"
+
+    # 3) Sync ne synchronise que le compte rattaché.
     r3 = client.post("/api/banking/sync")
     assert r3.status_code == 200
-    assert r3.json()["transactions_added"] > 0
+    assert r3.json()["accounts_total"] == 1
 
-    # 2e sync via route = dedup.
-    r4 = client.post("/api/banking/sync")
-    assert r4.json()["transactions_added"] == 0
-    assert r4.json()["transactions_skipped"] > 0
+
+def test_route_select_all_then_sync(client):
+    previews = client.post("/api/banking/sessions", json={"code": "abc"}).json()["accounts"]
+    client.post("/api/banking/connections/select", json={"accounts": previews})
+    r = client.post("/api/banking/sync")
+    assert r.status_code == 200
+    assert r.json()["transactions_added"] > 0
 
 
 # --- Chargement de la clé privée (PEM complet OU base64 brut type Railway) ---
@@ -297,7 +358,7 @@ def test_sync_auto_categorizes(session):
         match_field="counterparty", pattern="URSSAF",
         category_id=cat.id, priority=50, enabled=True))
     # Crée les comptes mock puis synchronise.
-    banking_service.create_session(session, "mock-code")
+    _connect(session)
     res = banking_service.sync(session)
 
     assert res["transactions_added"] > 0
@@ -332,7 +393,7 @@ def test_sync_auto_reconciles_open_invoice(session):
     ))
     session.commit()
 
-    banking_service.create_session(session, "mock-code")
+    _connect(session)
     res = banking_service.sync(session)
 
     assert res["invoices_reconciled"] >= 1

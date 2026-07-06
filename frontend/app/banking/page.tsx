@@ -26,6 +26,13 @@ type SyncResult = {
   invoices_reconciled: number;
   errors: { account_uid: string; error: string }[];
 };
+type AccountPreview = {
+  account_uid: string;
+  provider: string;
+  currency: string;
+  iban_masked: string;
+  name: string;
+};
 
 export default function BankingPage() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -35,9 +42,15 @@ export default function BankingPage() {
   const [error, setError] = useState<string>('');
 
   const [authUrl, setAuthUrl] = useState<string>('');
+  const [authState, setAuthState] = useState<string>(''); // state OAuth émis (anti-CSRF)
   const [connecting, setConnecting] = useState<string>('');
   const [code, setCode] = useState<string>('');
   const [callbackMsg, setCallbackMsg] = useState<string>('');
+
+  // Étape de sélection : comptes disponibles après échange du code.
+  const [available, setAvailable] = useState<AccountPreview[] | null>(null);
+  const [chosen, setChosen] = useState<Record<string, boolean>>({});
+  const [attaching, setAttaching] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string>('');
@@ -77,10 +90,12 @@ export default function BankingPage() {
     setConnecting(name);
     setAuthUrl('');
     setCallbackMsg('');
+    setAvailable(null);
     setError('');
     try {
       const res = await bankingAPI.connect(name);
       setAuthUrl(res.authorization_url as string);
+      setAuthState((res.state as string) ?? '');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -88,19 +103,46 @@ export default function BankingPage() {
     }
   };
 
+  // Étape 1 : échange du code → liste des comptes disponibles (rien de rattaché).
   const handleCallback = async () => {
     if (!code.trim()) return;
-    setCallbackMsg('Validation…');
+    setCallbackMsg('Récupération des comptes…');
     setError('');
     try {
-      const accounts = await bankingAPI.createSession(code.trim());
-      const n = Array.isArray(accounts) ? accounts.length : 0;
-      setCallbackMsg(`✅ Session créée — ${n} compte(s) rattaché(s)`);
-      setCode('');
-      await loadConnections();
+      const res = await bankingAPI.createSession(code.trim(), authState || undefined);
+      const accounts = (res.accounts ?? []) as AccountPreview[];
+      setAvailable(accounts);
+      // Tout coché par défaut : l'utilisateur décoche ce qu'il ne veut pas.
+      setChosen(Object.fromEntries(accounts.map((a) => [a.account_uid, true])));
+      setCallbackMsg(`${accounts.length} compte(s) disponible(s) — choisissez ceux à rattacher.`);
     } catch (e) {
       setCallbackMsg('');
       setError((e as Error).message);
+    }
+  };
+
+  // Étape 2 : rattache uniquement les comptes cochés.
+  const handleAttach = async () => {
+    if (!available) return;
+    const picked = available.filter((a) => chosen[a.account_uid]);
+    if (picked.length === 0) {
+      setError('Sélectionnez au moins un compte à rattacher.');
+      return;
+    }
+    setAttaching(true);
+    setError('');
+    try {
+      await bankingAPI.selectAccounts(picked as unknown as Record<string, unknown>[]);
+      setCallbackMsg(`✅ ${picked.length} compte(s) rattaché(s)`);
+      setAvailable(null);
+      setCode('');
+      setAuthUrl('');
+      setAuthState('');
+      await loadConnections();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAttaching(false);
     }
   };
 
@@ -250,6 +292,56 @@ export default function BankingPage() {
                 </span>
               )}
             </div>
+
+            {/* Étape de sélection des comptes à rattacher */}
+            {available && (
+              <div className="mt-4 rounded-lg border border-[var(--border)] p-3">
+                <div className="mb-2 text-sm font-semibold">
+                  Comptes disponibles — sélectionnez à rattacher
+                </div>
+                {available.length === 0 ? (
+                  <Empty>Aucun compte disponible pour cette connexion.</Empty>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {available.map((a) => (
+                      <label
+                        key={a.account_uid}
+                        className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-black/[0.02]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!chosen[a.account_uid]}
+                          onChange={(e) =>
+                            setChosen((prev) => ({ ...prev, [a.account_uid]: e.target.checked }))
+                          }
+                        />
+                        <span className="flex-1">
+                          <b>{a.name || a.account_uid}</b>{' '}
+                          <span className="text-[var(--muted)]">
+                            · {a.provider} · {a.currency} · {a.iban_masked}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={handleAttach}
+                    disabled={attaching || available.length === 0}
+                    className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {attaching ? 'Rattachement…' : 'Rattacher les comptes sélectionnés'}
+                  </button>
+                  <button
+                    onClick={() => setAvailable(null)}
+                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:border-[var(--accent)]"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            )}
           </Card>
 
           {/* Comptes connectés */}

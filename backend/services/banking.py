@@ -29,6 +29,8 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from fastapi import HTTPException
+
 from backend.config import settings
 from backend.db import models
 from backend.logging_config import get_logger
@@ -44,6 +46,37 @@ _JWT_ISS = "enablebanking.com"
 _JWT_AUD = "api.enablebanking.com"
 _ACCESS_VALIDITY_DAYS = 90
 _HTTP_TIMEOUT = 30.0
+
+# États OAuth émis en attente de retour (anti-CSRF). Stockés en mémoire : le
+# flux connect → autorisation → callback dure quelques minutes, le serveur local
+# reste allumé. Un redémarrage force une reconnexion (acceptable en mono-poste).
+_pending_states: set[str] = set()
+
+
+def _register_state(state: str) -> None:
+    """Mémorise un state émis (borne de sécurité : cap souple pour éviter la fuite)."""
+    if len(_pending_states) > 64:
+        _pending_states.clear()
+    _pending_states.add(state)
+
+
+def _verify_state(state: Optional[str]) -> None:
+    """
+    Vérifie le state OAuth renvoyé au callback (anti-CSRF), puis le consomme.
+
+    Live : state **obligatoire** et doit correspondre à un state émis → sinon 400.
+    Mock : vérifié si fourni (consommé), sinon toléré (tests directs du service).
+    """
+    if not is_live():
+        if state:
+            _pending_states.discard(state)
+        return
+    if not state or state not in _pending_states:
+        raise HTTPException(
+            status_code=400,
+            detail="État OAuth invalide ou expiré — relancez la connexion à la banque",
+        )
+    _pending_states.discard(state)
 
 
 # ---------------------------------------------------------------------------
@@ -368,8 +401,10 @@ def start_auth(aspsp_name: str, country: str = "FR") -> dict[str, Any]:
     """
     Démarre l'autorisation OAuth : renvoie {authorization_url, state}.
     L'utilisateur est ensuite redirigé vers cette URL (site de la banque).
+    Le `state` est mémorisé côté serveur pour être revérifié au callback (CSRF).
     """
     state = str(uuid.uuid4())
+    _register_state(state)
 
     if not is_live():
         logger.info("📤 [Banking] start_auth (mock): aspsp=%s", aspsp_name)
@@ -430,48 +465,78 @@ def _upsert_account(
     return acc
 
 
-def create_session(db: Session, code: str) -> dict[str, Any]:
+def create_session(
+    db: Session, code: str, state: Optional[str] = None
+) -> dict[str, Any]:
     """
-    Échange le code d'autorisation contre une session + comptes.
-    Crée/maj les BankAccount et renvoie la liste des comptes.
+    Échange le code d'autorisation contre une session + la **liste des comptes
+    disponibles** (aperçu, non persistée).
+
+    Le code OAuth étant à usage unique, l'échange n'a lieu qu'ici : l'utilisateur
+    choisit ensuite les comptes à rattacher via `select_accounts`. Vérifie le
+    `state` (anti-CSRF) avant l'échange.
+
+    Chaque compte de l'aperçu : {account_uid, provider, currency, iban_masked, name}.
     """
+    _verify_state(state)
+
     if not is_live():
         logger.info("📤 [Banking] create_session (mock)")
-        accounts_out = []
-        for spec in _MOCK_ACCOUNTS:
-            acc = _upsert_account(
-                db,
-                account_uid=spec["uid"],
-                provider=_provider_for_aspsp(spec["aspsp"]),
-                currency=spec["currency"],
-                iban_masked=spec["iban_masked"],
-                name=spec["name"],
-            )
-            accounts_out.append(acc)
-        db.commit()
-        for acc in accounts_out:
-            db.refresh(acc)
-        return {"session_id": "mock-session", "accounts": accounts_out}
+        previews = [
+            {
+                "account_uid": spec["uid"],
+                "provider": _provider_for_aspsp(spec["aspsp"]),
+                "currency": spec["currency"],
+                "iban_masked": spec["iban_masked"],
+                "name": spec["name"],
+            }
+            for spec in _MOCK_ACCOUNTS
+        ]
+        return {"session_id": "mock-session", "accounts": previews}
 
     logger.info("📥 [Banking] create_session (live)")
     data = _post("/sessions", {"code": code})
     aspsp_name = data.get("aspsp", {}).get("name", "")
     provider = _provider_for_aspsp(aspsp_name)
-    accounts_out = []
-    for raw in data.get("accounts", []):
+    previews = [
+        {
+            "account_uid": raw.get("uid", ""),
+            "provider": provider,
+            "currency": raw.get("currency", "EUR"),
+            "iban_masked": _mask_iban(raw.get("account_id", {}).get("iban", "")),
+            "name": raw.get("name", "") or raw.get("product", ""),
+        }
+        for raw in data.get("accounts", [])
+    ]
+    return {"session_id": data.get("session_id", ""), "accounts": previews}
+
+
+def select_accounts(
+    db: Session, accounts: list[dict[str, Any]]
+) -> list[models.BankAccount]:
+    """
+    Rattache (persiste) les comptes **choisis** par l'utilisateur à l'issue de
+    `create_session`. Chaque item : {account_uid, provider, currency,
+    iban_masked, name}. Upsert idempotent sur `account_uid`.
+    """
+    out: list[models.BankAccount] = []
+    for a in accounts:
+        if not a.get("account_uid"):
+            continue
         acc = _upsert_account(
             db,
-            account_uid=raw.get("uid", ""),
-            provider=provider,
-            currency=raw.get("currency", "EUR"),
-            iban_masked=_mask_iban(raw.get("account_id", {}).get("iban", "")),
-            name=raw.get("name", "") or raw.get("product", ""),
+            account_uid=a["account_uid"],
+            provider=a.get("provider", ""),
+            currency=a.get("currency", "EUR"),
+            iban_masked=a.get("iban_masked", ""),
+            name=a.get("name", ""),
         )
-        accounts_out.append(acc)
+        out.append(acc)
     db.commit()
-    for acc in accounts_out:
+    for acc in out:
         db.refresh(acc)
-    return {"session_id": data.get("session_id", ""), "accounts": accounts_out}
+    logger.info("📤 [Banking] select_accounts: %d compte(s) rattaché(s) ✅", len(out))
+    return out
 
 
 def _mask_iban(iban: str) -> str:
