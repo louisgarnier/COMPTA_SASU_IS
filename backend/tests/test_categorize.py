@@ -141,6 +141,51 @@ def test_categorize_transaction_fallback_to_uncategorized(db_session):
     assert tx.category_id == cid
 
 
+def test_categorize_sets_kind_from_category_type(db_session):
+    """La catégorisation dérive `kind` du type de catégorie (pour le filtre Type)."""
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    # Charge (URSSAF) → kind 'charge'
+    tx_charge = _tx(db_session, external_id="k1", counterparty="URSSAF PACA")
+    categorize_transaction(db_session, tx_charge)
+    assert tx_charge.kind == "charge"
+    # Conversion (REVOLUT) → kind 'conversion'
+    tx_conv = _tx(db_session, external_id="k2", description="paiement REVOLUT conversion")
+    categorize_transaction(db_session, tx_conv)
+    assert tx_conv.kind == "conversion"
+    # Sans match (fourre-tout, type 'uncategorized') → kind 'other'
+    tx_other = _tx(db_session, external_id="k3", counterparty="INCONNU")
+    categorize_transaction(db_session, tx_other)
+    assert tx_other.kind == "other"
+
+
+def test_uncategorized_filter_matches_catchall_category(client, db_session):
+    """Le filtre uncategorized=true trouve aussi les tx rangées dans la catégorie fourre-tout."""
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    # Une tx sans match → catégorisée dans le fourre-tout (category_id non NULL).
+    tx = _tx(db_session, external_id="catchall", counterparty="INCONNU SARL")
+    categorize_transaction(db_session, tx)
+    db_session.commit()
+    assert tx.category_id is not None  # rangée dans le fourre-tout, pas NULL
+
+    resp = client.get("/api/transactions", params={"uncategorized": "true"})
+    assert resp.status_code == 200
+    assert [t["external_id"] for t in resp.json()] == ["catchall"]
+
+
+def test_kind_filter_returns_matching(client, db_session):
+    """Le filtre kind renvoie les transactions du type demandé (dérivé de la catégorie)."""
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    tx = _tx(db_session, external_id="charge1", counterparty="URSSAF PACA")
+    categorize_transaction(db_session, tx)
+    db_session.commit()
+    resp = client.get("/api/transactions", params={"kind": "charge"})
+    assert [t["external_id"] for t in resp.json()] == ["charge1"]
+    assert client.get("/api/transactions", params={"kind": "revenue"}).json() == []
+
+
 def test_disabled_rule_is_ignored(db_session):
     seed_default_categories_and_rules(db_session)
     _account(db_session)

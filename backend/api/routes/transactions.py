@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.db import models
@@ -89,7 +89,16 @@ def list_transactions(
     if kind is not None:
         stmt = stmt.where(models.Transaction.kind == kind)
     if uncategorized:
-        stmt = stmt.where(models.Transaction.category_id.is_(None))
+        # Non catégorisée = sans catégorie OU rangée dans le fourre-tout (type 'uncategorized').
+        uncat_ids = select(models.Category.id).where(
+            models.Category.type == "uncategorized"
+        )
+        stmt = stmt.where(
+            or_(
+                models.Transaction.category_id.is_(None),
+                models.Transaction.category_id.in_(uncat_ids),
+            )
+        )
     stmt = stmt.order_by(models.Transaction.booked_date.desc(), models.Transaction.id.desc())
 
     rows = db.execute(stmt).scalars().all()

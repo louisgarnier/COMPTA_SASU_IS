@@ -30,6 +30,22 @@ logger = get_logger("categorize", channel="backend")
 UNCATEGORIZED_NAME = "À catégoriser"
 UNCATEGORIZED_TYPE = "uncategorized"
 
+# Correspondance type de catégorie → `Transaction.kind` (vocabulaire du filtre « Type »).
+# Les deux vocabulaires coïncident sauf 'internal' (catégorie) ↔ 'investment' (kind).
+_TYPE_TO_KIND = {
+    "revenue": "revenue",
+    "charge": "charge",
+    "conversion": "conversion",
+    "transfer": "transfer",
+    "internal": "investment",
+    "uncategorized": "other",
+}
+
+
+def kind_for_category_type(category_type: Optional[str]) -> str:
+    """Dérive le `kind` d'une transaction depuis le type de sa catégorie."""
+    return _TYPE_TO_KIND.get(category_type or "", "other")
+
 # Catégories système par défaut : (name, type).
 DEFAULT_CATEGORIES: list[tuple[str, str]] = [
     ("Revenus SWIB", "revenue"),
@@ -121,6 +137,9 @@ def categorize_transaction(db: Session, transaction: models.Transaction) -> int:
     if category_id is None:
         category_id = get_or_create_uncategorized(db).id
     transaction.category_id = category_id
+    # Dérive `kind` du type de la catégorie (alimente le filtre « Type »).
+    category = db.get(models.Category, category_id)
+    transaction.kind = kind_for_category_type(category.type if category else None)
     return category_id
 
 
