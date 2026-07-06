@@ -5,11 +5,27 @@
 > Légende état : ✅ marche · ⚠️ fonctionne mais trou/risque · ❌ cassé · 🚫 non implémenté / orphelin (endpoint sans UI, ou inverse).
 > Sévérité : 🔴 haute · 🟠 moyenne · 🟡 basse.
 
-## ⚠️ Contexte git (à traiter en premier)
-Le working tree contient **beaucoup de travail non committé**, mélangé de deux sessions :
-- Session précédente : **suppression de facture** (route DELETE + service + bouton UI + tests) — jamais committée, présente seulement dans le working tree, active sur le serveur live. Le « can't delete invoice » signalé était vrai **au dernier commit** ; le fix existe mais est **à risque** (perdu si `git checkout`).
-- Session courante : fix création client (422/409) + feature reprice + fix… tout aussi non committé.
-→ **Action : commiter proprement en lots cohérents** avant toute correction, pour repartir sur une base saine.
+## ✅ Corrigé le 2026-07-06 (12 commits, base git propre)
+Tous les points 🔴 **haute priorité** + une partie du 🟠 moyen sont réglés, testés et committés :
+- **Transactions** : filtre Type (kind dérivé de la catégorie) · filtre « À catégoriser » (fourre-tout ∪ NULL) ✅
+- **FX** : ajout de devise + validation taux>0 + devise ajoutée persistante ✅
+- **Placements** : écran complet créé (nav + page + résumé + CRUD, EUR via FX) ✅
+- **Dashboard** : ligne de solde futur alignée sur le cashflow (encaissements factures) ✅
+- **Banques** : sync isolée par compte (savepoint) + déconnexion + statut honnête + compteurs complets ✅
+- **Factures** : suppression committée (route+UI+tests) ✅
+- **Validation/UX** : erreurs 422 lisibles · champs numériques vides omis · validation Réglages (IS∈[0,1], SIRET, capital≥0) · colonnes FX mortes retirées ✅
+- **Catégories** : suppression (FK-safe) · ré-appliquer les règles à l'historique · édition motif/priorité ✅
+- **Forecast** : charges année future (repli 12 mois) · trésorerie de départ réelle · bascule TJM/THM re-price ✅
+
+**Reste à faire (repris en session fraîche)** — voir « Backlog restant » ci-dessous.
+
+## 🟠 Backlog restant (moyen + bas)
+- **Forecast** : supprimer/vider une prévision depuis la grille · champ note.
+- **Factures** : « marquer payé » manuel · retirer `changeStatus` (code mort) · valider l'enum de statut · compteur n° à la suppression (cosmétique).
+- **Transactions** : champ recherche texte · (création manuelle, lien FX manuel — bas).
+- **Dashboard** : câbler « + Nouvelle facture » / retirer bouton « Tous les comptes » mort · année figée 2026 · KPI doublon (cosmétiques) · solde passé inclut transferts (cosmétique).
+- **Banques** : sélection de comptes à la connexion · vérif `state` OAuth (sécurité mineure).
+- **Clients** : test de la suppression (204 + 409).
 
 ---
 

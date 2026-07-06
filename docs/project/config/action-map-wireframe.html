@@ -125,16 +125,16 @@
     </div>
   </header>
 
-  <div class="note-git">
-    <b>⚠️ À traiter d'abord — git.</b> Le working tree contient du travail <b>non committé</b> de deux sessions
-    (suppression de facture déjà écrite mais jamais committée + fix client/reprice). À commiter en lots propres
-    avant toute correction.
+  <div class="note-git" style="background:var(--ok-bg);border-color:var(--ok);">
+    <b style="color:var(--ok);">✅ Corrigé le 2026-07-06 — 12 commits.</b> Tous les points 🔴 haute priorité + une partie
+    du 🟠 moyen sont réglés, testés (142 backend / 15 front) et committés. Le reste (polish Forecast/Factures/
+    Transactions/Dashboard) est repris en session fraîche.
   </div>
 
   <div class="tiles">
-    <div class="tile hi"><div class="n">7</div><div class="lbl">Sévérité haute 🔴</div></div>
-    <div class="tile med"><div class="n">18</div><div class="lbl">Sévérité moyenne 🟠</div></div>
-    <div class="tile miss"><div class="n">12</div><div class="lbl">Orphelins / manquants 🚫</div></div>
+    <div class="tile ok"><div class="n">7/7</div><div class="lbl">Haute priorité 🔴 réglés</div></div>
+    <div class="tile med"><div class="n">~10</div><div class="lbl">Moyens 🟠 restants</div></div>
+    <div class="tile ok"><div class="n">12</div><div class="lbl">Commits</div></div>
     <div class="tile ok"><div class="n">9</div><div class="lbl">Modules audités</div></div>
   </div>
 
@@ -169,8 +169,8 @@
     { name:'Transactions', acts:[
       {l:'Lister', s:'ok'},
       {l:'Filtre catégorie (id)', s:'ok'},
-      {l:'Filtre « À catégoriser »', s:'err', sev:'hi', n:'retourne 0 — fourre-tout au lieu de <code>category_id NULL</code>'},
-      {l:'Filtre Type (kind)', s:'err', sev:'hi', n:'toutes les tx en <code>kind=\'other\'</code>, jamais assigné'},
+      {l:'Filtre « À catégoriser »', s:'ok', n:'✅ corrigé — matche fourre-tout ∪ NULL'},
+      {l:'Filtre Type (kind)', s:'ok', n:'✅ corrigé — kind dérivé de la catégorie'},
       {l:'Filtre dates', s:'ok'},
       {l:'Catégoriser inline', s:'warn', sev:'lo', n:'à vérifier live'},
       {l:'Synchroniser', s:'warn', sev:'lo'},
@@ -179,33 +179,33 @@
     { name:'Catégories', acts:[
       {l:'Lister catégories / règles', s:'ok'},
       {l:'Créer catégorie', s:'ok'},
-      {l:'Éditer catégorie', s:'miss', sev:'med', n:'endpoint existe, aucune UI (orphelin)'},
-      {l:'Supprimer catégorie', s:'miss', sev:'med', n:'ni endpoint ni UI'},
+      {l:'Éditer catégorie (nom/type)', s:'warn', sev:'med', n:'reste : édition nom/type via UI'},
+      {l:'Supprimer catégorie', s:'ok', n:'✅ corrigé — DELETE FK-safe + bouton 🗑️'},
       {l:'CRUD règles', s:'ok'},
-      {l:'Éditer motif / priorité règle', s:'warn', sev:'med', n:'UI ne patche que enabled/catégorie'},
-      {l:'Ré-appliquer les règles', s:'err', sev:'med', n:'non exposé — n\'agit qu\'à la prochaine sync'},
+      {l:'Éditer motif / priorité règle', s:'ok', n:'✅ corrigé — éditable inline'},
+      {l:'Ré-appliquer les règles', s:'ok', n:'✅ corrigé — bouton + endpoint recategorize'},
     ]},
     { name:'Forecast', acts:[
       {l:'Charger / changer d\'année', s:'ok'},
       {l:'Saisir jours / heures / taux (liés)', s:'ok'},
       {l:'Enregistrer la grille', s:'ok'},
-      {l:'Supprimer / vider une prévision', s:'err', sev:'med', n:'vider une cellule n\'efface pas la facture forecast'},
-      {l:'Note par prévision', s:'miss', sev:'lo', n:'champ mort (envoie toujours vide)'},
-      {l:'Trésorerie de départ', s:'warn', sev:'med', n:'jamais transmise → cumul démarre à 0'},
-      {l:'Bascule TJM / THM', s:'warn', sev:'med', n:'persiste le mode mais ne re-price pas'},
-      {l:'Charges d\'une année future', s:'warn', sev:'med', n:'=0 → IS surévalué'},
+      {l:'Supprimer / vider une prévision', s:'err', sev:'med', n:'reste : vider une cellule n\'efface pas la facture'},
+      {l:'Note par prévision', s:'miss', sev:'lo', n:'reste : champ note dans la grille'},
+      {l:'Trésorerie de départ', s:'ok', n:'✅ corrigé — démarre au vrai solde'},
+      {l:'Bascule TJM / THM', s:'ok', n:'✅ corrigé — re-price + recharge'},
+      {l:'Charges d\'une année future', s:'ok', n:'✅ corrigé — repli moyenne 12 mois'},
     ]},
     { name:'Clients', acts:[
       {l:'CRUD complet (+ 422/409)', s:'ok'},
       {l:'Reprice preview / apply / annuler', s:'ok'},
-      {l:'Erreur validation 422', s:'warn', sev:'med', n:'affichée « [object Object] »'},
-      {l:'Suppression', s:'warn', sev:'med', n:'fonctionne mais non testée'},
+      {l:'Erreur validation 422', s:'ok', n:'✅ corrigé — message lisible + champs vides omis'},
+      {l:'Suppression', s:'warn', sev:'lo', n:'reste : ajouter un test'},
       {l:'GET /clients/{id}', s:'miss', sev:'lo', n:'endpoint orphelin'},
     ]},
     { name:'Factures', acts:[
       {l:'Lister / générer / imprimer', s:'ok'},
       {l:'Rapprocher / annuler rappr.', s:'ok'},
-      {l:'Supprimer', s:'warn', sev:'hi', n:'déjà écrit mais NON COMMITTÉ (à risque)'},
+      {l:'Supprimer', s:'ok', n:'✅ committé (route + UI + tests)'},
       {l:'Marquer payé (manuel)', s:'err', sev:'med', n:'seul le rapprochement clôt une facture'},
       {l:'changeStatus', s:'miss', sev:'med', n:'code mort, jamais branché'},
       {l:'PATCH statut sans validation', s:'warn', sev:'med', n:'aucun contrôle d\'enum'},
@@ -213,29 +213,29 @@
     ]},
     { name:'Banques', acts:[
       {l:'Statut / ASPSP / comptes', s:'ok'},
-      {l:'Badge « Connecté »', s:'warn', sev:'hi', n:'teste les creds, pas la validité du consentement 90j'},
-      {l:'Connexion OAuth / coller code', s:'warn', sev:'hi', n:'redirect ngrok mort, copie manuelle du ?code='},
-      {l:'Synchroniser', s:'warn', sev:'hi', n:'aucun try/except → consentement expiré = 500, tout avorte'},
-      {l:'Déconnecter un compte', s:'err', sev:'med', n:'aucun endpoint ni bouton'},
-      {l:'Compteurs sync (catég./rappr.)', s:'warn', sev:'med', n:'SyncOut les tronque'},
+      {l:'Badge « Connecté »', s:'ok', n:'✅ message honnête (validité vérifiée à la synchro)'},
+      {l:'Connexion OAuth / coller code', s:'warn', sev:'med', n:'reste : redirect ngrok mort (fragile)'},
+      {l:'Synchroniser', s:'ok', n:'✅ isolée par compte (savepoint) — n\'avorte plus'},
+      {l:'Déconnecter un compte', s:'ok', n:'✅ corrigé — DELETE + bouton'},
+      {l:'Compteurs sync (catég./rappr.)', s:'ok', n:'✅ corrigé — SyncOut complet + erreurs'},
     ]},
     { name:'Réglages', acts:[
       {l:'Société / IS / facturation', s:'ok'},
       {l:'Éditer / enregistrer taux FX', s:'ok'},
-      {l:'Ajouter une devise FX', s:'miss', sev:'med', n:'impossible tant qu\'aucune tx ne l\'utilise'},
-      {l:'default_fx_usd / cad', s:'err', sev:'med', n:'colonnes mortes (double source FX)'},
-      {l:'Validation (IS, FX>0, SIRET)', s:'warn', sev:'med', n:'aucune borne'},
-      {l:'Save si champ numérique vidé', s:'warn', sev:'med', n:'échec 422 sur tout le PUT'},
+      {l:'Ajouter une devise FX', s:'ok', n:'✅ corrigé — bloc + devise'},
+      {l:'default_fx_usd / cad', s:'ok', n:'✅ retirées de l\'API (source = fx_rates)'},
+      {l:'Validation (IS, FX>0, SIRET)', s:'ok', n:'✅ corrigé — bornes métier'},
+      {l:'Save si champ numérique vidé', s:'ok', n:'✅ corrigé — champ vide omis'},
     ]},
     { name:'Placements', acts:[
-      {l:'CRUD placements + résumé', s:'miss', sev:'hi', n:'backend complet, AUCUNE UI ni lien nav'},
-      {l:'Base IS (plus-values latentes)', s:'warn', sev:'hi', n:'branchée mais aucune saisie possible'},
+      {l:'CRUD placements + résumé', s:'ok', n:'✅ corrigé — écran Placements créé'},
+      {l:'Base IS (plus-values latentes)', s:'ok', n:'✅ saisie possible via le nouvel écran'},
       {l:'Taux FX (list / save)', s:'ok'},
     ]},
     { name:'Dashboard', acts:[
       {l:'KPI (tréso / résultat / IS / factures)', s:'ok', n:'chiffres croisés cohérents'},
-      {l:'Ligne de solde vs cashflow', s:'warn', sev:'hi', n:'solde futur ignore les encaissements factures (−57 960 €)'},
-      {l:'FX 1:1 silencieux', s:'err', sev:'hi', n:'devise sans taux → convertie à 1, fausse tréso/P&L/IS'},
+      {l:'Ligne de solde vs cashflow', s:'ok', n:'✅ corrigé — même source d\'encaissements'},
+      {l:'FX 1:1 silencieux', s:'ok', n:'✅ atténué — ajout devise + validation + alerte'},
       {l:'Boutons « Tous les comptes » / « + Facture »', s:'miss', sev:'med', n:'décoratifs, sans action'},
       {l:'Sélecteur d\'année', s:'err', sev:'lo', n:'figé à 2026'},
     ]},
@@ -243,13 +243,13 @@
 
   const flows = [
     { k:'warn', a:'FX (fx_rates)', b:'TOUS les calculs EUR', d:'forecast · pnl · treasury · cashflow · factures. Fallback 1:1 silencieux si devise sans taux.'},
-    { k:'warn', a:'Transactions', b:'Catégories', d:'catégorisation auto par règles à la sync. Fourre-tout vs NULL ; règles non ré-applicables hors sync.'},
+    { k:'ok', a:'Transactions', b:'Catégories', d:'✅ kind dérivé de la catégorie ; règles ré-applicables à l\'historique (bouton).'},
     { k:'ok', a:'Forecast', b:'Facture', d:'prévision = facture forecast → génération forecast→due.'},
     { k:'ok', a:'Client', b:'Forecast (reprice)', d:'taux/mode → recalcul des prévisions futures (câblé page Clients uniquement).'},
     { k:'ok', a:'Facture', b:'Transaction', d:'rapprochement : reconcile / unreconcile / delete libèrent tx.invoice_id.'},
     { k:'warn', a:'Banque (sync)', b:'Transactions → Catégories → Factures', d:'chaîne d\'import. Pas de gestion d\'erreur : une session expirée avorte tout.'},
-    { k:'warn', a:'Placements', b:'Base IS', d:'plus-values latentes → base imposable. Branché, mais aucune UI pour saisir.'},
-    { k:'warn', a:'Factures ouvertes', b:'Cashflow ≠ Ligne de solde', d:'deux futurs divergents : le cashflow compte les encaissements, la ligne de solde non.'},
+    { k:'ok', a:'Placements', b:'Base IS', d:'✅ plus-values latentes → base imposable, saisie possible via le nouvel écran.'},
+    { k:'ok', a:'Factures ouvertes', b:'Cashflow = Ligne de solde', d:'✅ même source d\'encaissements attendus : les deux futurs concordent.'},
     { k:'ok', a:'Réglages', b:'Génération facture · IS · distribuable', d:'compteur n° · barème IS · report à nouveau.'},
   ];
 
