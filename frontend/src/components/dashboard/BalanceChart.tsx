@@ -45,9 +45,6 @@ export function BalanceChart({ data }: { data: BalanceData }) {
     <Card>
       <div className="mb-1 flex items-center justify-between">
         <div className="text-sm font-semibold">Solde de trésorerie</div>
-        <span className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--muted)]">
-          Tous les comptes ▾
-        </span>
       </div>
       <div className="tabular text-2xl font-bold">{eur(data.current_balance_eur)}</div>
       <div className="mb-1 text-[11px] text-[var(--muted)]">

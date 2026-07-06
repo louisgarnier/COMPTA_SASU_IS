@@ -13,11 +13,13 @@ import {
   InvoiceTimelineData,
 } from '@/components/dashboard/InvoiceTimeline';
 
-const YEAR = 2026;
+const CUR_YEAR = new Date('2026-07-03T00:00:00').getFullYear();
+const YEARS = [CUR_YEAR, CUR_YEAR + 1, CUR_YEAR + 2];
 
 type Treasury = { bank_total_eur: string | number; total_eur: string | number };
 
 export default function DashboardPage() {
+  const [year, setYear] = useState(CUR_YEAR);
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [balance, setBalance] = useState<BalanceData | null>(null);
@@ -27,11 +29,13 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    setLoading(true);
+    setError('');
     Promise.all([
       treasuryAPI.get(),
-      dashboardAPI.cashflow(YEAR),
-      dashboardAPI.balanceTimeline(YEAR),
-      dashboardAPI.pnlSummary(YEAR),
+      dashboardAPI.cashflow(year),
+      dashboardAPI.balanceTimeline(year),
+      dashboardAPI.pnlSummary(year),
       dashboardAPI.invoiceTimeline(),
     ])
       .then(([t, cf, bal, p, inv]) => {
@@ -43,12 +47,28 @@ export default function DashboardPage() {
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [year]);
+
+  const yearPicker = (
+    <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
+      {YEARS.map((y) => (
+        <button
+          key={y}
+          onClick={() => setYear(y)}
+          className={`border-r border-[var(--border)] px-3 py-1.5 text-sm font-semibold last:border-r-0 ${
+            y === year ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--text)] hover:bg-gray-50'
+          }`}
+        >
+          {y}
+        </button>
+      ))}
+    </div>
+  );
 
   if (loading) {
     return (
       <div>
-        <PageTitle title="Dashboard" subtitle="Vue d'ensemble tréso 2026" />
+        <PageTitle title="Dashboard" subtitle={`Vue d'ensemble tréso ${year}`} action={yearPicker} />
         <p className="text-sm text-[var(--muted)]">Chargement…</p>
       </div>
     );
@@ -56,7 +76,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div>
-        <PageTitle title="Dashboard" subtitle="Vue d'ensemble tréso 2026" />
+        <PageTitle title="Dashboard" subtitle={`Vue d'ensemble tréso ${year}`} action={yearPicker} />
         <p className="text-sm text-[var(--neg)]">❌ Erreur : {error}</p>
       </div>
     );
@@ -64,7 +84,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageTitle title="Dashboard" subtitle="Vue d'ensemble tréso 2026 — réel + prévision" />
+      <PageTitle title="Dashboard" subtitle={`Vue d'ensemble tréso ${year} — réel + prévision`} action={yearPicker} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Trésorerie totale" value={eur(treasury?.total_eur)} tone="pos" />

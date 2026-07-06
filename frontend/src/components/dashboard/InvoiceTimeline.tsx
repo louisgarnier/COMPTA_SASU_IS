@@ -85,7 +85,9 @@ export function InvoiceTimeline({ data }: { data: InvoiceTimelineData }) {
       )}
 
       <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2.5">
-        <span className="text-sm font-medium text-[var(--accent)]">+ Nouvelle facture</span>
+        <a href="/invoices" className="text-sm font-medium text-[var(--accent)] hover:underline">
+          + Nouvelle facture
+        </a>
         <span className="text-xs text-[var(--muted)]">
           En attente <b className="tabular text-[var(--text)]">{eur(data.outstanding_eur)}</b> ·{' '}
           {data.open_count} ouverte{data.open_count > 1 ? 's' : ''}
