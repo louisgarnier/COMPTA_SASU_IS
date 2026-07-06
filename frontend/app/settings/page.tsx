@@ -35,7 +35,12 @@ export default function SettingsPage() {
     setStatus('Enregistrement…');
     try {
       const payload: Record<string, unknown> = {};
-      FIELDS.forEach((f) => (payload[f.key] = data[f.key]));
+      FIELDS.forEach((f) => {
+        const v = data[f.key];
+        // Champ numérique vidé → on l'omet (évite un 422 sur tout le PUT).
+        if (f.type === 'number' && (v === '' || v === null || v === undefined)) return;
+        payload[f.key] = v;
+      });
       const updated = await settingsAPI.update(payload);
       setData(updated);
       setStatus('✅ Enregistré');

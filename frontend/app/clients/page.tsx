@@ -103,7 +103,13 @@ export default function ClientsPage() {
     setStatus('Enregistrement…');
     try {
       const payload: Record<string, unknown> = {};
-      FIELDS.forEach((f) => (payload[f.key] = form[f.key] ?? ''));
+      FIELDS.forEach((f) => {
+        const v = form[f.key] ?? '';
+        // Champ numérique laissé vide → on l'omet (le backend garde sa valeur /
+        // son défaut) au lieu d'envoyer '' qui provoquait un 422.
+        if (f.type === 'number' && v === '') return;
+        payload[f.key] = v;
+      });
       if (isEdit) {
         const orig = clients.find((c) => c.id === form.id);
         const rateOrModeChanged =

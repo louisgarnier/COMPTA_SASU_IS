@@ -7,6 +7,33 @@
 // sans CORS. Un override absolu via NEXT_PUBLIC_API_URL reste possible.
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
+/**
+ * Extrait un message lisible d'une réponse d'erreur FastAPI.
+ * `detail` peut être une string (HTTPException) OU une liste d'objets
+ * {loc, msg} (erreurs de validation Pydantic) — ce dernier cas produisait
+ * « [object Object] ». On concatène alors « champ : message ».
+ */
+function extractErrorMessage(err: unknown, statusCode: number): string {
+  const fallback = `HTTP ${statusCode}`;
+  if (!err || typeof err !== 'object') return fallback;
+  const detail = (err as { detail?: unknown }).detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => {
+        if (!d || typeof d !== 'object') return String(d);
+        const loc = Array.isArray((d as { loc?: unknown[] }).loc)
+          ? (d as { loc: unknown[] }).loc.slice(1).join('.')
+          : '';
+        const msg = (d as { msg?: string }).msg ?? '';
+        return loc ? `${loc} : ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (msgs.length) return msgs.join(' · ');
+  }
+  return fallback;
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
   const response = await fetch(url, {
@@ -15,10 +42,8 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   if (!response.ok) {
-    const err = await response
-      .json()
-      .catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || `HTTP ${response.status}`);
+    const err = await response.json().catch(() => null);
+    throw new Error(extractErrorMessage(err, response.status));
   }
   if (response.status === 204) return {} as T;
   return response.json();

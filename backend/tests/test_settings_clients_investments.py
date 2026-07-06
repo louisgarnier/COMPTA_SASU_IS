@@ -69,7 +69,7 @@ def test_settings_put_updates(client: TestClient):
             "company_name": "LGC SASU",
             "siret": "12345678900010",
             "next_invoice_number": 100,
-            "default_fx_usd": "0.95",
+            "capital_eur": "100",
         },
     )
     assert resp.status_code == 200
@@ -77,9 +77,19 @@ def test_settings_put_updates(client: TestClient):
     assert data["company_name"] == "LGC SASU"
     assert data["siret"] == "12345678900010"
     assert data["next_invoice_number"] == 100
-    assert Decimal(str(data["default_fx_usd"])) == Decimal("0.95")
+    assert Decimal(str(data["capital_eur"])) == Decimal("100")
     # Persistance vérifiée par un GET suivant.
     assert client.get("/api/settings").json()["company_name"] == "LGC SASU"
+
+
+def test_settings_validation_rejects_out_of_range(client: TestClient):
+    """Bornes métier : taux IS ∈ [0,1], seuil/capital ≥ 0, n° facture ≥ 1, SIRET 14 chiffres."""
+    client.get("/api/settings")
+    assert client.put("/api/settings", json={"is_low_rate": "5"}).status_code == 422
+    assert client.put("/api/settings", json={"is_high_rate": "-0.1"}).status_code == 422
+    assert client.put("/api/settings", json={"next_invoice_number": 0}).status_code == 422
+    assert client.put("/api/settings", json={"capital_eur": "-1"}).status_code == 422
+    assert client.put("/api/settings", json={"siret": "123"}).status_code == 422
 
 
 # --------------------------------------------------------------------------- #

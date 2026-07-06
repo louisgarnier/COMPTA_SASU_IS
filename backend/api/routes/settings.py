@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from backend.db import models
@@ -47,30 +47,30 @@ class SettingsOut(BaseModel):
     is_high_rate: Decimal
     retained_earnings_eur: Decimal
     next_invoice_number: int
-    default_fx_usd: Decimal
-    default_fx_cad: Decimal
 
 
 class SettingsUpdate(BaseModel):
-    """Champs modifiables (tous optionnels — mise à jour partielle)."""
+    """Champs modifiables (tous optionnels — mise à jour partielle), avec bornes métier.
+
+    Note : `default_fx_usd/cad` (anciennes colonnes) ne sont plus exposées — la source
+    unique des taux de change est la table `fx_rates` (voir /api/fx-rates).
+    """
 
     company_name: Optional[str] = None
-    siret: Optional[str] = None
+    siret: Optional[str] = Field(default=None, pattern=r"^(\d{14})?$")  # vide ou 14 chiffres
     naf: Optional[str] = None
     tva_intracom: Optional[str] = None
     address: Optional[str] = None
     email: Optional[str] = None
-    capital_eur: Optional[Decimal] = None
+    capital_eur: Optional[Decimal] = Field(default=None, ge=0)
     bank_name: Optional[str] = None
     bank_bic: Optional[str] = None
     bank_address: Optional[str] = None
-    is_low_rate: Optional[Decimal] = None
-    is_threshold: Optional[Decimal] = None
-    is_high_rate: Optional[Decimal] = None
-    retained_earnings_eur: Optional[Decimal] = None
-    next_invoice_number: Optional[int] = None
-    default_fx_usd: Optional[Decimal] = None
-    default_fx_cad: Optional[Decimal] = None
+    is_low_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)  # taux ∈ [0,1]
+    is_threshold: Optional[Decimal] = Field(default=None, ge=0)
+    is_high_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)
+    retained_earnings_eur: Optional[Decimal] = None  # peut être négatif (report déficitaire)
+    next_invoice_number: Optional[int] = Field(default=None, ge=1)
 
 
 def _get_or_create_singleton(db: Session) -> models.Settings:
