@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from backend.db import models
 from backend.db.base import get_db
 from backend.logging_config import get_logger
+from backend.services.categorize import kind_for_category_type
 
 logger = get_logger("transactions", channel="api")
 
@@ -60,6 +61,21 @@ class TransactionUpdate(BaseModel):
     kind: Optional[str] = None
     linked_conversion_id: Optional[int] = None
     invoice_id: Optional[int] = None
+
+
+class BulkCategorizeIn(BaseModel):
+    """Recatégorisation groupée : applique une catégorie à plusieurs transactions."""
+
+    ids: list[int]
+    category_id: Optional[int] = None  # None = repasse en « À catégoriser »
+
+
+def _kind_for_category(db: Session, category_id: Optional[int]) -> str:
+    """Dérive le `kind` d'une transaction depuis sa (nouvelle) catégorie."""
+    if category_id is None:
+        return "other"
+    cat = db.get(models.Category, category_id)
+    return kind_for_category_type(cat.type if cat else None)
 
 
 def _to_out(tx: models.Transaction) -> TransactionOut:
@@ -106,6 +122,34 @@ def list_transactions(
     return [_to_out(tx) for tx in rows]
 
 
+@router.post("/bulk-categorize", response_model=list[TransactionOut])
+def bulk_categorize(
+    payload: BulkCategorizeIn, db: Session = Depends(get_db)
+) -> list[TransactionOut]:
+    """Applique une catégorie à un lot de transactions (met aussi à jour `kind`)."""
+    if not payload.ids:
+        return []
+    if payload.category_id is not None and db.get(models.Category, payload.category_id) is None:
+        raise HTTPException(status_code=404, detail="Catégorie introuvable")
+
+    kind = _kind_for_category(db, payload.category_id)
+    rows = (
+        db.execute(
+            select(models.Transaction).where(models.Transaction.id.in_(payload.ids))
+        )
+        .scalars()
+        .all()
+    )
+    for tx in rows:
+        tx.category_id = payload.category_id
+        tx.kind = kind
+    db.commit()
+    for tx in rows:
+        db.refresh(tx)
+    logger.info("📤 [Transactions] bulk_categorize: %d transaction(s) ✅", len(rows))
+    return [_to_out(tx) for tx in rows]
+
+
 @router.patch("/{transaction_id}", response_model=TransactionOut)
 def update_transaction(
     transaction_id: int,
@@ -121,6 +165,10 @@ def update_transaction(
     changes = payload.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(tx, field, value)
+    # Changer la catégorie sans préciser le kind → on le redérive (cohérence du
+    # filtre « Type »), sinon un reclassement manuel laissait un kind périmé.
+    if "category_id" in changes and "kind" not in changes:
+        tx.kind = _kind_for_category(db, tx.category_id)
     db.commit()
     db.refresh(tx)
     logger.info("📤 [Transactions] update: id=%s, %d champ(s) ✅", transaction_id, len(changes))

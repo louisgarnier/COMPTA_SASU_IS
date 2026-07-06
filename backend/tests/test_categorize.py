@@ -329,3 +329,64 @@ def test_patch_transaction_updates_and_404(client, db_session):
 
     # 404 sur id inexistant.
     assert client.patch("/api/transactions/999999", json={"kind": "charge"}).status_code == 404
+
+
+def test_patch_category_derives_kind(client, db_session):
+    """Changer la catégorie (sans kind) redérive le kind depuis le type de la catégorie."""
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    repas_id = _category_id(db_session, "Repas")  # type 'charge'
+    tx = _tx(db_session, external_id="k1", counterparty="RESTO", kind="other")
+
+    resp = client.patch(f"/api/transactions/{tx.id}", json={"category_id": repas_id})
+    assert resp.status_code == 200
+    assert resp.json()["kind"] == "charge"  # dérivé, pas laissé à 'other'
+
+
+def test_bulk_categorize_applies_to_all_and_sets_kind(client, db_session):
+    """La recatégorisation groupée applique la catégorie + le kind à toutes les ids."""
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    saas_id = _category_id(db_session, "Outils/SaaS")  # type 'charge'
+    t1 = _tx(db_session, external_id="b1", counterparty="Vercel", kind="other")
+    t2 = _tx(db_session, external_id="b2", counterparty="Figma", kind="other")
+    t3 = _tx(db_session, external_id="b3", counterparty="Notion", kind="other")
+
+    resp = client.post(
+        "/api/transactions/bulk-categorize",
+        json={"ids": [t1.id, t2.id], "category_id": saas_id},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert {r["id"] for r in body} == {t1.id, t2.id}
+    assert all(r["category_id"] == saas_id and r["kind"] == "charge" for r in body)
+
+    # La 3e (non incluse) reste inchangée.
+    db_session.refresh(t3)
+    assert t3.category_id is None and t3.kind == "other"
+
+
+def test_bulk_categorize_to_uncategorized_and_bad_category(client, db_session):
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    saas_id = _category_id(db_session, "Outils/SaaS")
+    tx = _tx(db_session, external_id="b4", counterparty="Vercel", category_id=saas_id, kind="charge")
+
+    # category_id=None → repasse en « À catégoriser » (kind 'other').
+    resp = client.post(
+        "/api/transactions/bulk-categorize", json={"ids": [tx.id], "category_id": None}
+    )
+    assert resp.status_code == 200
+    assert resp.json()[0]["category_id"] is None
+    assert resp.json()[0]["kind"] == "other"
+
+    # Catégorie inexistante → 404.
+    assert client.post(
+        "/api/transactions/bulk-categorize",
+        json={"ids": [tx.id], "category_id": 999999},
+    ).status_code == 404
+
+    # Liste vide → [] sans erreur.
+    assert client.post(
+        "/api/transactions/bulk-categorize", json={"ids": [], "category_id": saas_id}
+    ).json() == []

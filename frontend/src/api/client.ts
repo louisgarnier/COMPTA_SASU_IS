@@ -116,6 +116,8 @@ export const transactionsAPI = {
   },
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/transactions/${id}`, b),
+  bulkCategorize: (ids: number[], category_id: number | null) =>
+    post<any[]>('/api/transactions/bulk-categorize', { ids, category_id }),
 };
 
 export const categoriesAPI = {

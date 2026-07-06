@@ -72,6 +72,7 @@ export default function TransactionsPage() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [search, setSearch] = useState<string>(''); // recherche texte (client-side)
+  const [checked, setChecked] = useState<Record<number, boolean>>({}); // sélection groupée
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,17 +124,34 @@ export default function TransactionsPage() {
     }
   };
 
+  // Ids cochés (parmi toutes les lignes chargées).
+  const selectedIds = Object.entries(checked)
+    .filter(([, v]) => v)
+    .map(([k]) => Number(k));
+
   const updateCategory = async (tx: Transaction, value: string) => {
     const category_id = value === '' ? null : Number(value);
+    // Option B : si la ligne éditée est cochée, on applique la catégorie à
+    // TOUTES les lignes cochées d'un coup ; sinon uniquement à cette ligne.
+    const targetIds = checked[tx.id] && selectedIds.length > 0 ? selectedIds : [tx.id];
     try {
-      const updated = await transactionsAPI.update(tx.id, { category_id });
-      setRows((prev) =>
-        prev.map((r) => (r.id === tx.id ? (updated as Transaction) : r)),
-      );
+      const updated = (await transactionsAPI.bulkCategorize(
+        targetIds,
+        category_id,
+      )) as Transaction[];
+      const byId = new Map(updated.map((u) => [u.id, u]));
+      setRows((prev) => prev.map((r) => byId.get(r.id) ?? r));
+      if (targetIds.length > 1) {
+        setChecked({}); // on vide la sélection après une application groupée
+        setSyncMsg(`✅ Catégorie appliquée à ${targetIds.length} transactions`);
+      }
     } catch (e) {
       setSyncMsg(`❌ ${(e as Error).message}`);
     }
   };
+
+  const toggleOne = (id: number) =>
+    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
 
   const selectCls =
     'rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]';
@@ -148,11 +166,23 @@ export default function TransactionsPage() {
       )
     : rows;
 
+  const allChecked = filtered.length > 0 && filtered.every((t) => checked[t.id]);
+  const toggleAll = () => {
+    if (allChecked) {
+      setChecked({});
+    } else {
+      setChecked(Object.fromEntries(filtered.map((t) => [t.id, true])));
+    }
+  };
+  const selectedCount = selectedIds.length;
+
   return (
     <div>
       <PageTitle
         title="Transactions"
-        subtitle={`${filtered.length} opération(s)${q ? ` sur ${rows.length}` : ''}`}
+        subtitle={`${filtered.length} opération(s)${q ? ` sur ${rows.length}` : ''}${
+          selectedCount > 0 ? ` · ${selectedCount} sélectionnée(s) — change la catégorie d'une ligne cochée pour l'appliquer à toutes` : ''
+        }`}
         action={
           <button
             onClick={sync}
@@ -247,6 +277,15 @@ export default function TransactionsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
+                <th className="px-4 py-3 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={toggleAll}
+                    aria-label="Tout sélectionner"
+                    title="Tout sélectionner (lignes affichées)"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Date</th>
                 <th className="px-4 py-3 font-medium">Description</th>
                 <th className="px-4 py-3 font-medium">Type</th>
@@ -262,8 +301,18 @@ export default function TransactionsPage() {
                 return (
                   <tr
                     key={tx.id}
-                    className="border-b border-[var(--border)] last:border-0 hover:bg-black/[0.02]"
+                    className={`border-b border-[var(--border)] last:border-0 hover:bg-black/[0.02] ${
+                      checked[tx.id] ? 'bg-[var(--accent)]/5' : ''
+                    }`}
                   >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={!!checked[tx.id]}
+                        onChange={() => toggleOne(tx.id)}
+                        aria-label={`Sélectionner ${tx.description || tx.id}`}
+                      />
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-[var(--muted)]">
                       {dateFR(tx.booked_date)}
                     </td>
@@ -288,7 +337,7 @@ export default function TransactionsPage() {
                       <select
                         value={tx.category_id ?? ''}
                         onChange={(e) => updateCategory(tx, e.target.value)}
-                        aria-label="Catégorie"
+                        aria-label={`Catégorie de ${tx.description || tx.id}`}
                         className={`rounded-lg border px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)] ${
                           uncategorized
                             ? 'border-amber-300 bg-amber-50 text-amber-800'
