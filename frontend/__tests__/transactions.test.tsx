@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import TransactionsPage from '../app/transactions/page';
 
 jest.mock('@/api/client', () => ({
@@ -23,6 +23,25 @@ jest.mock('@/api/client', () => ({
         invoice_id: null,
         created_at: '2026-06-15T10:00:00Z',
       },
+      {
+        id: 2,
+        account_uid: 'acc-1',
+        external_id: 'ext-2',
+        booked_date: '2026-06-20',
+        value_date: '2026-06-20',
+        amount: '5000.00',
+        currency: 'EUR',
+        description: 'Virement client Acme',
+        counterparty: 'Acme Corp',
+        category_id: null,
+        category_name: null,
+        kind: 'revenue',
+        fx_rate: null,
+        amount_eur: '5000.00',
+        linked_conversion_id: null,
+        invoice_id: null,
+        created_at: '2026-06-20T10:00:00Z',
+      },
     ]),
     update: jest.fn(),
   },
@@ -45,5 +64,19 @@ describe('TransactionsPage', () => {
       await screen.findByRole('heading', { name: 'Transactions' }),
     ).toBeInTheDocument();
     expect(await screen.findByText('Abonnement logiciel')).toBeInTheDocument();
+  });
+
+  it('filtre les transactions par recherche texte', async () => {
+    render(<TransactionsPage />);
+    // Les deux transactions sont visibles au départ.
+    expect(await screen.findByText('Abonnement logiciel')).toBeInTheDocument();
+    expect(screen.getByText('Virement client Acme')).toBeInTheDocument();
+
+    const box = screen.getByRole('searchbox', { name: /rechercher une transaction/i });
+    fireEvent.change(box, { target: { value: 'acme' } });
+
+    // Seule la transaction Acme reste (match sur contrepartie).
+    expect(screen.getByText('Virement client Acme')).toBeInTheDocument();
+    expect(screen.queryByText('Abonnement logiciel')).not.toBeInTheDocument();
   });
 });

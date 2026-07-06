@@ -71,6 +71,7 @@ export default function TransactionsPage() {
   const [kindFilter, setKindFilter] = useState<string>('');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [search, setSearch] = useState<string>(''); // recherche texte (client-side)
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,11 +138,21 @@ export default function TransactionsPage() {
   const selectCls =
     'rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]';
 
+  // Recherche texte sur description + contrepartie (insensible à la casse).
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(
+        (t) =>
+          (t.description ?? '').toLowerCase().includes(q) ||
+          (t.counterparty ?? '').toLowerCase().includes(q),
+      )
+    : rows;
+
   return (
     <div>
       <PageTitle
         title="Transactions"
-        subtitle={`${rows.length} opération(s)`}
+        subtitle={`${filtered.length} opération(s)${q ? ` sur ${rows.length}` : ''}`}
         action={
           <button
             onClick={sync}
@@ -157,6 +168,17 @@ export default function TransactionsPage() {
 
       {/* Filtres */}
       <Card className="mb-5">
+        <label className="mb-3 flex flex-col gap-1 text-sm">
+          <span className="text-[var(--muted)]">Recherche</span>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Description ou contrepartie…"
+            aria-label="Rechercher une transaction"
+            className={selectCls}
+          />
+        </label>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[var(--muted)]">Catégorie</span>
@@ -218,8 +240,8 @@ export default function TransactionsPage() {
         <Empty>❌ Erreur : {error}</Empty>
       ) : loading ? (
         <Empty>Chargement…</Empty>
-      ) : rows.length === 0 ? (
-        <Empty>Aucune transaction.</Empty>
+      ) : filtered.length === 0 ? (
+        <Empty>{q ? 'Aucune transaction ne correspond à la recherche.' : 'Aucune transaction.'}</Empty>
       ) : (
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm">
@@ -234,7 +256,7 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((tx) => {
+              {filtered.map((tx) => {
                 const amt = parseFloat(tx.amount);
                 const uncategorized = tx.category_id == null;
                 return (
