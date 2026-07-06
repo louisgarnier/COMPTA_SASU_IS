@@ -137,6 +137,20 @@ facture). Le taux réel encaissé + la variance sont figés sur la facture au pa
 
 ---
 
+### ERR-003 — 500 à l'enregistrement d'un client (UNIQUE(clients.code))
+**Symptôme :** page Clients, ❌ HTTP 500 en enregistrant. Trace : `sqlite3.IntegrityError: UNIQUE constraint failed: clients.code` sur `INSERT`.
+**Cause racine :** `create_client`/`update_client` ne géraient pas l'`IntegrityError` → 500 brut. Déclencheur : enregistrer un client **sans code** (le 1ᵉʳ passe et crée un fantôme `code=""`, le 2ᵉ collisionne). Aussi tout code doublon.
+**Fix :** `_require_code()` refuse un code vide (422) ; `_commit_or_409()` traduit la collision UNIQUE en **409** propre. Garde-fou front : save bloqué si code vide.
+
+#### Prevention Rule
+> 🔒 **RULE ERR-003 :** Toute écriture DB sous contrainte `UNIQUE`/FK doit **attraper `IntegrityError`** et rendre un 409/422 lisible — jamais laisser remonter un 500. Valider les champs identifiants non vides **avant** l'INSERT.
+
+#### Test Added
+- [x] `test_settings_clients_investments.py` : `test_client_create_rejects_empty_code` (422),
+  `test_client_create_duplicate_code_returns_409`, `test_client_patch_to_duplicate_code_returns_409`.
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

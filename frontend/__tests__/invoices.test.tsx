@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { invoicesAPI } from '@/api/client';
 import InvoicesPage from '../app/invoices/page';
 
 // Mock du client API (même specifier que la page : @/api/client)
@@ -22,6 +23,7 @@ jest.mock('@/api/client', () => ({
     ]),
     update: jest.fn(),
     generate: jest.fn(),
+    remove: jest.fn().mockResolvedValue({}),
     printUrl: (id: number) => `http://localhost:8000/api/invoices/${id}/print`,
   },
 }));
@@ -35,5 +37,26 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Ouvrir la facture')).toBeInTheDocument();
     // Facture 'forecast' → bouton "Générer"
     expect(await screen.findByText('Générer')).toBeInTheDocument();
+  });
+
+  it('supprime une facture après confirmation', async () => {
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<InvoicesPage />);
+    const btns = await screen.findAllByRole('button', { name: 'Supprimer' });
+    fireEvent.click(btns[0]);
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() => expect(invoicesAPI.remove).toHaveBeenCalledWith(1));
+    confirmSpy.mockRestore();
+  });
+
+  it('ne supprime pas si la confirmation est annulée', async () => {
+    (invoicesAPI.remove as jest.Mock).mockClear();
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<InvoicesPage />);
+    const btns = await screen.findAllByRole('button', { name: 'Supprimer' });
+    fireEvent.click(btns[0]);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(invoicesAPI.remove).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

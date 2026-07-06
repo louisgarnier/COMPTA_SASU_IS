@@ -49,6 +49,33 @@ export const clientsAPI = {
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/clients/${id}`, b),
   remove: (id: number) => del(`/api/clients/${id}`),
+  repricePreview: (id: number) =>
+    get<RepricePreview>(`/api/clients/${id}/forecast-reprice-preview`),
+  reprice: (id: number) =>
+    post<RepricePreview>(`/api/clients/${id}/forecast-reprice`),
+};
+
+export type RepriceRow = {
+  month: string;
+  quantity: string;
+  unit: string;
+  old_amount: string;
+  new_amount: string;
+  old_amount_eur: string;
+  new_amount_eur: string;
+};
+
+export type RepricePreview = {
+  from_month: string;
+  count: number;
+  currency: string;
+  rate: string;
+  rate_unit: string;
+  rows: RepriceRow[];
+  total_old: string;
+  total_new: string;
+  total_old_eur: string;
+  total_new_eur: string;
 };
 
 export const transactionsAPI = {
@@ -145,6 +172,7 @@ export const invoicesAPI = {
   reconcile: (id: number, transaction_id: number) =>
     post<any>(`/api/invoices/${id}/reconcile`, { transaction_id }),
   unreconcile: (id: number) => post<any>(`/api/invoices/${id}/unreconcile`),
+  remove: (id: number) => del(`/api/invoices/${id}`),
   printUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/print`,
   generatePdf: (id: number) => post<{ pdf_path: string }>(`/api/invoices/${id}/pdf`),
   downloadUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/download`,

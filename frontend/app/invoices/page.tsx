@@ -142,6 +142,21 @@ export default function InvoicesPage() {
     }
   };
 
+  const remove = async (i: Invoice) => {
+    const label = i.status === 'forecast' ? `la prévision de ${i.client_name}` : `la facture ${i.number}`;
+    const extra =
+      i.status === 'paid'
+        ? '\n\nElle est rapprochée : la transaction bancaire liée sera libérée (elle redeviendra disponible au rapprochement).'
+        : '';
+    if (!window.confirm(`Supprimer ${label} ?${extra}`)) return;
+    try {
+      await invoicesAPI.remove(i.id);
+      await load();
+    } catch (e) {
+      setMsg((m) => ({ ...m, [i.id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
   // Ordre d'affichage : dues/retard d'abord, puis prévisions, puis payées.
   const sorted = useMemo(() => {
     const rank: Record<string, number> = { overdue: 0, due: 1, forecast: 2, paid: 3 };
@@ -259,6 +274,13 @@ export default function InvoicesPage() {
                             )}
                           </>
                         )}
+                        <button
+                          onClick={() => remove(i)}
+                          title="Supprimer"
+                          className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium text-[var(--neg)] hover:bg-red-50"
+                        >
+                          Supprimer
+                        </button>
                         {msg[i.id] && <span className="text-xs text-[var(--neg)]">{msg[i.id]}</span>}
                       </div>
                       {matching === i.id && (

@@ -120,3 +120,15 @@
 - **E2E live :** prévision Alpha Mai 100 h × 120 → Générer n°69 due → tx STORY5TX 12 060 USD (11 095 €) → Rapprocher → **payée, encaissé 11 095 €, variance +55 €** (screenshot Factures). Nettoyé (facture + tx supprimées, compteur remis à 69).
 
 **EPIC-5 terminé** (① client card · ② cycle de vie fusion · ③ grille horaire · ④ génération facture · ⑤ rapprochement/variance).
+
+## 2026-07-04 — Fix 500 fiche client + feature repropagation taux→forecasts
+
+**Contexte :** Enable Banking tourne **en live** (app « Accounting App », clé `secrets/eb_private.pem`) — `GET /api/banking/status` → `{"live": true}`. (Le build-log antérieur décrivait le mode mock, désormais dépassé.)
+
+**Bug 500 (ERR-003) :** enregistrer un client **sans code** faisait un 500 (`IntegrityError: UNIQUE constraint failed: clients.code` non attrapé ; le 1er client à code vide passait → fantôme id=3, le 2e collisionnait). Fix : `_require_code()` (422 si code vide) + `_commit_or_409()` (409 doublon propre) sur create **et** update ; garde-fou front (save bloqué si code vide) ; fantôme id=3 supprimé. 3 tests.
+
+**Feature repropagation (maquette ui-mockup v2 validée) :** quand on change le **taux OU le mode** (TJM/THM) d'un client, une **modale** propose de recalculer toutes ses prévisions `forecast` de **mois ≥ courant** (mois en cours inclus). La **quantité de travail est préservée** (heures en THM, jours en TJM, converties via h/j au changement de mode), montant = quantité × nouveau taux, EUR = montant × FX théorique.
+- Backend `forecast.reprice_client_forecasts(db, id, apply)` + routes `GET /api/clients/{id}/forecast-reprice-preview` (aperçu ancien/nouveau, natif + €) et `POST /api/clients/{id}/forecast-reprice` (applique). 4 tests service (préservation heures, apply, bascule TJM→THM, filtre mois).
+- Front : `clients/page.tsx` détecte le changement au save → aperçu → `RepriceModal` (table Mois/Qté/Ancien-Nouveau USD/Ancien-Nouveau €, totaux, boutons *Ne rien changer* / *Appliquer aux N*). 2 tests front.
+- **Tests : 129 backend · 13 front · tsc clean · `next build` OK.**
+- **E2E live :** preview SWIB (tjh 120, 2 prévisions Août/Oct) → apply → 11520/14400 → **restauré à l'identique** (125/12000/15000). Navigateur : taux 120→130 enregistré → modale rendue fidèle à la maquette (screenshot), *Ne rien changer* laisse les prévisions intactes. Client + forecasts remis dans l'état initial.

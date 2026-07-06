@@ -121,6 +121,31 @@ def test_client_create_list_patch_and_404(client: TestClient):
     assert client.patch("/api/clients/9999", json={"tjh": "1"}).status_code == 404
 
 
+def test_client_create_rejects_empty_code(client: TestClient):
+    """Un code vide est refusé proprement (422), pas de 500 ni de client fantôme."""
+    resp = client.post("/api/clients", json={"code": "", "legal_name": "Sans code"})
+    assert resp.status_code == 422
+    # Aucun client n'a été créé.
+    assert client.get("/api/clients").json() == []
+
+
+def test_client_create_duplicate_code_returns_409(client: TestClient):
+    """Un code déjà utilisé renvoie 409 (message clair), pas un 500 IntegrityError brut."""
+    first = client.post("/api/clients", json={"code": "SWIB", "legal_name": "Alpha"})
+    assert first.status_code == 201
+    dup = client.post("/api/clients", json={"code": "SWIB", "legal_name": "Autre"})
+    assert dup.status_code == 409
+    assert "code" in dup.json()["detail"].lower()
+
+
+def test_client_patch_to_duplicate_code_returns_409(client: TestClient):
+    """Renommer un client vers un code déjà pris renvoie 409, pas 500."""
+    client.post("/api/clients", json={"code": "SWIB", "legal_name": "Alpha"})
+    b = client.post("/api/clients", json={"code": "NWH", "legal_name": "New Wave"}).json()
+    clash = client.patch(f"/api/clients/{b['id']}", json={"code": "SWIB"})
+    assert clash.status_code == 409
+
+
 def test_client_billing_fields_and_defaults(client: TestClient):
     # Champs de facturation (story ① Client card).
     resp = client.post(

@@ -515,6 +515,35 @@ def unreconcile(db: Session, invoice_id: int) -> models.Invoice:
     return invoice
 
 
+def delete_invoice(db: Session, invoice_id: int) -> None:
+    """
+    Supprime une facture. Si elle est rapprochée, libère d'abord la transaction
+    liée (elle redevient candidate au rapprochement), puis efface le PDF sur
+    disque s'il existe. 404 si absente.
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    if invoice.paid_transaction_id is not None:
+        tx = db.get(models.Transaction, invoice.paid_transaction_id)
+        if tx is not None:
+            tx.invoice_id = None
+
+    if invoice.pdf_path:
+        pdf = Path(invoice.pdf_path)
+        try:
+            if pdf.exists():
+                pdf.unlink()
+        except OSError as exc:
+            logger.warning("⚠️ [Invoices] delete: PDF non effacé (%s): %s", pdf, exc)
+
+    number = invoice.number
+    db.delete(invoice)
+    db.commit()
+    logger.info("🗑️ [Invoices] delete: n°%s ✅", number)
+
+
 def reconcile_payments(db: Session) -> int:
     """
     Rapproche les factures non payées avec des transactions de revenu.

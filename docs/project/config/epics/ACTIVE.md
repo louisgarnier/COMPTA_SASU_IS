@@ -1,10 +1,11 @@
 # Active Context
 
 ## Current Sprint
-- **Epic:** MVP EPIC-1 → 6 — **code complet, testable** (mode "bombarde tout", sans checkpoints)
-- **Story:** — *(à définir après revue front par l'utilisateur)*
-- **Goal:** L'utilisateur teste le front (`make dev` + `make seed`), puis on itère sur les retours.
-- **À faire ensuite (hors code) :** brancher WeasyPrint (`brew install pango`), creds Enable Banking pour synchro réelle, migrations Alembic.
+- **Epic:** MVP EPIC-1 → 6 — **code complet, testable** ; itérations sur retours d'usage.
+- **Story:** — *(à définir)*
+- **Goal:** Usage réel sur données Enable Banking **live** ; on itère sur les retours.
+- **Fait le 2026-07-04 :** fix 500 fiche client (ERR-003) ; feature repropagation taux/mode → prévisions futures (modale). Cf. build-log.
+- **À faire ensuite (hors code) :** génération facture PDF via page imprimable (fait) ; migrations Alembic ; valider le modèle FX sur transactions réelles (Open Banking live).
 
 ## Completed
 - **S1.1 — Scaffold back + front** *(2026-07-01)* — FastAPI `/health` + Next.js, `make dev`, tests verts.

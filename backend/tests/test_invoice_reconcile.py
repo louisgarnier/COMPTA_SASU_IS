@@ -131,6 +131,37 @@ def test_unreconcile_reverts_to_due(db):
     assert tx.invoice_id is None
 
 
+def test_delete_invoice_removes_row(db):
+    client = _setup(db)
+    inv = _due_invoice(db, client)
+
+    invoices_service.delete_invoice(db, inv.id)
+
+    assert db.get(models.Invoice, inv.id) is None
+
+
+def test_delete_reconciled_invoice_releases_transaction(db):
+    client = _setup(db)
+    inv = _due_invoice(db, client)
+    tx = _tx(db, "t1", "10050", eur="9045")
+    invoices_service.manual_reconcile(db, inv.id, tx.id)
+    db.refresh(tx)
+    assert tx.invoice_id == inv.id
+
+    invoices_service.delete_invoice(db, inv.id)
+
+    assert db.get(models.Invoice, inv.id) is None
+    db.refresh(tx)
+    assert tx.invoice_id is None            # transaction libérée
+
+
+def test_delete_missing_invoice_raises_404(db):
+    _setup(db)
+    with pytest.raises(HTTPException) as exc:
+        invoices_service.delete_invoice(db, 9999)
+    assert exc.value.status_code == 404
+
+
 def test_reconcile_candidates_sorted_by_amount_proximity(db):
     client = _setup(db)
     inv = _due_invoice(db, client)          # amount 10050 USD

@@ -213,6 +213,23 @@ def test_route_list_and_patch_status(client, session):
     assert patched.json()["status"] == "paid"
 
 
+def test_route_delete_invoice(client, session):
+    client_id = session.query(models.Client).first().id
+    created = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+
+    resp = client.delete(f"/api/invoices/{created['id']}")
+    assert resp.status_code == 204, resp.text
+    assert client.get(f"/api/invoices/{created['id']}").status_code == 404
+    assert client.get("/api/invoices").json() == []
+
+
+def test_route_delete_missing_invoice_404(client):
+    assert client.delete("/api/invoices/9999").status_code == 404
+
+
 def test_route_create_unknown_client_404(client):
     resp = client.post("/api/invoices", json={
         "client_id": 9999, "hours": "1", "rate": "1", "currency": "USD",

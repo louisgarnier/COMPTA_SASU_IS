@@ -189,6 +189,138 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
     return [_to_row(inv) for inv in result]
 
 
+def reprice_client_forecasts(
+    db: Session,
+    client_id: int,
+    *,
+    apply: bool = False,
+    today: Optional[date] = None,
+) -> dict:
+    """
+    Recalcule les prévisions (`status='forecast'`) d'un client aux **taux et mode
+    actuels de sa fiche**, à partir du mois en cours inclus (mois ≥ aujourd'hui).
+
+    La **quantité de travail est préservée** : en THM on garde les heures comme
+    source (jours = heures ÷ h/j), en TJM on garde les jours (heures = jours × h/j).
+    Un changement de mode reporte donc l'effort d'une unité à l'autre via h/j.
+    Montant natif = quantité_source × taux ; EUR = montant × taux théorique (fx_rates).
+
+    `apply=False` → aperçu (ancien vs nouveau, aucune écriture).
+    `apply=True`  → écrit les nouvelles valeurs et commit.
+
+    Retourne : {from_month, count, currency, rate, rate_unit, rows[], total_old,
+    total_new, total_old_eur, total_new_eur}.
+    """
+    from backend.services.fx import load_rates, to_eur
+
+    today = today or date.today()
+    from_month = today.strftime("%Y-%m")
+
+    client = db.get(models.Client, client_id)
+    if client is None:
+        return _empty_reprice(from_month)
+
+    rate = Decimal(client.tjh or 0)
+    rate_unit = "hour" if (client.billing_mode or "tjm") in ("hour", "thm") else "day"
+    hpd = Decimal(client.default_hours_per_day or 8)
+    if hpd <= 0:
+        hpd = Decimal("8")
+    currency = (client.currency or "EUR") or "EUR"
+    rates = load_rates(db)
+
+    invoices = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.status == "forecast",
+            models.Invoice.client_id == client_id,
+            models.Invoice.month >= from_month,
+        )
+        .order_by(models.Invoice.month)
+        .all()
+    )
+
+    rows: list[dict] = []
+    total_old = total_new = total_old_eur = total_new_eur = _ZERO
+    for inv in invoices:
+        if rate_unit == "hour":
+            hours = Decimal(inv.hours or 0)  # heures = source préservée
+            days = (hours / hpd).quantize(_CENTS)
+            new_amount = hours * rate
+            quantity, unit_label = hours, "h"
+        else:
+            days = Decimal(inv.days or 0)  # jours = source préservée
+            hours = (days * hpd).quantize(_CENTS)
+            new_amount = days * rate
+            quantity, unit_label = days, "j"
+        new_amount = _q(new_amount)
+        new_amount_eur = _q(to_eur(new_amount, currency, rates))
+        old_amount = Decimal(inv.amount or 0)
+        old_amount_eur = Decimal(inv.amount_eur_forecast or 0)
+
+        rows.append(
+            {
+                "month": inv.month,
+                "quantity": quantity,
+                "unit": unit_label,
+                "old_amount": old_amount,
+                "new_amount": new_amount,
+                "old_amount_eur": old_amount_eur,
+                "new_amount_eur": new_amount_eur,
+            }
+        )
+        total_old += old_amount
+        total_new += new_amount
+        total_old_eur += old_amount_eur
+        total_new_eur += new_amount_eur
+
+        if apply:
+            inv.rate = rate
+            inv.rate_unit = rate_unit
+            inv.hours_per_day = hpd
+            inv.currency = currency
+            inv.days = _q(days)
+            inv.hours = _q(hours)
+            inv.amount = new_amount
+            inv.amount_eur_forecast = new_amount_eur
+
+    if apply:
+        db.commit()
+        logger.info(
+            "📤 [Forecast] reprice client=%d: %d prévision(s) recalculée(s) ✅",
+            client_id,
+            len(rows),
+        )
+
+    return {
+        "from_month": from_month,
+        "count": len(rows),
+        "currency": currency,
+        "rate": rate,
+        "rate_unit": rate_unit,
+        "rows": rows,
+        "total_old": _q(total_old),
+        "total_new": _q(total_new),
+        "total_old_eur": _q(total_old_eur),
+        "total_new_eur": _q(total_new_eur),
+    }
+
+
+def _empty_reprice(from_month: str) -> dict:
+    """Aperçu vide (client absent / aucune prévision future)."""
+    return {
+        "from_month": from_month,
+        "count": 0,
+        "currency": "EUR",
+        "rate": _ZERO,
+        "rate_unit": "day",
+        "rows": [],
+        "total_old": _ZERO,
+        "total_new": _ZERO,
+        "total_old_eur": _ZERO,
+        "total_new_eur": _ZERO,
+    }
+
+
 def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:
     """
     Charges opérationnelles réelles de `year` : liste (date, montant_eur_positif).

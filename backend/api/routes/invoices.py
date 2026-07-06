@@ -209,6 +209,13 @@ def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)) -> File
     )
 
 
+@router.delete("/{invoice_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_invoice_route(invoice_id: int, db: Session = Depends(get_db)) -> None:
+    """Supprime une facture (libère la transaction liée si rapprochée)."""
+    invoices_service.delete_invoice(db, invoice_id)
+    logger.info("🗑️ [Invoices] delete: id=%d ✅", invoice_id)
+
+
 @router.patch("/{invoice_id}", response_model=InvoiceOut)
 def update_invoice(
     invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db)
