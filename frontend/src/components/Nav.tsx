@@ -10,6 +10,7 @@ const LINKS = [
   { href: '/forecast', label: 'Forecast', icon: '📈' },
   { href: '/clients', label: 'Clients', icon: '🧑‍💼' },
   { href: '/invoices', label: 'Factures', icon: '🧾' },
+  { href: '/placements', label: 'Placements', icon: '💼' },
   { href: '/banking', label: 'Banques', icon: '🏦' },
   { href: '/settings', label: 'Réglages', icon: '⚙️' },
 ];
