@@ -346,3 +346,48 @@ def test_route_get_with_starting_cash(client_app, db_session):
     assert resp.status_code == 200
     jan = resp.json()["projection"]["months"][0]
     assert jan["cumulative_cash_eur"] == "6000.00"
+
+
+def test_route_delete_forecast_input(client_app, db_session):
+    """DELETE supprime la prévision d'un client×mois et rien d'autre."""
+    client = _make_client(db_session)
+    forecast_service.upsert_inputs(
+        db_session,
+        [
+            {"month": "2026-01", "client_id": client.id, "days": Decimal("10"),
+             "rate": Decimal("100"), "note": ""},
+            {"month": "2026-02", "client_id": client.id, "days": Decimal("8"),
+             "rate": Decimal("100"), "note": ""},
+        ],
+    )
+
+    resp = client_app.delete(f"/api/forecast/{client.id}/2026-01")
+    assert resp.status_code == 204, resp.text
+
+    remaining = forecast_service.get_inputs(db_session, 2026)
+    months = [r.month for r in remaining]
+    assert "2026-01" not in months
+    assert "2026-02" in months
+
+
+def test_delete_forecast_input_missing_is_noop(client_app, db_session):
+    client = _make_client(db_session)
+    # Aucune prévision : la suppression ne lève pas, renvoie 204.
+    resp = client_app.delete(f"/api/forecast/{client.id}/2026-05")
+    assert resp.status_code == 204
+
+
+def test_delete_forecast_ignores_issued_invoice(db_session):
+    """delete_input ne touche pas une facture émise (due/paid)."""
+    client = _make_client(db_session)
+    db_session.add(models.Invoice(
+        number="90", client_id=client.id, month="2026-03", period_label="2026-03",
+        status="due", days=Decimal("10"), hours=Decimal("80"), rate=Decimal("100"),
+        currency="USD", amount=Decimal("1000"), amount_eur_forecast=Decimal("900"),
+    ))
+    db_session.commit()
+
+    deleted = forecast_service.delete_input(db_session, client.id, "2026-03")
+    assert deleted is False
+    # La facture émise est toujours là.
+    assert db_session.query(models.Invoice).filter_by(month="2026-03").count() == 1

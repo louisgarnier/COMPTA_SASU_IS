@@ -186,6 +186,8 @@ export const forecastAPI = {
         (startingCash !== undefined ? `&starting_cash_eur=${startingCash}` : ''),
     ),
   save: (b: Record<string, unknown>) => put<any>('/api/forecast', b),
+  deleteInput: (clientId: number, month: string) =>
+    del(`/api/forecast/${clientId}/${month}`),
 };
 
 export const invoicesAPI = {

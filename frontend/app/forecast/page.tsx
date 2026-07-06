@@ -49,7 +49,7 @@ type ForecastData = {
   };
 };
 
-type Cell = { days: string; hours: string; rate: string };
+type Cell = { days: string; hours: string; rate: string; note: string };
 
 const num = (v: string | number | null | undefined) => {
   const n = parseFloat(String(v ?? '').replace(',', '.'));
@@ -102,6 +102,7 @@ export default function ForecastPage() {
           days: ex ? String(ex.days ?? '') : '',
           hours: ex ? String(ex.hours ?? '') : '',
           rate: ex ? String(ex.rate ?? '') : String(c.tjh ?? ''),
+          note: ex ? String(ex.note ?? '') : '',
         };
       });
     });
@@ -146,16 +147,32 @@ export default function ForecastPage() {
   }, [year]);
 
   // Édition d'une cellule. En THM, jours ⇄ heures liés (l'un recalcule l'autre).
-  function editCell(c: Client, month: string, field: 'days' | 'hours' | 'rate', value: string) {
+  function editCell(c: Client, month: string, field: 'days' | 'hours' | 'rate' | 'note', value: string) {
     const key = cellKey(c.id, month);
     setGrid((prev) => {
-      const cur = prev[key] ?? { days: '', hours: '', rate: '' };
+      const cur = prev[key] ?? { days: '', hours: '', rate: '', note: '' };
       const next = { ...cur, [field]: value };
       const h = hpd(c);
       if (field === 'days') next.hours = value === '' ? '' : String(+(num(value) * h).toFixed(2));
       if (field === 'hours') next.days = value === '' ? '' : String(+(num(value) / h).toFixed(2));
       return { ...prev, [key]: next };
     });
+  }
+
+  // Vide une prévision : efface la cellule et supprime la facture forecast liée.
+  async function clearCell(c: Client, month: string) {
+    const key = cellKey(c.id, month);
+    setGrid((prev) => ({
+      ...prev,
+      [key]: { days: '', hours: '', rate: String(c.tjh ?? ''), note: '' },
+    }));
+    try {
+      await forecastAPI.deleteInput(c.id, month);
+      setStatus('✅ Prévision supprimée');
+      await load(year);
+    } catch (e) {
+      setStatus(`❌ ${(e as Error).message}`);
+    }
   }
 
   async function toggleMode(c: Client, mode: 'tjm' | 'thm') {
@@ -192,7 +209,7 @@ export default function ForecastPage() {
             days: num(cell.days),
             hours: num(cell.hours),
             rate: num(cell.rate) || 0,
-            note: '',
+            note: cell.note ?? '',
           });
         });
       });
@@ -311,6 +328,7 @@ export default function ForecastPage() {
               hpd={hpd(c)}
               onEdit={editCell}
               onMode={toggleMode}
+              onClear={clearCell}
             />
           ))}
         </div>
@@ -380,15 +398,16 @@ export default function ForecastPage() {
 // --------------------------------------------------------------------------- //
 
 function ClientGrid({
-  client, months, grid, fx, hpd, onEdit, onMode,
+  client, months, grid, fx, hpd, onEdit, onMode, onClear,
 }: {
   client: Client;
   months: { key: string; label: string; editable: boolean }[];
   grid: Record<string, Cell>;
   fx: Record<string, number>;
   hpd: number;
-  onEdit: (c: Client, month: string, field: 'days' | 'hours' | 'rate', value: string) => void;
+  onEdit: (c: Client, month: string, field: 'days' | 'hours' | 'rate' | 'note', value: string) => void;
   onMode: (c: Client, mode: 'tjm' | 'thm') => void;
+  onClear: (c: Client, month: string) => void;
 }) {
   const isHour = client.billing_mode === 'thm';
   const rate = fx[client.currency] ?? 1;
@@ -509,11 +528,27 @@ function ClientGrid({
               <td className="sticky left-0 bg-[#fbfbfe] py-1 pr-3 font-medium">
                 Montant {cur} <span className="ml-1 rounded bg-[var(--accent)]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[var(--accent)]">facture</span>
               </td>
-              {months.map((m) => (
-                <td key={m.key} className="px-1 py-1 text-right font-semibold">
-                  {fmt(cellAmount(grid[cellKey(client.id, m.key)]))}
-                </td>
-              ))}
+              {months.map((m) => {
+                const amt = cellAmount(grid[cellKey(client.id, m.key)]);
+                return (
+                  <td key={m.key} className="px-1 py-1 text-right font-semibold">
+                    <span className="inline-flex items-center justify-end gap-1">
+                      {fmt(amt)}
+                      {m.editable && amt > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onClear(client, m.key)}
+                          title="Vider cette prévision"
+                          aria-label={`Vider ${client.code} ${m.key}`}
+                          className="rounded px-1 text-[var(--neg)] hover:bg-[var(--neg)]/10"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                );
+              })}
               <td className="bg-gray-50 px-2 py-1 text-right font-semibold">{fmt(tot.amount)}</td>
             </tr>
             {/* EUR */}
@@ -525,6 +560,24 @@ function ClientGrid({
                 </td>
               ))}
               <td className="bg-gray-50 px-2 py-1 text-right font-bold">{fmt(tot.eur)}</td>
+            </tr>
+            {/* Note (par prévision) */}
+            <tr className="border-t border-[var(--border)]">
+              <td className="sticky left-0 bg-white py-1 pr-3 text-[var(--muted)]">Note</td>
+              {months.map((m) => (
+                <td key={m.key} className="px-1 py-1">
+                  <input
+                    type="text"
+                    disabled={!m.editable}
+                    aria-label={`Note ${client.code} ${m.key}`}
+                    placeholder="—"
+                    value={grid[cellKey(client.id, m.key)]?.note ?? ''}
+                    onChange={(e) => onEdit(client, m.key, 'note', e.target.value)}
+                    className="w-16 rounded-md border border-[var(--border)] px-2 py-1 text-left text-xs outline-none focus:border-[var(--accent)] disabled:cursor-not-allowed disabled:bg-gray-100"
+                  />
+                </td>
+              ))}
+              <td className="bg-gray-50 px-2 py-1 text-right text-[var(--muted)]">—</td>
             </tr>
           </tbody>
         </table>

@@ -102,3 +102,12 @@ def put_forecast(payload: ForecastUpsert, db: Session = Depends(get_db)) -> dict
         db, [item.model_dump() for item in payload.inputs]
     )
     return _build_response(db, payload.year, payload.starting_cash_eur)
+
+
+@router.delete("/{client_id}/{month}", status_code=204)
+def delete_forecast_input(
+    client_id: int, month: str, db: Session = Depends(get_db)
+):
+    """Supprime la prévision d'un client pour un mois (facture `forecast`)."""
+    logger.info("📥 [Forecast] delete: client=%d mois=%s", client_id, month)
+    forecast_service.delete_input(db, client_id, month)

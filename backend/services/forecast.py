@@ -189,6 +189,30 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
     return [_to_row(inv) for inv in result]
 
 
+def delete_input(db: Session, client_id: int, month: str) -> bool:
+    """
+    Supprime la prévision (facture `status='forecast'`) d'un client pour un mois.
+
+    Retourne True si une ligne a été supprimée, False si rien à supprimer.
+    Ne touche jamais une facture émise (due/paid).
+    """
+    row = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.status == "forecast",
+            models.Invoice.client_id == client_id,
+            models.Invoice.month == month,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    db.delete(row)
+    db.commit()
+    logger.info("🗑️ [Forecast] delete_input: client=%d mois=%s ✅", client_id, month)
+    return True
+
+
 def reprice_client_forecasts(
     db: Session,
     client_id: int,
