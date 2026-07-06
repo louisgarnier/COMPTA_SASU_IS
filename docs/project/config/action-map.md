@@ -17,15 +17,18 @@ Tous les points 🔴 **haute priorité** + une partie du 🟠 moyen sont réglé
 - **Catégories** : suppression (FK-safe) · ré-appliquer les règles à l'historique · édition motif/priorité ✅
 - **Forecast** : charges année future (repli 12 mois) · trésorerie de départ réelle · bascule TJM/THM re-price ✅
 
-**Reste à faire (repris en session fraîche)** — voir « Backlog restant » ci-dessous.
+## ✅ Backlog moyen + bas — traité le 2026-07-06 (session 2)
+Tous les points 🟠 restants + les 🟡 utiles sont réglés, testés et committés :
+- **Forecast** : ✕ « vider une prévision » (DELETE `/api/forecast/{client}/{month}`, ne touche pas une facture émise) · champ **note** par prévision câblé de bout en bout ✅
+- **Factures** : statut `paid` **réservé au rapprochement** (PATCH refuse `paid` → 409) · enum de statut validé (`Literal`, 422 sinon) · `changeStatus` (code mort) retiré · **compteur rendu** à la suppression du dernier n° émis (pas de trou) · hint « n° de départ » en Réglages ✅
+- **Transactions** : champ **recherche texte** (description + contrepartie, client-side) ✅
+- **Dashboard** : **sélecteur d'année** (widgets dynamiques) · « + Nouvelle facture » câblé → `/invoices` · bouton mort « Tous les comptes ▾ » retiré ✅
+- **Banques** : **sélection des comptes à la connexion** (échange code → aperçu → rattachement des cochés) · **vérif `state` OAuth** anti-CSRF (émis à connect, consommé au callback, rejeu refusé) ✅
+- **Clients** : test de suppression **204** (sans facture) + **409** (facture liée) ✅
 
-## 🟠 Backlog restant (moyen + bas)
-- **Forecast** : supprimer/vider une prévision depuis la grille · champ note.
-- **Factures** : « marquer payé » manuel · retirer `changeStatus` (code mort) · valider l'enum de statut · compteur n° à la suppression (cosmétique).
-- **Transactions** : champ recherche texte · (création manuelle, lien FX manuel — bas).
-- **Dashboard** : câbler « + Nouvelle facture » / retirer bouton « Tous les comptes » mort · année figée 2026 · KPI doublon (cosmétiques) · solde passé inclut transferts (cosmétique).
-- **Banques** : sélection de comptes à la connexion · vérif `state` OAuth (sécurité mineure).
-- **Clients** : test de la suppression (204 + 409).
+Verif finale : backend **156 passed**, frontend **17 passed**, `tsc` clean.
+
+**Restant (assumé, non prioritaire)** : KPI « Trésorerie totale » vs « Solde banques » gardés volontairement (diffèrent dès qu'il y a des placements) · solde passé inclut transferts (cosmétique) · Transactions création manuelle + lien FX manuel (🟡 bas) · endpoints orphelins GET client/{id}, PDF WeasyPrint (choix produit).
 
 ---
 
