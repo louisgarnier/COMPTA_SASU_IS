@@ -351,6 +351,35 @@ def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:
     return out
 
 
+def _recent_monthly_charge_avg(db: Session, today: date, window_months: int = 12) -> Decimal:
+    """
+    Moyenne mensuelle des charges opérationnelles réelles sur les `window_months`
+    mois précédant `today` (toutes années confondues). Sert de repli pour estimer
+    les charges d'une année entièrement future.
+    """
+    from datetime import timedelta
+
+    from backend.services.fx import load_rates, to_eur
+
+    start = today - timedelta(days=window_months * 31)
+    rows = (
+        db.query(models.Transaction, models.Category)
+        .join(models.Category, models.Transaction.category_id == models.Category.id)
+        .filter(
+            models.Category.type == "charge",
+            ~models.Transaction.kind.in_(_EXCLUDED_KINDS),
+            models.Transaction.booked_date.isnot(None),
+        )
+        .all()
+    )
+    rates = load_rates(db)
+    total = _ZERO
+    for txn, _cat in rows:
+        if start <= txn.booked_date <= today:
+            total += abs(to_eur(txn.amount, txn.currency, rates))
+    return (Decimal(total) / Decimal(window_months)) if total else _ZERO
+
+
 def _charge_forecast(
     db: Session, year: int, today: date
 ) -> tuple[dict[str, Decimal], set[str]]:
@@ -389,7 +418,10 @@ def _charge_forecast(
         )
         avg = Decimal(elapsed_total) / Decimal(len(elapsed))
     else:
-        avg = _ZERO
+        # Année entièrement future (ex. 2027 vu de 2026) : aucun mois écoulé dans
+        # `year` → on retombe sur la moyenne des 12 derniers mois réels (toutes
+        # années) pour ne pas estimer des charges nulles (IS surévalué).
+        avg = _recent_monthly_charge_avg(db, today)
 
     out: dict[str, dict] = {}
     for m in range(1, 13):

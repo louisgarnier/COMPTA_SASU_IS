@@ -174,6 +174,20 @@ def test_future_months_use_average_of_elapsed_months(db_session):
     assert by_month["2026-12"]["charges_eur"] == Decimal("100.00")
 
 
+def test_full_future_year_falls_back_to_trailing_charge_avg(db_session):
+    """Année entièrement future (2027 vu de 2026) : les charges ne sont pas 0,
+    on retombe sur la moyenne des 12 derniers mois réels (repli IS)."""
+    cat = _charge_cat(db_session)
+    # 1200 € de charges sur les 6 mois écoulés de 2026 → moyenne 12 mois = 100/mois.
+    _add_charge(db_session, cat.id, date(2026, 3, 10), "1200", "hist")
+
+    projection = forecast_service.project(db_session, 2027, today=_TODAY)
+    by_month = {m["month"]: m for m in projection["months"]}
+    # Avant le fix : 0. Désormais ≈ 1200/12 = 100 par mois futur.
+    assert by_month["2027-01"]["charges_eur"] == Decimal("100.00")
+    assert by_month["2027-12"]["charges_eur"] == Decimal("100.00")
+
+
 def test_current_month_prorata_of_remaining_days(db_session):
     cat = _charge_cat(db_session)
     # Moyenne des mois écoulés = 186 / 6 = 31.

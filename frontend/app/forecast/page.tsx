@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { forecastAPI, clientsAPI, fxAPI } from '@/api/client';
+import { forecastAPI, clientsAPI, fxAPI, treasuryAPI } from '@/api/client';
 import { PageTitle, Card, StatCard, Empty } from '@/components/ui';
 import { eur, pct, MONTH_LABELS } from '@/lib/format';
 
@@ -112,9 +112,13 @@ export default function ForecastPage() {
     setLoading(true);
     setError('');
     try {
+      // Trésorerie de départ = vrai solde consolidé actuel → le déroulé cumulé
+      // démarre au solde réel (et non à 0).
+      const treasury = await treasuryAPI.get();
+      const startingCash = num(treasury?.total_eur ?? treasury?.bank_total_eur ?? 0);
       const [clientList, forecast, fxList] = await Promise.all([
         clientsAPI.list() as Promise<Client[]>,
-        forecastAPI.get(y) as Promise<ForecastData>,
+        forecastAPI.get(y, startingCash) as Promise<ForecastData>,
         fxAPI.list() as Promise<{ currency: string; rate: string }[]>,
       ]);
       const fxMap: Record<string, number> = { EUR: 1 };
@@ -153,6 +157,11 @@ export default function ForecastPage() {
     setClients((prev) => prev.map((x) => (x.id === c.id ? { ...x, billing_mode: mode } : x)));
     try {
       await clientsAPI.update(c.id, { billing_mode: mode });
+      // Repropage le nouveau mode aux prévisions existantes (mois ≥ courant) puis
+      // recharge la grille — sinon les lignes gardaient l'ancien mode/montant.
+      await clientsAPI.reprice(c.id);
+      setStatus('✅ Mode mis à jour et prévisions recalculées');
+      await load(year);
     } catch (e) {
       setStatus(`❌ ${(e as Error).message}`);
     }
