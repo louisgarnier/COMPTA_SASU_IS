@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 from datetime import date
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, HTMLResponse
@@ -79,9 +79,9 @@ class InvoiceCreate(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
-    """Payload de mise à jour partielle du statut."""
+    """Payload de mise à jour partielle du statut (enum validé)."""
 
-    status: Optional[str] = None
+    status: Optional[Literal["forecast", "due", "paid"]] = None
 
 
 def _to_out(invoice: models.Invoice) -> InvoiceOut:
@@ -220,9 +220,19 @@ def delete_invoice_route(invoice_id: int, db: Session = Depends(get_db)):
 def update_invoice(
     invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db)
 ) -> InvoiceOut:
-    """Met à jour le statut d'une facture (404 si absente)."""
+    """Met à jour le statut d'une facture (404 si absente).
+
+    Le statut `paid` n'est **pas** posable manuellement : une facture n'est
+    encaissée que par rapprochement avec une transaction réelle (POST
+    /reconcile). Sinon la date de paiement et le montant reçu seraient inventés.
+    """
     invoice = _get_or_404(db, invoice_id)
     changes = payload.model_dump(exclude_unset=True)
+    if changes.get("status") == "paid":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Statut « payé » réservé au rapprochement d'une transaction",
+        )
     for field, value in changes.items():
         setattr(invoice, field, value)
     db.commit()

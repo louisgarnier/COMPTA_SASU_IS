@@ -208,9 +208,76 @@ def test_route_list_and_patch_status(client, session):
     assert len(listing.json()) == 1
     assert listing.json()[0]["client_name"] == "Swib Corp"
 
-    patched = client.patch(f"/api/invoices/{created['id']}", json={"status": "paid"})
+    # Un statut valide autre que « payé » passe (ici retour en prévisionnel).
+    patched = client.patch(f"/api/invoices/{created['id']}", json={"status": "forecast"})
     assert patched.status_code == 200
-    assert patched.json()["status"] == "paid"
+    assert patched.json()["status"] == "forecast"
+
+
+def test_patch_status_paid_is_rejected(client, session):
+    """« payé » manuel interdit : l'encaissement passe par le rapprochement."""
+    client_id = session.query(models.Client).first().id
+    created = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+
+    resp = client.patch(f"/api/invoices/{created['id']}", json={"status": "paid"})
+    assert resp.status_code == 409, resp.text
+    # La facture n'a pas changé de statut.
+    assert client.get(f"/api/invoices/{created['id']}").json()["status"] == "due"
+
+
+def test_patch_status_invalid_enum_422(client, session):
+    client_id = session.query(models.Client).first().id
+    created = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+
+    resp = client.patch(f"/api/invoices/{created['id']}", json={"status": "sent"})
+    assert resp.status_code == 422, resp.text
+
+
+def test_delete_last_invoice_gives_number_back(client, session):
+    """Supprimer la facture au dernier n° émis rend le numéro (compteur -1)."""
+    client_id = session.query(models.Client).first().id
+    created = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+    assert created["number"] == "62"
+
+    resp = client.delete(f"/api/invoices/{created['id']}")
+    assert resp.status_code == 204, resp.text
+
+    # Le prochain numéro reprend à 62 (pas de trou).
+    nxt = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "5", "rate": "50",
+        "currency": "USD", "issue_date": "2026-07-02",
+    }).json()
+    assert nxt["number"] == "62"
+
+
+def test_delete_non_last_invoice_keeps_counter(client, session):
+    """Supprimer une facture qui n'est pas la dernière ne recule pas le compteur."""
+    client_id = session.query(models.Client).first().id
+    first = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()  # n°62
+    client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-02",
+    })  # n°63 (dernier)
+
+    # On supprime la 62 (pas la dernière) → compteur inchangé (prochain = 64).
+    assert client.delete(f"/api/invoices/{first['id']}").status_code == 204
+    nxt = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "5", "rate": "50",
+        "currency": "USD", "issue_date": "2026-07-03",
+    }).json()
+    assert nxt["number"] == "64"
 
 
 def test_route_delete_invoice(client, session):

@@ -100,15 +100,6 @@ export default function InvoicesPage() {
     }
   };
 
-  const changeStatus = async (id: number, status: Status) => {
-    try {
-      await invoicesAPI.update(id, { status });
-      await load();
-    } catch (e) {
-      setMsg((m) => ({ ...m, [id]: `❌ ${(e as Error).message}` }));
-    }
-  };
-
   const openMatch = async (id: number) => {
     if (matching === id) {
       setMatching(null);

@@ -5,7 +5,7 @@ import { settingsAPI } from '@/api/client';
 import { PageTitle, Card } from '@/components/ui';
 import { FxRatesCard } from '@/components/FxRatesCard';
 
-const FIELDS: { key: string; label: string; type?: string; group: string }[] = [
+const FIELDS: { key: string; label: string; type?: string; group: string; hint?: string }[] = [
   { key: 'company_name', label: 'Raison sociale', group: 'Société' },
   { key: 'siret', label: 'SIRET', group: 'Société' },
   { key: 'naf', label: 'Code NAF', group: 'Société' },
@@ -20,7 +20,13 @@ const FIELDS: { key: string; label: string; type?: string; group: string }[] = [
   { key: 'is_threshold', label: 'Seuil IS (€)', type: 'number', group: 'Impôt société' },
   { key: 'is_high_rate', label: 'Taux IS normal', type: 'number', group: 'Impôt société' },
   { key: 'retained_earnings_eur', label: 'Report à nouveau (€)', type: 'number', group: 'Résultat & distribution' },
-  { key: 'next_invoice_number', label: 'Prochain n° facture', type: 'number', group: 'Facturation' },
+  {
+    key: 'next_invoice_number',
+    label: 'Prochain n° de facture',
+    type: 'number',
+    group: 'Facturation',
+    hint: 'Numéro de la prochaine facture émise. Réglez-le sur le n° suivant votre dernière facture existante pour reprendre votre séquence.',
+  },
 ];
 
 export default function SettingsPage() {
@@ -78,6 +84,7 @@ export default function SettingsPage() {
                     onChange={(e) => setData({ ...data, [f.key]: e.target.value })}
                     className="rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--accent)]"
                   />
+                  {f.hint && <span className="text-xs text-[var(--muted)]">{f.hint}</span>}
                 </label>
               ))}
             </div>

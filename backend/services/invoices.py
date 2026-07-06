@@ -539,6 +539,16 @@ def delete_invoice(db: Session, invoice_id: int) -> None:
             logger.warning("⚠️ [Invoices] delete: PDF non effacé (%s): %s", pdf, exc)
 
     number = invoice.number
+    # Reprise de numérotation : si on supprime la facture au dernier numéro émis,
+    # on rend ce numéro (compteur -1) pour ne pas laisser de trou. Ne s'applique
+    # qu'aux factures réellement émises (numéro entier) — pas aux prévisionnelles
+    # (numéro provisoire « F-… » non numérique).
+    if invoice.status != "forecast" and number and number.isdigit():
+        settings = _get_settings(db)
+        if int(number) == settings.next_invoice_number - 1:
+            settings.next_invoice_number = int(number)
+            logger.info("🔢 [Invoices] delete: compteur rendu → %s", number)
+
     db.delete(invoice)
     db.commit()
     logger.info("🗑️ [Invoices] delete: n°%s ✅", number)
