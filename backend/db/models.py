@@ -62,8 +62,6 @@ class Settings(Base):
     retained_earnings_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
 
     next_invoice_number: Mapped[int] = mapped_column(Integer, default=62)
-    default_fx_usd: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.92"))
-    default_fx_cad: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.68"))
 
 
 class Client(Base):

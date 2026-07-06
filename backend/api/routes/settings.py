@@ -52,8 +52,8 @@ class SettingsOut(BaseModel):
 class SettingsUpdate(BaseModel):
     """Champs modifiables (tous optionnels — mise à jour partielle), avec bornes métier.
 
-    Note : `default_fx_usd/cad` (anciennes colonnes) ne sont plus exposées — la source
-    unique des taux de change est la table `fx_rates` (voir /api/fx-rates).
+    Note : les anciennes colonnes `default_fx_usd/cad` ont été supprimées du modèle —
+    la source unique des taux de change est la table `fx_rates` (voir /api/fx-rates).
     """
 
     company_name: Optional[str] = None

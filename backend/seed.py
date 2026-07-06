@@ -48,8 +48,6 @@ def _settings(db):
     s.is_threshold = D("42500")
     s.is_high_rate = D("0.25")
     s.next_invoice_number = 62
-    s.default_fx_usd = D("0.92")
-    s.default_fx_cad = D("0.68")
     db.commit()
 
 

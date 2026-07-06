@@ -348,6 +348,26 @@ def test_route_get_with_starting_cash(client_app, db_session):
     assert jan["cumulative_cash_eur"] == "6000.00"
 
 
+def test_route_put_honors_starting_cash(client_app, db_session):
+    """PUT renvoie une projection cumulée à partir de starting_cash_eur (pas 0)."""
+    client = _make_client(db_session)
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+    body = {
+        "year": 2026,
+        "starting_cash_eur": "10000",
+        "inputs": [
+            {"month": "2026-01", "client_id": client.id, "rate_unit": "day",
+             "days": "10", "rate": "100", "note": ""},
+        ],
+    }
+    resp = client_app.put("/api/forecast", json=body)
+    assert resp.status_code == 200
+    jan = resp.json()["projection"]["months"][0]
+    # 10000 de départ + 1000 de revenu janvier = 11000 (et non 1000).
+    assert jan["cumulative_cash_eur"] == "11000.00"
+
+
 def test_route_delete_forecast_input(client_app, db_session):
     """DELETE supprime la prévision d'un client×mois et rien d'autre."""
     client = _make_client(db_session)

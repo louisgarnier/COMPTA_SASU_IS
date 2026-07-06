@@ -46,8 +46,8 @@ def session():
 
 
 def _seed(db):
-    # Paramètres (taux de conversion par défaut).
-    db.add(models.Settings(id=1, default_fx_usd=Decimal("0.90"), default_fx_cad=Decimal("0.68")))
+    # Paramètres société (singleton).
+    db.add(models.Settings(id=1))
     # Taux FX théoriques (source unique de conversion EUR sous le nouveau modèle).
     db.add(models.FxRate(currency="USD", rate=Decimal("0.90")))
     db.add(models.FxRate(currency="CAD", rate=Decimal("0.68")))

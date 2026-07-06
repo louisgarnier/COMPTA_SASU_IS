@@ -80,6 +80,7 @@ export default function ForecastPage() {
   const [data, setData] = useState<ForecastData | null>(null);
   const [grid, setGrid] = useState<Record<string, Cell>>({});
   const [fx, setFx] = useState<Record<string, number>>({});
+  const [startingCash, setStartingCash] = useState(0); // solde réel de départ (tréso cumulée)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
@@ -133,6 +134,7 @@ export default function ForecastPage() {
       setClients(clientList);
       setData(forecast);
       setFx(fxMap);
+      setStartingCash(startingCash);
       setGrid(buildGrid(clientList, forecast.inputs ?? [], monthsForYear(y)));
     } catch (e) {
       setError((e as Error).message);
@@ -213,7 +215,13 @@ export default function ForecastPage() {
           });
         });
       });
-      const updated = (await forecastAPI.save({ year, inputs })) as ForecastData;
+      // On renvoie la tréso de départ réelle pour que la projection recalculée
+      // conserve la même base cumulée (sinon le déroulé repartirait de 0).
+      const updated = (await forecastAPI.save({
+        year,
+        inputs,
+        starting_cash_eur: startingCash,
+      })) as ForecastData;
       setData(updated);
       setGrid(buildGrid(clients, updated.inputs ?? [], months));
       setStatus('✅ Enregistré');
@@ -529,12 +537,17 @@ function ClientGrid({
                 Montant {cur} <span className="ml-1 rounded bg-[var(--accent)]/10 px-1 py-0.5 text-[9px] font-bold uppercase text-[var(--accent)]">facture</span>
               </td>
               {months.map((m) => {
-                const amt = cellAmount(grid[cellKey(client.id, m.key)]);
+                const cell = grid[cellKey(client.id, m.key)];
+                const amt = cellAmount(cell);
+                // Une prévision existe dès qu'un driver (jours/heures) est saisi,
+                // même si le taux — donc le montant — est encore à 0 : on doit
+                // pouvoir la vider dans tous les cas.
+                const hasEntry = num(cell?.days) > 0 || num(cell?.hours) > 0;
                 return (
                   <td key={m.key} className="px-1 py-1 text-right font-semibold">
                     <span className="inline-flex items-center justify-end gap-1">
                       {fmt(amt)}
-                      {m.editable && amt > 0 && (
+                      {m.editable && hasEntry && (
                         <button
                           type="button"
                           onClick={() => onClear(client, m.key)}
