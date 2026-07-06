@@ -126,7 +126,7 @@ def update_category(
 
 
 @router.delete("/{category_id}", status_code=204)
-def delete_category(category_id: int, db: Session = Depends(get_db)) -> None:
+def delete_category(category_id: int, db: Session = Depends(get_db)):
     """
     Supprime une catégorie utilisateur (404 si absente, 409 si système).
 
@@ -226,7 +226,7 @@ def update_rule(
 
 
 @rules_router.delete("/{rule_id}", status_code=204)
-def delete_rule(rule_id: int, db: Session = Depends(get_db)) -> None:
+def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     """Supprime une règle ; 404 si absente."""
     rule = db.get(models.CategoryRule, rule_id)
     if rule is None:

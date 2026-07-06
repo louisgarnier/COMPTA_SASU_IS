@@ -113,9 +113,15 @@ export default function ForecastPage() {
     setError('');
     try {
       // Trésorerie de départ = vrai solde consolidé actuel → le déroulé cumulé
-      // démarre au solde réel (et non à 0).
-      const treasury = await treasuryAPI.get();
-      const startingCash = num(treasury?.total_eur ?? treasury?.bank_total_eur ?? 0);
+      // démarre au solde réel (et non à 0). Non bloquant : si l'appel tréso
+      // échoue, on démarre à 0 plutôt que de vider tout le forecast.
+      let startingCash = 0;
+      try {
+        const treasury = await treasuryAPI.get();
+        startingCash = num(treasury?.total_eur ?? treasury?.bank_total_eur ?? 0);
+      } catch {
+        startingCash = 0;
+      }
       const [clientList, forecast, fxList] = await Promise.all([
         clientsAPI.list() as Promise<Client[]>,
         forecastAPI.get(y, startingCash) as Promise<ForecastData>,

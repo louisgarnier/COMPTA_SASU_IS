@@ -43,6 +43,9 @@ jest.mock('@/api/client', () => ({
   fxAPI: {
     list: jest.fn().mockResolvedValue([{ currency: 'USD', rate: '0.9' }]),
   },
+  treasuryAPI: {
+    get: jest.fn().mockResolvedValue({ total_eur: '0' }),
+  },
 }));
 
 describe('ForecastPage', () => {

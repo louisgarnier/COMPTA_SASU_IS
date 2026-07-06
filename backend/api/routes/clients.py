@@ -140,7 +140,7 @@ def get_client(client_id: int, db: Session = Depends(get_db)) -> models.Client:
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
+def delete_client(client_id: int, db: Session = Depends(get_db)):
     """Supprime un client (404 si absent, 409 s'il a des factures/prévisions)."""
     row = _get_or_404(db, client_id)
     # Les prévisions sont désormais des factures `status='forecast'` (fusion),

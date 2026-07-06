@@ -134,7 +134,7 @@ def sync(db: Session = Depends(get_db)) -> dict:
 
 
 @router.delete("/connections/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
-def disconnect_connection(account_id: int, db: Session = Depends(get_db)) -> None:
+def disconnect_connection(account_id: int, db: Session = Depends(get_db)):
     """Déconnecte un compte bancaire (404 s'il n'existe pas). Les transactions restent."""
     logger.info("📥 [Banking] DELETE /connections/%d", account_id)
     if not banking_service.disconnect_account(db, account_id):

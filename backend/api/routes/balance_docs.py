@@ -139,7 +139,7 @@ def download_doc(doc_id: int, db: Session = Depends(get_db)) -> FileResponse:
 
 
 @router.delete("/{doc_id}", status_code=204)
-def delete_doc(doc_id: int, db: Session = Depends(get_db)) -> None:
+def delete_doc(doc_id: int, db: Session = Depends(get_db)):
     """Supprime un justificatif (ligne + fichier local)."""
     doc = db.get(models.BalanceDocument, doc_id)
     if doc is None:

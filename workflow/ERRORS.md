@@ -151,6 +151,22 @@ facture). Le taux réel encaissé + la variance sont figés sur la facture au pa
 
 ---
 
+### ERR-004 — `AssertionError: Status code 204 must not have a response body` (collection échoue au démarrage)
+
+**Symptôme :** `pytest` s'arrête à la collection ; l'import de `backend.api.main` lève `AssertionError` sur une route `DELETE ... status_code=204`.
+
+**Root cause :** les modules de routes ont `from __future__ import annotations`. L'annotation de retour `-> None` devient la **chaîne** `"None"`, que FastAPI 0.115 résout en `NoneType` **truthy** → il l'interprète comme un `response_model`. Or un 204 ne peut pas avoir de corps → assertion. (Sans future-annotations, `-> None` reste le vrai `None` et ne déclenche rien — d'où le comportement qui « marchait avant » selon la version de FastAPI.)
+
+**Fix :** retirer l'annotation `-> None` sur les **handlers** décorés en 204 (7 endpoints : balance_docs, banking, categories ×2, clients, investments, invoices). Les helpers internes non-route gardent `-> None`.
+
+#### Prevention Rule
+> 🔒 **RULE ERR-004 :** Un handler de route en `status_code=204` (ou 304) ne doit **jamais** porter d'annotation de retour (`-> None`, `-> X`) quand le module a `from __future__ import annotations` — sinon FastAPI la prend pour un `response_model` et casse la collection. Laisser la signature sans annotation de retour.
+
+#### Test Added
+- [x] La suite complète importe l'app à la collection → toute régression 204 refait échouer `pytest` immédiatement (garde-fou implicite, aucun test dédié nécessaire).
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

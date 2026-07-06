@@ -145,7 +145,7 @@ def update_investment(
 
 
 @router.delete("/{investment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_investment(investment_id: int, db: Session = Depends(get_db)) -> None:
+def delete_investment(investment_id: int, db: Session = Depends(get_db)):
     """Supprime un placement (404 si absent)."""
     row = _get_or_404(db, investment_id)
     db.delete(row)
