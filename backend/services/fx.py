@@ -73,8 +73,12 @@ def rates_view(db: Session) -> list[dict]:
     taux s'il existe, et un flag `missing` si aucun taux n'est renseigné.
     """
     rates = load_rates(db)
+    # Union : devises en usage + devises ayant déjà un taux enregistré (ajout manuel).
+    stored = {(r.currency or "").upper() for r in db.query(models.FxRate).all()}
+    stored.discard("EUR")
+    currencies = sorted(set(currencies_in_use(db)) | stored)
     out = []
-    for cur in currencies_in_use(db):
+    for cur in currencies:
         has = cur in rates
         out.append(
             {

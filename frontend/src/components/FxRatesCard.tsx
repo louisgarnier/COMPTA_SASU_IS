@@ -10,6 +10,8 @@ export function FxRatesCard() {
   const [rows, setRows] = useState<Rate[]>([]);
   const [status, setStatus] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [newCur, setNewCur] = useState('');
+  const [newRate, setNewRate] = useState('');
 
   const load = () =>
     fxAPI
@@ -35,6 +37,36 @@ export function FxRatesCard() {
       );
       setRows(updated);
       setStatus('✅ Enregistré');
+    } catch (e) {
+      setStatus(`❌ ${(e as Error).message}`);
+    }
+  };
+
+  const addCurrency = async () => {
+    const cur = newCur.trim().toUpperCase();
+    if (cur.length !== 3) {
+      setStatus('❌ Code devise à 3 lettres (ex. GBP)');
+      return;
+    }
+    if (cur === 'EUR' || rows.some((r) => r.currency === cur)) {
+      setStatus(`❌ ${cur} est déjà dans la liste`);
+      return;
+    }
+    const rate = Number(newRate);
+    if (!(rate > 0)) {
+      setStatus('❌ Le taux doit être supérieur à 0');
+      return;
+    }
+    setStatus('Ajout…');
+    try {
+      const updated = await fxAPI.save([
+        ...rows.map((r) => ({ currency: r.currency, rate: r.rate })),
+        { currency: cur, rate: newRate },
+      ]);
+      setRows(updated);
+      setNewCur('');
+      setNewRate('');
+      setStatus(`✅ ${cur} ajouté`);
     } catch (e) {
       setStatus(`❌ ${(e as Error).message}`);
     }
@@ -101,6 +133,39 @@ export function FxRatesCard() {
           ))}
         </div>
       )}
+
+      {loaded && (
+        <div className="mt-3 flex items-end gap-2 border-t border-[var(--border)] pt-3">
+          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
+            Devise
+            <input
+              value={newCur}
+              onChange={(e) => setNewCur(e.target.value.toUpperCase())}
+              placeholder="GBP"
+              maxLength={3}
+              className="w-20 rounded-lg border border-[var(--border)] px-2 py-1 text-sm uppercase outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-[var(--muted)]">
+            Taux → EUR
+            <input
+              type="number"
+              step="any"
+              value={newRate}
+              onChange={(e) => setNewRate(e.target.value)}
+              placeholder="1.17"
+              className="w-28 rounded-lg border border-[var(--border)] px-2 py-1 text-right text-sm tabular outline-none focus:border-[var(--accent)]"
+            />
+          </label>
+          <button
+            onClick={addCurrency}
+            className="rounded-lg border border-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10"
+          >
+            + Ajouter une devise
+          </button>
+        </div>
+      )}
+
       {status && <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>}
     </Card>
   );

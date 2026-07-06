@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.db import models
@@ -34,8 +34,8 @@ class FxRateOut(BaseModel):
 
 
 class FxRateIn(BaseModel):
-    currency: str
-    rate: Decimal
+    currency: str = Field(min_length=3, max_length=3)
+    rate: Decimal = Field(gt=0)  # un taux ≤ 0 corromprait tous les agrégats EUR
 
 
 class FxRatesUpdate(BaseModel):
