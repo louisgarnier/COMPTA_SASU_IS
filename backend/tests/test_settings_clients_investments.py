@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from backend.api.routes import clients, investments, settings
+from backend.api.routes import clients, investments, invoices, settings
 from backend.db import models  # noqa: F401 — enregistre les modèles sur Base.metadata
 from backend.db.base import Base, get_db
 
@@ -43,6 +43,7 @@ def client() -> TestClient:
     app.include_router(settings.router)
     app.include_router(clients.router)
     app.include_router(investments.router)
+    app.include_router(invoices.router)
     app.dependency_overrides[get_db] = _override_get_db
 
     return TestClient(app)
@@ -154,6 +155,38 @@ def test_client_patch_to_duplicate_code_returns_409(client: TestClient):
     b = client.post("/api/clients", json={"code": "NWH", "legal_name": "New Wave"}).json()
     clash = client.patch(f"/api/clients/{b['id']}", json={"code": "SWIB"})
     assert clash.status_code == 409
+
+
+def test_client_delete_204_when_no_invoices(client: TestClient):
+    """Un client sans facture liée se supprime (204) et disparaît (404 ensuite)."""
+    cid = client.post(
+        "/api/clients", json={"code": "SWIB", "legal_name": "Alpha"}
+    ).json()["id"]
+    assert client.delete(f"/api/clients/{cid}").status_code == 204
+    assert client.get(f"/api/clients/{cid}").status_code == 404
+    # 404 si le client n'existe pas.
+    assert client.delete("/api/clients/9999").status_code == 404
+
+
+def test_client_delete_409_when_linked_to_invoices(client: TestClient):
+    """Un client avec facture/prévision liée renvoie 409 (jamais 500)."""
+    cid = client.post(
+        "/api/clients", json={"code": "SWIB", "legal_name": "Alpha"}
+    ).json()["id"]
+    inv = client.post(
+        "/api/invoices",
+        json={"client_id": cid, "hours": "10", "rate": "100", "currency": "USD"},
+    )
+    assert inv.status_code == 201, inv.text
+
+    blocked = client.delete(f"/api/clients/{cid}")
+    assert blocked.status_code == 409
+    # Le client est toujours là.
+    assert client.get(f"/api/clients/{cid}").status_code == 200
+
+    # Une fois la facture supprimée, la suppression du client passe.
+    assert client.delete(f"/api/invoices/{inv.json()['id']}").status_code == 204
+    assert client.delete(f"/api/clients/{cid}").status_code == 204
 
 
 def test_client_billing_fields_and_defaults(client: TestClient):
