@@ -121,7 +121,7 @@ def test_anchor_matches_consolidated_treasury(session):
 # --- Projection future -----------------------------------------------------
 
 
-def test_future_months_are_forecast_and_increment_by_net(session):
+def test_future_months_are_forecast_and_increment_at_payment_date(session):
     result = balance_timeline(session, 2026, today=TODAY)
     by_month = {m["month"]: m for m in result["months"]}
 
@@ -129,13 +129,30 @@ def test_future_months_are_forecast_and_increment_by_net(session):
     for key in ("2026-08", "2026-09", "2026-10", "2026-11", "2026-12"):
         assert by_month[key]["is_forecast"] is True
 
-    # Base = solde fin juillet (2000). Août ajoute le net de prévision (+1000).
-    assert by_month["2026-08"]["balance_eur"] == Decimal("3000.00")
-    # Septembre à décembre : aucun input → net 0 → stable à 3000.
-    assert by_month["2026-09"]["balance_eur"] == Decimal("3000.00")
+    # La prévision d'août (prestation) est encaissée à 60 j → cash fin octobre.
+    # Le solde monte donc à l'ENCAISSEMENT (cohérent avec le cashflow), pas à la prestation.
+    assert by_month["2026-08"]["balance_eur"] == Decimal("2000.00")
+    assert by_month["2026-09"]["balance_eur"] == Decimal("2000.00")
+    assert by_month["2026-10"]["balance_eur"] == Decimal("3000.00")
     assert by_month["2026-12"]["balance_eur"] == Decimal("3000.00")
 
     assert result["projected_year_end_eur"] == Decimal("3000.00")
+
+
+def test_open_due_invoice_appears_in_balance_line(session):
+    """Régression : une facture `due` (générée) doit remonter dans la ligne de solde
+    (avant le fix, le solde futur lisait forecast.project qui ignore les factures due)."""
+    # Facture due échéant en septembre pour 500 EUR.
+    session.add(models.Invoice(
+        number="F-DUE-1", client_id=1, month="2026-09", status="due",
+        due_date=date(2026, 9, 15), currency="EUR",
+        amount=Decimal("500"), amount_eur_forecast=Decimal("500"),
+    ))
+    session.commit()
+    result = balance_timeline(session, 2026, today=TODAY)
+    by_month = {m["month"]: m for m in result["months"]}
+    # Septembre encaisse la facture due (+500) → 2000 + 500 = 2500.
+    assert by_month["2026-09"]["balance_eur"] == Decimal("2500.00")
 
 
 def test_twelve_months_and_shape(session):
@@ -172,6 +189,7 @@ def test_route_balance_timeline(session, monkeypatch):
     assert len(body["months"]) == 12
     assert body["current_balance_eur"] == "2000.00"
     assert body["projected_year_end_eur"] == "3000.00"
-    aug = next(m for m in body["months"] if m["month"] == "2026-08")
-    assert aug["is_forecast"] is True
-    assert aug["balance_eur"] == "3000.00"
+    # Encaissement attendu fin octobre (prévision août + 60 j).
+    oct_m = next(m for m in body["months"] if m["month"] == "2026-10")
+    assert oct_m["is_forecast"] is True
+    assert oct_m["balance_eur"] == "3000.00"

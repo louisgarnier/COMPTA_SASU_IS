@@ -208,11 +208,17 @@ def balance_timeline(
     # Ancre = vrai solde actuel (synchronisé si dispo), source de vérité du KPI.
     current_real = Decimal(consolidated_treasury(db, as_of=today)["bank_total_eur"])
 
-    # Nets de prévision par mois (mêmes clés 'YYYY-MM').
-    from backend.services import forecast as forecast_service
+    # Nets futurs par mois : on cumule le net du **cashflow** (mêmes encaissements
+    # attendus que le graphe Cashflow : factures ouvertes à leur date de paiement),
+    # et non le net de `forecast.project` (basé sur le mois de prestation) — sinon la
+    # ligne de solde et le cashflow racontent deux futurs incompatibles.
+    from backend.services import cashflow as cashflow_service
 
-    projection = forecast_service.project(db, year, today=today)
-    net_by_month = {m["month"]: Decimal(m["net_eur"]) for m in projection["months"]}
+    cf = cashflow_service.monthly_cashflow(db, year, today=today)
+    net_by_month = {
+        m["month"]: Decimal(m["incoming_eur"]) - Decimal(m["outgoing_eur"])
+        for m in cf["months"]
+    }
 
     months_out: list[dict] = []
     running = current_real  # base pour les mois futurs (≈ fin du mois courant)
