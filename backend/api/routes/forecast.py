@@ -42,6 +42,8 @@ class ForecastInputOut(BaseModel):
     amount: Decimal
     amount_eur: Decimal
     note: str
+    status: str = "forecast"
+    number: str = ""
 
 
 class ForecastInputIn(BaseModel):
@@ -67,11 +69,17 @@ class ForecastUpsert(BaseModel):
     year: int
     inputs: list[ForecastInputIn] = []
     starting_cash_eur: Decimal = Decimal("0")
+    issue: bool = False  # mode « créer une facture dans le passé »
 
 
-def _build_response(db: Session, year: int, starting_cash_eur: Decimal) -> dict:
+def _build_response(
+    db: Session,
+    year: int,
+    starting_cash_eur: Decimal,
+    include_issued: bool = False,
+) -> dict:
     """Assemble la réponse commune GET/PUT : inputs + projection + IS."""
-    inputs = forecast_service.get_inputs(db, year)
+    inputs = forecast_service.get_inputs(db, year, include_issued=include_issued)
     projection = forecast_service.project(db, year, starting_cash_eur=starting_cash_eur)
     is_estimate = forecast_service.estimate_is(db, year)
     return {
@@ -85,23 +93,32 @@ def _build_response(db: Session, year: int, starting_cash_eur: Decimal) -> dict:
 def get_forecast(
     year: int = Query(...),
     starting_cash_eur: Decimal = Query(Decimal("0")),
+    include_issued: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> dict:
     """Retourne les entrées, la projection et l'estimation IS pour `year`."""
-    logger.info("📥 [Forecast] get: year=%d", year)
-    return _build_response(db, year, starting_cash_eur)
+    logger.info("📥 [Forecast] get: year=%d issued=%s", year, include_issued)
+    return _build_response(db, year, starting_cash_eur, include_issued=include_issued)
 
 
 @router.put("")
 def put_forecast(payload: ForecastUpsert, db: Session = Depends(get_db)) -> dict:
-    """Upsert les entrées fournies puis retourne la même forme que GET."""
+    """Upsert les entrées fournies puis retourne la même forme que GET.
+
+    `issue=True` émet directement en `due` les entrées des mois passés (mode
+    « créer une facture dans le passé ») ; la réponse inclut alors les factures
+    émises pour que la grille les reflète.
+    """
     logger.info(
-        "📥 [Forecast] put: year=%d (%d entrée(s))", payload.year, len(payload.inputs)
+        "📥 [Forecast] put: year=%d (%d entrée(s), issue=%s)",
+        payload.year, len(payload.inputs), payload.issue,
     )
     forecast_service.upsert_inputs(
-        db, [item.model_dump() for item in payload.inputs]
+        db, [item.model_dump() for item in payload.inputs], issue=payload.issue
     )
-    return _build_response(db, payload.year, payload.starting_cash_eur)
+    return _build_response(
+        db, payload.year, payload.starting_cash_eur, include_issued=payload.issue
+    )
 
 
 @router.delete("/{client_id}/{month}", status_code=204)

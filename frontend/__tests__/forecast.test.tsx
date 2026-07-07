@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import ForecastPage from '../app/forecast/page';
 
+jest.mock('next/navigation', () => ({ usePathname: () => '/forecast' }));
+
 // Mock du client API (même specifier que la page : @/api/client)
 jest.mock('@/api/client', () => ({
   forecastAPI: {
@@ -52,7 +54,7 @@ describe('ForecastPage', () => {
   it('affiche le titre Forecast et une valeur en euros', async () => {
     render(<ForecastPage />);
     // Titre présent immédiatement
-    expect(screen.getByRole('heading', { name: 'Forecast' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Heures & jours/ })).toBeInTheDocument();
     // Une valeur euro apparaît après résolution des appels async
     // (fr-FR utilise une espace insécable étroite comme séparateur → matcher souple)
     expect((await screen.findAllByText((c) => /000,00/.test(c) && /€/.test(c))).length).toBeGreaterThan(0);

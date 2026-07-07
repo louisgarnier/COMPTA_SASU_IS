@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { invoicesAPI } from '@/api/client';
+import { invoicesAPI, settingsAPI } from '@/api/client';
 import { PageTitle, Card, StatCard, Badge, Empty } from '@/components/ui';
+import { FacturationTabs } from '@/components/FacturationTabs';
 import { money, dateFR } from '@/lib/format';
 
 type Status = 'forecast' | 'due' | 'paid';
@@ -60,16 +61,37 @@ export default function InvoicesPage() {
   const [msg, setMsg] = useState<Record<number, string>>({});
   const [cands, setCands] = useState<Record<number, Tx[]>>({});
   const [matching, setMatching] = useState<number | null>(null);
+  const [nextNumber, setNextNumber] = useState<string>('');
+  const [numMsg, setNumMsg] = useState<string>('');
 
   const load = async () => {
     setLoading(true);
     setError('');
     try {
-      setInvoices((await invoicesAPI.list()) as Invoice[]);
+      const [inv, settings] = await Promise.all([
+        invoicesAPI.list() as Promise<Invoice[]>,
+        settingsAPI.get() as Promise<{ next_invoice_number: number | string }>,
+      ]);
+      setInvoices(inv);
+      setNextNumber(String(settings?.next_invoice_number ?? ''));
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveNextNumber = async () => {
+    setNumMsg('…');
+    try {
+      const updated = (await settingsAPI.update({
+        next_invoice_number: Number(nextNumber),
+      })) as { next_invoice_number: number | string };
+      setNextNumber(String(updated.next_invoice_number));
+      setNumMsg('✅ enregistré');
+      setTimeout(() => setNumMsg(''), 2000);
+    } catch (e) {
+      setNumMsg(`❌ ${(e as Error).message}`);
     }
   };
 
@@ -158,7 +180,30 @@ export default function InvoicesPage() {
 
   return (
     <div>
-      <PageTitle title="Factures" subtitle="Cycle de vie : prévision → à encaisser → payée" />
+      <FacturationTabs />
+      <PageTitle
+        title="Facturation — Factures"
+        subtitle="Cycle de vie : prévision → à encaisser → payée"
+        action={
+          <div className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-gray-50 px-3 py-2 text-sm">
+            <span className="text-[var(--muted)]">Prochain n° de facture</span>
+            <input
+              type="number"
+              value={nextNumber}
+              onChange={(e) => setNextNumber(e.target.value)}
+              aria-label="Prochain numéro de facture"
+              className="w-20 rounded-md border border-[var(--accent)] px-2 py-1 text-right font-semibold outline-none"
+            />
+            <button
+              onClick={saveNextNumber}
+              className="rounded-md bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-white hover:opacity-90"
+            >
+              OK
+            </button>
+            {numMsg && <span className="text-xs text-[var(--muted)]">{numMsg}</span>}
+          </div>
+        }
+      />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label={`À encaisser (${totals.dueCount})`} value={money(totals.dueSum, 'EUR')} tone="neg" />
@@ -167,8 +212,9 @@ export default function InvoicesPage() {
       </div>
 
       <p className="mb-4 text-sm text-[var(--muted)]">
-        💡 Les factures naissent des prévisions saisies dans <a href="/forecast" className="text-[var(--accent)] underline">Forecast</a>.
-        « Générer » attribue un numéro + les dates et passe la facture à « À encaisser ».
+        💡 Les factures naissent des saisies dans <a href="/forecast" className="text-[var(--accent)] underline">Heures &amp; jours</a>.
+        « Générer » attribue un numéro (depuis le compteur ci-dessus) + les dates et passe la facture à « À encaisser ».
+        Règle le compteur sur ton 1ᵉʳ numéro <b>avant</b> de générer une série de factures passées.
       </p>
 
       {loading ? (

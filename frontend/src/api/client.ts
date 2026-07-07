@@ -182,10 +182,11 @@ export const investmentsAPI = {
 };
 
 export const forecastAPI = {
-  get: (year = 2026, startingCash?: number) =>
+  get: (year = 2026, startingCash?: number, includeIssued = false) =>
     get<any>(
       `/api/forecast?year=${year}` +
-        (startingCash !== undefined ? `&starting_cash_eur=${startingCash}` : ''),
+        (startingCash !== undefined ? `&starting_cash_eur=${startingCash}` : '') +
+        (includeIssued ? '&include_issued=true' : ''),
     ),
   save: (b: Record<string, unknown>) => put<any>('/api/forecast', b),
   deleteInput: (clientId: number, month: string) =>

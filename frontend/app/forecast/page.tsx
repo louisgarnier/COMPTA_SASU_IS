@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { forecastAPI, clientsAPI, fxAPI, treasuryAPI } from '@/api/client';
 import { PageTitle, Card, StatCard, Empty } from '@/components/ui';
+import { FacturationTabs } from '@/components/FacturationTabs';
 import { eur, pct, MONTH_LABELS } from '@/lib/format';
 
 // Aujourd'hui (réf. projet) — pilote les mois écoulés vs à venir.
 const TODAY = new Date('2026-07-03T00:00:00');
 const CUR_YEAR = TODAY.getFullYear();
 const CUR_MONTH = TODAY.getMonth() + 1; // 1..12
-const YEARS = [CUR_YEAR, CUR_YEAR + 1, CUR_YEAR + 2];
+// Année précédente incluse : saisie de factures passées (payées cette année).
+const YEARS = [CUR_YEAR - 1, CUR_YEAR, CUR_YEAR + 1, CUR_YEAR + 2];
 
 type Client = {
   id: number;
@@ -29,6 +31,8 @@ type ForecastInput = {
   rate: number | string;
   rate_unit: string;
   note?: string;
+  status?: string;
+  number?: string;
 };
 
 type ProjectionMonth = {
@@ -49,7 +53,7 @@ type ForecastData = {
   };
 };
 
-type Cell = { days: string; hours: string; rate: string; note: string };
+type Cell = { days: string; hours: string; rate: string; note: string; status: string };
 
 const num = (v: string | number | null | undefined) => {
   const n = parseFloat(String(v ?? '').replace(',', '.'));
@@ -65,12 +69,17 @@ function cellKey(clientId: number, month: string): string {
   return `${clientId}-${month}`;
 }
 
-// Mois de l'année sélectionnée + éditabilité (mois écoulés grisés en année courante).
-function monthsForYear(year: number): { key: string; label: string; editable: boolean }[] {
+// Mois de l'année + éditabilité. Les mois écoulés sont grisés, SAUF si le mode
+// « créer une facture dans le passé » (allowPast) est actif → ils se dégrisent.
+function monthsForYear(year: number, allowPast: boolean): { key: string; label: string; editable: boolean }[] {
   return Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
-    const editable = year > CUR_YEAR || (year === CUR_YEAR && m >= CUR_MONTH);
-    return { key: `${year}-${String(m).padStart(2, '0')}`, label: MONTH_LABELS[i], editable };
+    const future = year > CUR_YEAR || (year === CUR_YEAR && m >= CUR_MONTH);
+    return {
+      key: `${year}-${String(m).padStart(2, '0')}`,
+      label: MONTH_LABELS[i],
+      editable: future || allowPast,
+    };
   });
 }
 
@@ -81,11 +90,12 @@ export default function ForecastPage() {
   const [grid, setGrid] = useState<Record<string, Cell>>({});
   const [fx, setFx] = useState<Record<string, number>>({});
   const [startingCash, setStartingCash] = useState(0); // solde réel de départ (tréso cumulée)
+  const [pastMode, setPastMode] = useState(false); // « créer une facture dans le passé »
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
 
-  const months = useMemo(() => monthsForYear(year), [year]);
+  const months = useMemo(() => monthsForYear(year, pastMode), [year, pastMode]);
 
   function hpd(c: Client): number {
     const h = num(c.default_hours_per_day);
@@ -104,6 +114,7 @@ export default function ForecastPage() {
           hours: ex ? String(ex.hours ?? '') : '',
           rate: ex ? String(ex.rate ?? '') : String(c.tjh ?? ''),
           note: ex ? String(ex.note ?? '') : '',
+          status: ex ? String(ex.status ?? 'forecast') : 'forecast',
         };
       });
     });
@@ -124,9 +135,12 @@ export default function ForecastPage() {
       } catch {
         startingCash = 0;
       }
+      // Inclure les factures émises (due/paid) quand on regarde le passé, pour
+      // que la grille montre ce qui a déjà été facturé.
+      const includeIssued = pastMode || y < CUR_YEAR;
       const [clientList, forecast, fxList] = await Promise.all([
         clientsAPI.list() as Promise<Client[]>,
-        forecastAPI.get(y, startingCash) as Promise<ForecastData>,
+        forecastAPI.get(y, startingCash, includeIssued) as Promise<ForecastData>,
         fxAPI.list() as Promise<{ currency: string; rate: string }[]>,
       ]);
       const fxMap: Record<string, number> = { EUR: 1 };
@@ -135,7 +149,7 @@ export default function ForecastPage() {
       setData(forecast);
       setFx(fxMap);
       setStartingCash(startingCash);
-      setGrid(buildGrid(clientList, forecast.inputs ?? [], monthsForYear(y)));
+      setGrid(buildGrid(clientList, forecast.inputs ?? [], monthsForYear(y, pastMode)));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -146,13 +160,13 @@ export default function ForecastPage() {
   useEffect(() => {
     load(year);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year]);
+  }, [year, pastMode]);
 
   // Édition d'une cellule. En THM, jours ⇄ heures liés (l'un recalcule l'autre).
   function editCell(c: Client, month: string, field: 'days' | 'hours' | 'rate' | 'note', value: string) {
     const key = cellKey(c.id, month);
     setGrid((prev) => {
-      const cur = prev[key] ?? { days: '', hours: '', rate: '', note: '' };
+      const cur = prev[key] ?? { days: '', hours: '', rate: '', note: '', status: 'forecast' };
       const next = { ...cur, [field]: value };
       const h = hpd(c);
       if (field === 'days') next.hours = value === '' ? '' : String(+(num(value) * h).toFixed(2));
@@ -166,7 +180,7 @@ export default function ForecastPage() {
     const key = cellKey(c.id, month);
     setGrid((prev) => ({
       ...prev,
-      [key]: { days: '', hours: '', rate: String(c.tjh ?? ''), note: '' },
+      [key]: { days: '', hours: '', rate: String(c.tjh ?? ''), note: '', status: 'forecast' },
     }));
     try {
       await forecastAPI.deleteInput(c.id, month);
@@ -202,6 +216,7 @@ export default function ForecastPage() {
           if (!m.editable) return;
           const cell = grid[cellKey(c.id, m.key)];
           if (!cell) return;
+          if (cell.status === 'paid') return; // facture rapprochée = figée
           const driver = isHour ? num(cell.hours) : num(cell.days);
           if (driver <= 0) return;
           inputs.push({
@@ -217,14 +232,20 @@ export default function ForecastPage() {
       });
       // On renvoie la tréso de départ réelle pour que la projection recalculée
       // conserve la même base cumulée (sinon le déroulé repartirait de 0).
+      // `issue` = mode passé : les mois écoulés deviennent des factures émises.
       const updated = (await forecastAPI.save({
         year,
         inputs,
         starting_cash_eur: startingCash,
+        issue: pastMode,
       })) as ForecastData;
       setData(updated);
       setGrid(buildGrid(clients, updated.inputs ?? [], months));
-      setStatus('✅ Enregistré');
+      setStatus(
+        pastMode
+          ? '✅ Enregistré — factures passées émises (à rapprocher dans Factures)'
+          : '✅ Enregistré',
+      );
     } catch (e) {
       setStatus(`❌ ${(e as Error).message}`);
     }
@@ -239,7 +260,8 @@ export default function ForecastPage() {
   if (loading) {
     return (
       <div>
-        <PageTitle title="Forecast" subtitle="Projection revenus, tréso & estimation IS" />
+        <FacturationTabs />
+        <PageTitle title="Facturation — Heures & jours" subtitle="Projection revenus, tréso & estimation IS" />
         <p className="text-sm text-[var(--muted)]">Chargement…</p>
       </div>
     );
@@ -247,7 +269,8 @@ export default function ForecastPage() {
   if (error) {
     return (
       <div>
-        <PageTitle title="Forecast" subtitle="Projection revenus, tréso & estimation IS" />
+        <FacturationTabs />
+        <PageTitle title="Facturation — Heures & jours" subtitle="Projection revenus, tréso & estimation IS" />
         <Empty>Erreur de chargement : {error}</Empty>
       </div>
     );
@@ -259,9 +282,10 @@ export default function ForecastPage() {
 
   return (
     <div>
+      <FacturationTabs />
       <PageTitle
-        title="Forecast"
-        subtitle="Projection revenus, tréso & estimation IS — facturation TJM (jour) ou THM (heure)"
+        title="Facturation — Heures & jours"
+        subtitle="Saisie du temps facturé par client & par mois — prévisionnel (futur) ou rattrapage (passé)"
         action={
           <button
             onClick={save}
@@ -272,8 +296,8 @@ export default function ForecastPage() {
         }
       />
 
-      {/* Sélecteur d'année */}
-      <div className="mb-4 flex items-center gap-3">
+      {/* Sélecteur d'année + toggle « créer dans le passé » */}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-[var(--muted)]">Année</span>
         <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
           {YEARS.map((y) => (
@@ -288,10 +312,34 @@ export default function ForecastPage() {
             </button>
           ))}
         </div>
-        <span className="text-xs text-[var(--muted)]">
-          {year === CUR_YEAR ? 'Année en cours — mois écoulés grisés.' : 'Année complète (12 mois).'}
-        </span>
+        <button
+          onClick={() => setPastMode((v) => !v)}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+            pastMode
+              ? 'border-[var(--accent)] bg-blue-50 text-[var(--accent)]'
+              : 'border-[var(--border)] text-[var(--muted)] hover:bg-gray-50'
+          }`}
+          title="Dégrise les mois passés pour saisir une facture déjà émise"
+        >
+          <span
+            className={`relative h-4 w-8 rounded-full transition ${pastMode ? 'bg-[var(--accent)]' : 'bg-gray-300'}`}
+          >
+            <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${pastMode ? 'right-0.5' : 'left-0.5'}`} />
+          </span>
+          Créer une facture dans le passé
+        </button>
       </div>
+
+      {pastMode && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800">
+          <span>🟢</span>
+          <div>
+            <b>Mode passé activé.</b> Les mois écoulés sont dégrisés. Ici « Enregistrer »
+            crée <b>directement une facture émise</b> (n° depuis le compteur des Réglages),
+            prête à rapprocher — pas de brouillon. Génère dans l&apos;ordre chronologique.
+          </div>
+        </div>
+      )}
       {status && <p className="mb-4 text-sm text-[var(--muted)]">{status}</p>}
 
       {/* KPI */}
@@ -439,11 +487,12 @@ function ClientGrid({
 
   const input = (m: { key: string; editable: boolean }, field: 'days' | 'hours' | 'rate') => {
     const cell = grid[cellKey(client.id, m.key)];
+    const locked = cell?.status === 'paid'; // facture rapprochée = figée
     return (
       <input
         type="number"
         step="any"
-        disabled={!m.editable}
+        disabled={!m.editable || locked}
         aria-label={`${client.code} ${m.key} ${field}`}
         value={cell?.[field] ?? ''}
         onChange={(e) => onEdit(client, m.key, field, e.target.value)}
@@ -540,14 +589,28 @@ function ClientGrid({
                 const cell = grid[cellKey(client.id, m.key)];
                 const amt = cellAmount(cell);
                 // Une prévision existe dès qu'un driver (jours/heures) est saisi,
-                // même si le taux — donc le montant — est encore à 0 : on doit
-                // pouvoir la vider dans tous les cas.
+                // même si le taux — donc le montant — est encore à 0.
                 const hasEntry = num(cell?.days) > 0 || num(cell?.hours) > 0;
+                const st = cell?.status ?? 'forecast';
+                const issued = st === 'due' || st === 'paid';
                 return (
                   <td key={m.key} className="px-1 py-1 text-right font-semibold">
                     <span className="inline-flex items-center justify-end gap-1">
                       {fmt(amt)}
-                      {m.editable && hasEntry && (
+                      {issued && (
+                        <span
+                          className={`rounded px-1 py-0.5 text-[8px] font-bold uppercase ${
+                            st === 'paid'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                          title={st === 'paid' ? 'Facture rapprochée' : 'Facture émise (à rapprocher)'}
+                        >
+                          {st === 'paid' ? 'payé' : 'émise'}
+                        </span>
+                      )}
+                      {/* ✕ seulement pour les prévisions (une facture émise se gère dans Factures) */}
+                      {m.editable && hasEntry && st === 'forecast' && (
                         <button
                           type="button"
                           onClick={() => onClear(client, m.key)}
@@ -581,7 +644,7 @@ function ClientGrid({
                 <td key={m.key} className="px-1 py-1">
                   <input
                     type="text"
-                    disabled={!m.editable}
+                    disabled={!m.editable || grid[cellKey(client.id, m.key)]?.status === 'paid'}
                     aria-label={`Note ${client.code} ${m.key}`}
                     placeholder="—"
                     value={grid[cellKey(client.id, m.key)]?.note ?? ''}

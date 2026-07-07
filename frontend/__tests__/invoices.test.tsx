@@ -2,8 +2,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { invoicesAPI } from '@/api/client';
 import InvoicesPage from '../app/invoices/page';
 
+jest.mock('next/navigation', () => ({ usePathname: () => '/invoices' }));
+
 // Mock du client API (même specifier que la page : @/api/client)
 jest.mock('@/api/client', () => ({
+  settingsAPI: {
+    get: jest.fn().mockResolvedValue({ next_invoice_number: 68 }),
+    update: jest.fn().mockResolvedValue({ next_invoice_number: 68 }),
+  },
   invoicesAPI: {
     list: jest.fn().mockResolvedValue([
       {
@@ -31,7 +37,7 @@ jest.mock('@/api/client', () => ({
 describe('InvoicesPage', () => {
   it('affiche le titre, le numéro généré et les actions du cycle de vie', async () => {
     render(<InvoicesPage />);
-    expect(screen.getByRole('heading', { name: 'Factures' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Factures/ })).toBeInTheDocument();
     // Facture 'due' → numéro + bouton "Ouvrir la facture"
     expect(await screen.findByText('68')).toBeInTheDocument();
     expect(await screen.findByText('Ouvrir la facture')).toBeInTheDocument();

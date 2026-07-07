@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
+
+_MONTHS_EN = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
 
 from sqlalchemy.orm import Session
 
@@ -52,6 +57,8 @@ class ForecastRow:
     amount: Decimal
     amount_eur: Decimal
     note: str
+    status: str = "forecast"
+    number: str = ""
     client: Optional[models.Client] = None
 
 
@@ -73,6 +80,8 @@ def _to_row(inv: models.Invoice) -> ForecastRow:
         amount=inv.amount,
         amount_eur=inv.amount_eur_forecast,
         note=inv.note,
+        status=inv.status,
+        number=inv.number,
         client=inv.client,
     )
 
@@ -87,40 +96,93 @@ def _months(year: int) -> list[str]:
     return [f"{year:04d}-{m:02d}" for m in range(1, 13)]
 
 
-def get_inputs(db: Session, year: int) -> list[ForecastRow]:
+def get_inputs(
+    db: Session, year: int, include_issued: bool = False
+) -> list[ForecastRow]:
     """
-    Retourne les prévisions des 12 mois de `year` (factures `status='forecast'`).
+    Retourne les prévisions des 12 mois de `year`.
 
-    Forme historique (`ForecastRow`) pour compat route/cashflow.
+    Par défaut : factures `status='forecast'` uniquement (compat projection/cashflow).
+    `include_issued=True` : ajoute aussi les factures émises (`due`/`paid`) — utilisé
+    par la grille « Heures & jours » pour afficher les factures déjà générées
+    (mode passé), avec leur statut.
     """
+    statuses = ("forecast", "due", "paid") if include_issued else ("forecast",)
     months = _months(year)
     invoices = (
         db.query(models.Invoice)
         .filter(
-            models.Invoice.status == "forecast",
+            models.Invoice.status.in_(statuses),
             models.Invoice.month.in_(months),
         )
         .order_by(models.Invoice.month, models.Invoice.client_id)
         .all()
     )
-    logger.info("📥 [Forecast] get_inputs: year=%d → %d ligne(s)", year, len(invoices))
+    logger.info(
+        "📥 [Forecast] get_inputs: year=%d issued=%s → %d ligne(s)",
+        year, include_issued, len(invoices),
+    )
     return [_to_row(inv) for inv in invoices]
 
 
-def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
+def _settings_row(db: Session) -> models.Settings:
+    """Ligne Settings singleton (id=1), créée si absente."""
+    row = db.get(models.Settings, 1)
+    if row is None:
+        row = models.Settings(id=1)
+        db.add(row)
+        db.flush()
+    return row
+
+
+def _current_month_key(today: Optional[date]) -> str:
+    d = today or date.today()
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _issue_fields(db: Session, month: str, client: Optional[models.Client]) -> dict:
+    """Champs d'émission d'une facture passée : n° (compteur), dates, période."""
+    settings = _settings_row(db)
+    number = str(settings.next_invoice_number)
+    settings.next_invoice_number = settings.next_invoice_number + 1
+    y, m = int(month[:4]), int(month[5:7])
+    last = date(y, m, calendar.monthrange(y, m)[1])
+    terms = client.payment_terms_days if client and client.payment_terms_days else 60
+    return {
+        "number": number,
+        "status": "due",
+        "issue_date": last,
+        "due_date": last + timedelta(days=terms),
+        "period_start": date(y, m, 1),
+        "period_end": last,
+        "period_label": f"{_MONTHS_EN[m]} {y}",
+    }
+
+
+def upsert_inputs(
+    db: Session,
+    items: Iterable[dict],
+    issue: bool = False,
+    today: Optional[date] = None,
+) -> list[ForecastRow]:
     """
-    Upsert des prévisions sur la clé (month, client_id) → factures `forecast`.
+    Upsert des entrées sur la clé (month, client_id).
 
     Chaque item : {month, client_id, rate_unit:'day'|'hour', days?, hours?, rate, note}.
     - `rate_unit='day'` (TJM) : jours = source, heures = jours × h/j, montant = jours × taux.
-    - `rate_unit='hour'` (THM) : heures = source (jours ⇄ heures liés), jours = heures ÷ h/j,
-      montant = heures × taux.
+    - `rate_unit='hour'` (THM) : heures = source (jours ⇄ heures liés), jours = heures ÷ h/j.
     - EUR = montant × taux théorique (`fx_rates`) de la devise du client (ADR-006).
-    Numéro provisoire `F-<client>-<month>`.
+
+    Mode normal (`issue=False`) : crée/maj des factures `status='forecast'`.
+    Mode émission (`issue=True`) : pour les mois **strictement passés**, émet
+    directement une facture `status='due'` numérotée (compteur Settings) — c'est
+    le mode « créer une facture dans le passé ». Les mois courant/futurs restent
+    en prévision. Une facture déjà `paid` (rapprochée) n'est jamais écrasée.
     """
     from backend.services.fx import load_rates, to_eur
 
     rates = load_rates(db)
+    current_key = _current_month_key(today)
     result: list[models.Invoice] = []
     for item in items:
         month = item["month"]
@@ -146,16 +208,8 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
             amount = days * rate
 
         amount_eur = to_eur(amount, currency, rates)
+        do_issue = issue and month < current_key
 
-        row = (
-            db.query(models.Invoice)
-            .filter(
-                models.Invoice.status == "forecast",
-                models.Invoice.month == month,
-                models.Invoice.client_id == client_id,
-            )
-            .one_or_none()
-        )
         values = {
             "days": _q(days),
             "hours_per_day": hpd,
@@ -167,25 +221,53 @@ def upsert_inputs(db: Session, items: Iterable[dict]) -> list[ForecastRow]:
             "amount_eur_forecast": _q(amount_eur),
             "note": note,
         }
+
+        # Facture existante pour (mois, client) — statuts pertinents selon le mode.
+        statuses = ("forecast", "due", "paid") if do_issue else ("forecast",)
+        row = (
+            db.query(models.Invoice)
+            .filter(
+                models.Invoice.status.in_(statuses),
+                models.Invoice.month == month,
+                models.Invoice.client_id == client_id,
+            )
+            .order_by(models.Invoice.id)
+            .first()
+        )
+
+        if row is not None and row.status == "paid":
+            # Déjà émise ET rapprochée : on ne réécrit pas un fait comptable figé.
+            result.append(row)
+            continue
+
         if row is None:
-            row = models.Invoice(
-                number=_forecast_number(month, client_id),
+            base = dict(
                 client_id=client_id,
                 month=month,
                 period_label=month,
                 status="forecast",
+                number=_forecast_number(month, client_id),
                 **values,
             )
+            if do_issue:
+                base.update(_issue_fields(db, month, client))
+            row = models.Invoice(**base)
             db.add(row)
         else:
             for field, value in values.items():
                 setattr(row, field, value)
+            # Prévision existante que l'on émet maintenant (mode passé).
+            if do_issue and row.status == "forecast":
+                for field, value in _issue_fields(db, month, client).items():
+                    setattr(row, field, value)
         result.append(row)
 
     db.commit()
     for row in result:
         db.refresh(row)
-    logger.info("📤 [Forecast] upsert_inputs: %d prévision(s) ✅", len(result))
+    logger.info(
+        "📤 [Forecast] upsert_inputs: %d entrée(s) (issue=%s) ✅", len(result), issue
+    )
     return [_to_row(inv) for inv in result]
 
 

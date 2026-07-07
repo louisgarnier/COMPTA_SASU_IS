@@ -348,6 +348,130 @@ def test_route_get_with_starting_cash(client_app, db_session):
     assert jan["cumulative_cash_eur"] == "6000.00"
 
 
+def test_issue_past_month_creates_due_invoice(db_session):
+    """issue=True + mois passé → facture `due` numérotée depuis le compteur."""
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+
+    forecast_service.upsert_inputs(
+        db_session,
+        [{"month": "2025-11", "client_id": client.id, "rate_unit": "day",
+          "days": Decimal("10"), "rate": Decimal("100"), "note": ""}],
+        issue=True,
+        today=date(2026, 7, 1),
+    )
+    inv = db_session.query(models.Invoice).filter_by(month="2025-11").one()
+    assert inv.status == "due"
+    assert inv.number == "40"  # compteur consommé
+    assert inv.issue_date == date(2025, 11, 30)
+    # Compteur incrémenté pour la prochaine.
+    assert db_session.get(models.Settings, 1).next_invoice_number == 41
+
+
+def test_issue_leaves_future_month_as_forecast(db_session):
+    """issue=True mais mois futur → reste en prévision (pas d'émission)."""
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+
+    forecast_service.upsert_inputs(
+        db_session,
+        [{"month": "2026-09", "client_id": client.id, "rate_unit": "day",
+          "days": Decimal("10"), "rate": Decimal("100"), "note": ""}],
+        issue=True,
+        today=date(2026, 7, 1),
+    )
+    inv = db_session.query(models.Invoice).filter_by(month="2026-09").one()
+    assert inv.status == "forecast"
+    assert db_session.get(models.Settings, 1).next_invoice_number == 40  # inchangé
+
+
+def test_issue_promotes_existing_forecast(db_session):
+    """Une prévision passée déjà saisie est promue en `due` quand on émet."""
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+
+    item = {"month": "2025-12", "client_id": client.id, "rate_unit": "day",
+            "days": Decimal("10"), "rate": Decimal("100"), "note": ""}
+    forecast_service.upsert_inputs(db_session, [item])  # prévision
+    forecast_service.upsert_inputs(db_session, [item], issue=True, today=date(2026, 7, 1))
+
+    invs = db_session.query(models.Invoice).filter_by(month="2025-12").all()
+    assert len(invs) == 1  # pas de doublon
+    assert invs[0].status == "due" and invs[0].number == "40"
+
+
+def test_issue_does_not_overwrite_paid(db_session):
+    """Une facture déjà rapprochée (paid) n'est pas réécrite par une nouvelle saisie."""
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.add(models.Invoice(
+        number="12", client_id=client.id, month="2025-11", period_label="2025-11",
+        status="paid", days=Decimal("5"), hours=Decimal("40"), rate=Decimal("100"),
+        currency="USD", amount=Decimal("500"), amount_eur_forecast=Decimal("500"),
+    ))
+    db_session.commit()
+
+    forecast_service.upsert_inputs(
+        db_session,
+        [{"month": "2025-11", "client_id": client.id, "rate_unit": "day",
+          "days": Decimal("10"), "rate": Decimal("100"), "note": ""}],
+        issue=True,
+        today=date(2026, 7, 1),
+    )
+    invs = db_session.query(models.Invoice).filter_by(month="2025-11").all()
+    assert len(invs) == 1
+    assert invs[0].status == "paid" and invs[0].amount == Decimal("500")  # intacte
+
+
+def test_issued_past_invoice_counts_in_its_own_year_pnl(db_session):
+    """Facture 2025 émise → compte dans le P&L 2025, jamais 2026."""
+    from backend.services import pnl as pnl_service
+
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+    forecast_service.upsert_inputs(
+        db_session,
+        [{"month": "2025-11", "client_id": client.id, "rate_unit": "day",
+          "days": Decimal("10"), "rate": Decimal("100"), "note": ""}],
+        issue=True,
+        today=date(2026, 7, 1),
+    )
+    # 10 × 100 × 1 = 1000 en 2025, 0 en 2026.
+    assert pnl_service.summary(db_session, 2025)["revenue_eur"] == Decimal("1000.00")
+    assert pnl_service.summary(db_session, 2026)["revenue_eur"] == Decimal("0.00")
+
+
+def test_route_put_issue_returns_due_status(client_app, db_session):
+    """PUT issue=True renvoie les factures émises avec leur statut `due`."""
+    client = _make_client(db_session)
+    db_session.add(models.Settings(id=1, next_invoice_number=40))
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("1")))
+    db_session.commit()
+    body = {
+        "year": 2025,
+        "issue": True,
+        "inputs": [
+            {"month": "2025-11", "client_id": client.id, "rate_unit": "day",
+             "days": "10", "rate": "100", "note": ""},
+        ],
+    }
+    resp = client_app.put("/api/forecast", json=body)
+    assert resp.status_code == 200
+    inputs = resp.json()["inputs"]
+    assert len(inputs) == 1
+    assert inputs[0]["status"] == "due"
+    assert inputs[0]["number"] == "40"
+
+
 def test_route_put_honors_starting_cash(client_app, db_session):
     """PUT renvoie une projection cumulée à partir de starting_cash_eur (pas 0)."""
     client = _make_client(db_session)
