@@ -49,6 +49,7 @@ class ClientOut(BaseModel):
     default_hours_per_day: Decimal
     payment_terms_days: int
     pay_iban: str
+    pay_account_label: str
     pay_bic: str
     pay_bank_name: str
     pay_bank_address: str
@@ -73,6 +74,7 @@ class ClientCreate(BaseModel):
     default_hours_per_day: Decimal = Decimal("8")
     payment_terms_days: int = 60
     pay_iban: str = ""
+    pay_account_label: str = ""
     pay_bic: str = ""
     pay_bank_name: str = ""
     pay_bank_address: str = ""
@@ -97,6 +99,7 @@ class ClientUpdate(BaseModel):
     default_hours_per_day: Optional[Decimal] = None
     payment_terms_days: Optional[int] = None
     pay_iban: Optional[str] = None
+    pay_account_label: Optional[str] = None
     pay_bic: Optional[str] = None
     pay_bank_name: Optional[str] = None
     pay_bank_address: Optional[str] = None

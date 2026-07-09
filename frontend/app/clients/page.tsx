@@ -28,6 +28,7 @@ type Client = {
   default_hours_per_day: string | number;
   payment_terms_days: number;
   pay_iban: string;
+  pay_account_label: string;
   pay_bic: string;
   pay_bank_name: string;
   pay_bank_address: string;
@@ -62,6 +63,7 @@ const FIELDS: Field[] = [
   { key: 'payment_terms_days', label: 'Échéance (jours)', type: 'number', group: 'Facturation', ph: '60' },
   { key: 'counterparty_match', label: 'Libellé rapprochement', group: 'Facturation', ph: 'texte relevé bancaire' },
   { key: 'pay_iban', label: 'IBAN de réception', group: 'Paiement', ph: 'FR76… (ton compte où ce client paie)' },
+  { key: 'pay_account_label', label: 'Intitulé du compte (bank details)', group: 'Paiement', ph: 'LGC (CAD account) — vide = auto' },
   { key: 'pay_bic', label: 'BIC', group: 'Paiement', ph: 'REVOFRP2' },
   { key: 'pay_bank_name', label: 'Banque', group: 'Paiement', ph: 'Revolut Bank UAB' },
   { key: 'pay_bank_address', label: 'Adresse banque', group: 'Paiement', ph: 'Konstitucijos ave. 21B, 08130 Vilnius…' },
@@ -70,7 +72,7 @@ const FIELDS: Field[] = [
 const EMPTY: Partial<Client> = {
   code: '', legal_name: '', currency: 'USD', address: '', city: '', state_region: '', postal_code: '', country: '',
   contact_name: '', email: '', tjh: '', billing_mode: 'tjm',
-  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '', pay_iban: '', pay_bic: '', pay_bank_name: '', pay_bank_address: '',
+  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '', pay_iban: '', pay_account_label: '', pay_bic: '', pay_bank_name: '', pay_bank_address: '',
 };
 
 // Libellé lisible pour les options de select.

@@ -149,6 +149,13 @@ def test_render_html_uses_client_bank_block_and_structured_address(session):
     # Mention légale depuis les Réglages.
     assert "art. 293 B" in html
 
+    # Intitulé du compte personnalisé : prioritaire sur la composition auto.
+    client.pay_account_label = "LGC Consulting (compte CAD Toronto)"
+    session.commit()
+    html2 = invoices_service.render_html(session, inv)
+    assert "LGC Consulting (compte CAD Toronto)" in html2
+    assert "(CAD account)" not in html2
+
 
 def test_reconcile_links_matching_transaction(session):
     client = _seed(session)

@@ -102,6 +102,9 @@ class Client(Base):
     # par compte devise, le BIC/banque/adresse banque l'accompagnent — la fiche
     # client est autonome (tout ce qui s'imprime sur sa facture est ici).
     pay_iban: Mapped[str] = mapped_column(String, default="")
+    # Intitulé du compte imprimé en tête du bloc (« Bank details : … ») —
+    # vide = composé automatiquement « {société} ({devise} account) ».
+    pay_account_label: Mapped[str] = mapped_column(String, default="")
     pay_bic: Mapped[str] = mapped_column(String, default="")
     pay_bank_name: Mapped[str] = mapped_column(String, default="")
     pay_bank_address: Mapped[str] = mapped_column(Text, default="")

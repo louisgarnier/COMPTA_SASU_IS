@@ -88,7 +88,7 @@
     {% if company.invoice_legal_mention %}<div class="mentions dk">{{ company.invoice_legal_mention }}</div>{% endif %}
 
     <div class="bank">
-      <div class="strong dk">Bank details : {{ company.company_name }} ({{ invoice.currency }} account)</div>
+      <div class="strong dk">Bank details : {% if client.pay_account_label %}{{ client.pay_account_label }}{% else %}{{ company.company_name }} ({{ invoice.currency }} account){% endif %}</div>
       {% if client.pay_iban %}<div>IBAN : {{ client.pay_iban }}{% if client.pay_bic %} · BIC : {{ client.pay_bic }}{% endif %}</div>{% endif %}
       <div>Adresse : {{ company.address }}</div>
       {% if client.pay_bank_name %}<div>Bank : {{ client.pay_bank_name }}{% if client.pay_bank_address %} — {{ client.pay_bank_address }}{% endif %}</div>{% endif %}
