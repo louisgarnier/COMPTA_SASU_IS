@@ -352,3 +352,63 @@ def test_route_get_cashflow(client_app, db_session):
     jan = {m["month"]: m for m in data["months"]}["2026-01"]
     assert jan["incoming_by_ccy"] == {"EUR": "1000.00"}
     assert data["totals"]["incoming_eur"] == "1000.00"
+
+
+# --------------------------------------------------------------------------- #
+# Sélecteur de certitude : scope = realized | engaged | forecast               #
+# --------------------------------------------------------------------------- #
+
+
+def _scope_fixture(db_session):
+    """1 facture due (échéance oct) + 1 prévision (sept→nov) + charges réelles."""
+    rev, chg = _base(db_session)
+    client = models.Client(code="SWIB", legal_name="Swib", currency="USD",
+                           payment_terms_days=45)
+    db_session.add(client)
+    db_session.commit()
+    db_session.refresh(client)
+    # Charge réelle passée (janvier).
+    _tx(db_session, chg.id, date(2026, 1, 20), "-600", "EUR", "charge", "c1")
+    # Facture ÉMISE : échéance 2026-10-01 → attendue en octobre.
+    db_session.add(models.Invoice(
+        number="10", client_id=client.id, month="2026-08", status="due",
+        currency="USD", amount=Decimal("2000"), amount_eur_forecast=Decimal("1800"),
+        issue_date=date(2026, 8, 18), due_date=date(2026, 10, 1),
+    ))
+    db_session.commit()
+    # PRÉVISION septembre : encaissement attendu mi-novembre (fin sept + 45 j).
+    forecast_service.upsert_inputs(db_session, [
+        {"month": "2026-09", "client_id": client.id, "rate_unit": "day",
+         "days": Decimal("10"), "rate": Decimal("500"), "note": ""},
+    ])
+
+
+def test_scope_realized_shows_no_expected_flows(db_session):
+    _scope_fixture(db_session)
+    out = cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="realized")
+    by = {m["month"]: m for m in out["months"]}
+    # Aucun encaissement attendu, aucune charge projetée : futur éteint.
+    assert by["2026-10"]["incoming_eur"] == Decimal("0.00")
+    assert by["2026-11"]["incoming_eur"] == Decimal("0.00")
+    assert by["2026-09"]["outgoing_eur"] == Decimal("0.00")  # pas de moyenne projetée
+
+
+def test_scope_engaged_shows_due_only_no_projected_charges(db_session):
+    _scope_fixture(db_session)
+    out = cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="engaged")
+    by = {m["month"]: m for m in out["months"]}
+    # La facture ÉMISE apparaît à son échéance…
+    assert by["2026-10"]["incoming_by_ccy"] == {"USD": Decimal("1800.00")}
+    # …la PRÉVISION non générée n'apparaît pas…
+    assert by["2026-11"]["incoming_eur"] == Decimal("0.00")
+    # …et pas de charges projetées.
+    assert by["2026-09"]["outgoing_eur"] == Decimal("0.00")
+
+
+def test_scope_forecast_is_current_behavior(db_session):
+    _scope_fixture(db_session)
+    out = cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast")
+    by = {m["month"]: m for m in out["months"]}
+    assert by["2026-10"]["incoming_by_ccy"] == {"USD": Decimal("1800.00")}
+    assert by["2026-11"]["incoming_by_ccy"] == {"USD": Decimal("4500.00")}  # prévision
+    assert by["2026-09"]["outgoing_eur"] > Decimal("0")  # charges projetées (moyenne)

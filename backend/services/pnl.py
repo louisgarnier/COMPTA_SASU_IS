@@ -57,8 +57,16 @@ def invoice_revenue_eur(inv: models.Invoice, rates: dict) -> Decimal:
     return to_eur(inv.amount, inv.currency, rates)
 
 
-def monthly_pnl(db: Session, year: int) -> dict:
-    """Agrège produits, charges et résultat par mois pour l'exercice `year`."""
+def monthly_pnl(
+    db: Session, year: int, statuses: tuple[str, ...] = ("due", "paid")
+) -> dict:
+    """
+    Agrège produits, charges et résultat par mois pour l'exercice `year`.
+
+    `statuses` : statuts de factures reconnus en produits (sélecteur de
+    certitude — realized ('paid',) / engaged ('due','paid') / forecast
+    ('forecast','due','paid')).
+    """
     rates = load_rates(db)
 
     # Mapping catégorie -> type (pour éviter N requêtes de relation).
@@ -83,7 +91,7 @@ def monthly_pnl(db: Session, year: int) -> dict:
     year_months = {f"{year:04d}-{m:02d}" for m in range(1, 13)}
     issued = (
         db.query(models.Invoice)
-        .filter(models.Invoice.status.in_(("due", "paid")))
+        .filter(models.Invoice.status.in_(statuses))
         .all()
     )
     for inv in issued:
@@ -279,7 +287,14 @@ def retained_earnings(db: Session, year: int, today=None) -> Decimal:
     return q2(base + chained - _distributions_before(db, year, rates))
 
 
-def summary(db: Session, year: int, today=None) -> dict:
+_SCOPE_STATUSES = {
+    "realized": ("paid",),
+    "engaged": ("due", "paid"),
+    "forecast": ("forecast", "due", "paid"),
+}
+
+
+def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
     """
     Résumé P&L pour le dashboard (équation façon FreeAgent).
 
@@ -288,13 +303,26 @@ def summary(db: Session, year: int, today=None) -> dict:
     CALCULÉ (résultats nets des exercices antérieurs − distributions versées),
     la valeur des Réglages n'étant que la base initiale pré-historique.
     Toutes les charges sont exposées en **magnitude positive**.
+
+    `scope` (sélecteur de certitude) :
+    - 'realized' : factures PAYÉES uniquement (EUR réel) + charges réelles ;
+    - 'engaged'  : + factures émises (défaut, comportement historique) ;
+    - 'forecast' : + prévisions saisies, charges réelles + PROJETÉES, IS
+      projeté fin d'exercice — mêmes chiffres que la page « Heures & jours ».
     """
-    pnl = monthly_pnl(db, year)
+    if scope not in _SCOPE_STATUSES:
+        scope = "engaged"
+    pnl = monthly_pnl(db, year, statuses=_SCOPE_STATUSES[scope])
     totals = pnl["totals"]
 
     revenue_eur = q2(totals["revenue_eur"])
     # monthly_pnl stocke les charges en négatif → magnitude positive ici.
     charges_eur = q2(abs(totals["charges_eur"]))
+    if scope == "forecast":
+        # Charges = réelles + projetées (prorata mois courant + moyenne des mois
+        # futurs) — la même source que la page Heures & jours.
+        projection = forecast_service.project(db, year, today=today)
+        charges_eur = q2(Decimal(str(projection["totals"]["charges_eur"])))
     result_eur = q2(revenue_eur - charges_eur)
 
     # IS estimé sur le résultat RÉALISÉ (P&L "live"), pas sur la base forecast :
@@ -305,6 +333,12 @@ def summary(db: Session, year: int, today=None) -> dict:
     pre_is = settings.is_start_year is not None and year < settings.is_start_year
     if pre_is:
         is_estimate_eur = q2(_ZERO)
+    elif scope == "forecast":
+        # IS PROJETÉ fin d'exercice (base projection + PV latentes) — identique
+        # à la page Heures & jours : une seule vérité en mode prévisionnel.
+        is_estimate_eur = q2(
+            forecast_service.estimate_is(db, year, today=today)["is_total_eur"]
+        )
     else:
         is_estimate_eur = q2(
             forecast_service.estimate_is(
@@ -350,6 +384,7 @@ def summary(db: Session, year: int, today=None) -> dict:
     )
     return {
         "year": year,
+        "scope": scope,
         "is_regime": "IR" if pre_is else "IS",
         "revenue_eur": revenue_eur,
         "charges_eur": charges_eur,

@@ -47,6 +47,16 @@ logger = get_logger("cashflow", channel="api")
 _ZERO = Decimal("0")
 _DEFAULT_TERMS = 45
 
+# Niveau de certitude (sélecteur dashboard) → statuts de factures projetés.
+# realized : rien d'attendu (réel uniquement) ; engaged : factures ÉMISES ;
+# forecast : émises + prévisions (+ charges projetées) — comportement historique.
+SCOPES = ("realized", "engaged", "forecast")
+_SCOPE_EXPECTED_STATUSES = {
+    "realized": (),
+    "engaged": ("due",),
+    "forecast": ("forecast", "due"),
+}
+
 
 def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
     """
@@ -127,7 +137,9 @@ def _expected_payment_date(inv: models.Invoice) -> Optional[date]:
     return date(y, m, last_day) + timedelta(days=terms)
 
 
-def _expected_inflows(db: Session, year: int) -> tuple[dict, dict, dict]:
+def _expected_inflows(
+    db: Session, year: int, statuses: tuple[str, ...] = ("forecast", "due")
+) -> tuple[dict, dict, dict]:
     """
     Encaissements ATTENDUS, ventilés pour les deux vues (caisse / fiscale).
 
@@ -143,9 +155,11 @@ def _expected_inflows(db: Session, year: int) -> tuple[dict, dict, dict]:
     within: dict[str, dict] = {}
     within_prior: dict[str, dict] = {}
     overflow: dict[str, Decimal] = {}
+    if not statuses:
+        return within, within_prior, overflow
     invoices = (
         db.query(models.Invoice)
-        .filter(models.Invoice.status.in_(("forecast", "due")))
+        .filter(models.Invoice.status.in_(statuses))
         .all()
     )
     for inv in invoices:
@@ -184,17 +198,36 @@ def _overflow_real(db: Session, year: int) -> dict[str, Decimal]:
     return out
 
 
-def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> dict:
-    """Encaissements/décaissements par mois et par devise pour l'exercice `year`."""
+def monthly_cashflow(
+    db: Session, year: int, today: Optional[date] = None, scope: str = "forecast"
+) -> dict:
+    """
+    Encaissements/décaissements par mois et par devise pour l'exercice `year`.
+
+    `scope` (sélecteur de certitude du dashboard) :
+    - 'realized' : réel uniquement — aucun encaissement attendu, aucune charge
+      projetée (le futur est éteint) ;
+    - 'engaged'  : + échéances des factures ÉMISES (dues), sans charges projetées ;
+    - 'forecast' : + prévisions saisies + charges projetées (défaut, historique).
+    """
     if today is None:
         today = date.today()
+    if scope not in SCOPES:
+        scope = "forecast"
     current = (today.year, today.month)
 
     real = _real_month_flows(db, year)
-    forecast_in, forecast_in_prior, overflow_expected = _expected_inflows(db, year)
+    forecast_in, forecast_in_prior, overflow_expected = _expected_inflows(
+        db, year, statuses=_SCOPE_EXPECTED_STATUSES[scope]
+    )
     overflow_real = _overflow_real(db, year)
-    projection = forecast_service.project(db, year, today=today)
-    forecast_charge = {m["month"]: m["charges_forecast_eur"] for m in projection["months"]}
+    if scope == "forecast":
+        projection = forecast_service.project(db, year, today=today)
+        forecast_charge = {
+            m["month"]: m["charges_forecast_eur"] for m in projection["months"]
+        }
+    else:
+        forecast_charge = {}
 
     months = []
     total_in = _ZERO

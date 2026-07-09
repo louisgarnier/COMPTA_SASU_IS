@@ -45,8 +45,9 @@ class BalanceTimelineOut(BaseModel):
 @router.get("/balance-timeline", response_model=BalanceTimelineOut)
 def get_balance_timeline(
     year: int = Query(default=2026, ge=2000, le=2100),
+    scope: str = Query(default="forecast", pattern="^(realized|engaged|forecast)$"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Retourne le solde de trésorerie mensuel cumulé de l'exercice `year`."""
-    logger.info("📥 [Dashboard] GET /api/dashboard/balance-timeline?year=%s", year)
-    return balance_timeline(db, year)
+    """Solde mensuel cumulé — le futur suit le `scope` (certitude) du dashboard."""
+    logger.info("📥 [Dashboard] GET balance-timeline year=%s scope=%s", year, scope)
+    return balance_timeline(db, year, scope=scope)

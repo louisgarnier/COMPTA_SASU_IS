@@ -19,6 +19,7 @@ type Ccy = {
 
 export type PnlSummary = {
   year?: number;
+  scope?: 'realized' | 'engaged' | 'forecast';
   is_regime?: 'IR' | 'IS';
   revenue_eur: string | number;
   charges_eur: string | number;
@@ -57,18 +58,30 @@ function Cell({ label, value, tone }: { label: string; value: string; tone?: 'po
 }
 
 export function PnlWidget({ data }: { data: PnlSummary }) {
+  // Libellés selon le niveau de certitude (sélecteur du dashboard).
+  const scope = data.scope ?? 'engaged';
+  const title =
+    scope === 'forecast' ? "P&L (projeté fin d'exercice)"
+    : scope === 'realized' ? 'P&L (réalisé)'
+    : 'P&L (engagé)';
+  const chargesLabel = scope === 'forecast' ? 'Charges réelles + projetées' : 'Charges réelles';
+  const isLabel =
+    data.is_regime === 'IR' ? 'IS — régime IR'
+    : scope === 'forecast' ? 'IS projeté'
+    : scope === 'realized' ? 'IS (réalisé)'
+    : 'IS (engagé)';
   return (
     <Card>
-      <div className="mb-1 text-sm font-semibold">P&amp;L (réalisé à date)</div>
+      <div className="mb-1 text-sm font-semibold">{title}</div>
 
       <div className="my-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <Cell label="Revenus" value={eur(data.revenue_eur)} />
         <Op sign="−" />
-        <Cell label="Charges" value={eur(data.charges_eur)} />
+        <Cell label={chargesLabel} value={eur(data.charges_eur)} />
         <Op sign="=" />
         <Cell label="Résultat" value={eur(data.result_eur)} tone="pos" />
         <Op sign="−" />
-        <Cell label={data.is_regime === 'IR' ? 'IS — régime IR' : 'IS (réalisé à date)'} value={eur(data.is_estimate_eur)} />
+        <Cell label={isLabel} value={eur(data.is_estimate_eur)} />
         <Op sign="=" />
         <Cell label="Résultat net" value={eur(data.net_result_eur)} tone="pos" />
       </div>

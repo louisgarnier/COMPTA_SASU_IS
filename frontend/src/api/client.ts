@@ -240,11 +240,15 @@ export const invoicesAPI = {
   downloadUrl: (id: number) => `${API_BASE_URL}/api/invoices/${id}/download`,
 };
 
+export type Scope = 'realized' | 'engaged' | 'forecast';
+
 export const dashboardAPI = {
-  cashflow: (year = new Date().getFullYear()) => get<any>(`/api/dashboard/cashflow?year=${year}`),
-  balanceTimeline: (year = new Date().getFullYear()) =>
-    get<any>(`/api/dashboard/balance-timeline?year=${year}`),
-  pnlSummary: (year = new Date().getFullYear()) => get<any>(`/api/dashboard/pnl-summary?year=${year}`),
+  cashflow: (year = new Date().getFullYear(), scope: Scope = 'forecast') =>
+    get<any>(`/api/dashboard/cashflow?year=${year}&scope=${scope}`),
+  balanceTimeline: (year = new Date().getFullYear(), scope: Scope = 'forecast') =>
+    get<any>(`/api/dashboard/balance-timeline?year=${year}&scope=${scope}`),
+  pnlSummary: (year = new Date().getFullYear(), scope: Scope = 'engaged') =>
+    get<any>(`/api/dashboard/pnl-summary?year=${year}&scope=${scope}`),
   invoiceTimeline: () => get<any>('/api/dashboard/invoice-timeline'),
   fxConversions: () => get<any>('/api/dashboard/fx-conversions'),
   treasuryBridge: (asOf?: string) =>

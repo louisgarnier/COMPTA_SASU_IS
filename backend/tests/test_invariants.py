@@ -337,3 +337,34 @@ def test_unreconcile_non_paid_is_rejected(db):
     with pytest.raises(HTTPException) as e:
         invoices_service.unreconcile(db, inv.id)
     assert e.value.status_code == 409
+
+
+def test_pnl_summary_scopes(db):
+    """
+    Sélecteur de certitude (maquette 2026-07-09) :
+    - realized : factures PAYÉES uniquement (EUR réel) ;
+    - engaged  : + émises (défaut, comportement historique) ;
+    - forecast : + prévisions et charges projetées — mêmes chiffres que la
+      page « Heures & jours » (une seule vérité par mode).
+    """
+    inv_paid = models.Invoice(number="1", client_id=1, month="2026-02", status="paid",
+                              currency="EUR", amount=Decimal("1000"),
+                              amount_eur_received=Decimal("1000"), paid_date=date(2026, 3, 1))
+    inv_due = models.Invoice(number="2", client_id=1, month="2026-04", status="due",
+                             currency="EUR", amount=Decimal("500"),
+                             amount_eur_forecast=Decimal("500"))
+    inv_fc = models.Invoice(number="F-1-2026-09", client_id=1, month="2026-09",
+                            status="forecast", currency="EUR", amount=Decimal("300"),
+                            amount_eur_forecast=Decimal("300"))
+    db.add_all([inv_paid, inv_due, inv_fc])
+    db.commit()
+
+    assert summary(db, 2026, scope="realized")["revenue_eur"] == Decimal("1000.00")
+    assert summary(db, 2026, scope="engaged")["revenue_eur"] == Decimal("1500.00")
+    assert summary(db, 2026)["revenue_eur"] == Decimal("1500.00")  # défaut = engaged
+    s_fc = summary(db, 2026, scope="forecast")
+    assert s_fc["revenue_eur"] == Decimal("1800.00")  # + prévision
+
+    # Mode forecast : IS aligné sur la page Heures & jours (projection).
+    from backend.services.forecast import estimate_is
+    assert s_fc["is_estimate_eur"] == Decimal(str(estimate_is(db, 2026)["is_total_eur"]))

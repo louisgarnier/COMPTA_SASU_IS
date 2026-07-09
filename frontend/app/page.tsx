@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { treasuryAPI, dashboardAPI, transactionsAPI } from '@/api/client';
+import { treasuryAPI, dashboardAPI, transactionsAPI, Scope } from '@/api/client';
 import { PageTitle, StatCard } from '@/components/ui';
 import { eur } from '@/lib/format';
 import { CashflowChart, CashflowData } from '@/components/dashboard/CashflowChart';
@@ -22,8 +22,23 @@ const YEARS = [CUR_YEAR - 1, CUR_YEAR, CUR_YEAR + 1, CUR_YEAR + 2];
 
 type Treasury = { bank_total_eur: string | number; total_eur: string | number };
 
+// Niveau de certitude (maquette validée 2026-07-09) : pilote P&L, IS, cashflow
+// et futur de la courbe. Les widgets de STOCK (trésorerie, patrimoine, pont,
+// soldes à date) restent toujours au réel.
+const SCOPES: { value: Scope; label: string }[] = [
+  { value: 'realized', label: 'Réalisé' },
+  { value: 'engaged', label: 'Engagé' },
+  { value: 'forecast', label: 'Prévisionnel' },
+];
+const SCOPE_NOTE: Record<Scope, string> = {
+  realized: '✅ Réalisé — uniquement le concrétisé : factures payées (EUR réel) + charges réelles.',
+  engaged: '📘 Engagé — + factures émises non payées (au taux théorique). Les prévisions sont ignorées.',
+  forecast: '🔮 Prévisionnel — + prévisions saisies + charges projetées. Mêmes chiffres que « Heures & jours ».',
+};
+
 export default function DashboardPage() {
   const [year, setYear] = useState(CUR_YEAR);
+  const [scope, setScope] = useState<Scope>('engaged');
   const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [cashflow, setCashflow] = useState<CashflowData | null>(null);
   const [balance, setBalance] = useState<BalanceData | null>(null);
@@ -38,9 +53,9 @@ export default function DashboardPage() {
     setError('');
     Promise.all([
       treasuryAPI.get(),
-      dashboardAPI.cashflow(year),
-      dashboardAPI.balanceTimeline(year),
-      dashboardAPI.pnlSummary(year),
+      dashboardAPI.cashflow(year, scope),
+      dashboardAPI.balanceTimeline(year, scope),
+      dashboardAPI.pnlSummary(year, scope),
       dashboardAPI.invoiceTimeline(),
     ])
       .then(([t, cf, bal, p, inv]) => {
@@ -58,21 +73,37 @@ export default function DashboardPage() {
       .list({ uncategorized: true })
       .then((rows) => setUncategorized(rows.length))
       .catch(() => setUncategorized(0));
-  }, [year]);
+  }, [year, scope]);
 
   const yearPicker = (
-    <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
-      {YEARS.map((y) => (
-        <button
-          key={y}
-          onClick={() => setYear(y)}
-          className={`border-r border-[var(--border)] px-3 py-1.5 text-sm font-semibold last:border-r-0 ${
-            y === year ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--text)] hover:bg-gray-50'
-          }`}
-        >
-          {y}
-        </button>
-      ))}
+    <div className="flex flex-wrap items-center gap-2">
+      {/* Sélecteur de certitude : Réalisé / Engagé / Prévisionnel */}
+      <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
+        {SCOPES.map((s) => (
+          <button
+            key={s.value}
+            onClick={() => setScope(s.value)}
+            className={`border-r border-[var(--border)] px-3 py-1.5 text-sm font-semibold last:border-r-0 ${
+              s.value === scope ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--muted)] hover:bg-gray-50'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+      <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
+        {YEARS.map((y) => (
+          <button
+            key={y}
+            onClick={() => setYear(y)}
+            className={`border-r border-[var(--border)] px-3 py-1.5 text-sm font-semibold last:border-r-0 ${
+              y === year ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--text)] hover:bg-gray-50'
+            }`}
+          >
+            {y}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
@@ -97,6 +128,15 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <PageTitle title="Dashboard" subtitle={`Vue d'ensemble tréso ${year} — réel + prévision`} action={yearPicker} />
 
+      <div className={`rounded-xl px-4 py-2 text-xs ${
+        scope === 'realized' ? 'bg-emerald-50 text-emerald-800'
+        : scope === 'engaged' ? 'bg-blue-50 text-blue-800'
+        : 'bg-amber-50 text-amber-800'
+      }`}>
+        {SCOPE_NOTE[scope]}{' '}
+        <span className="opacity-70">Trésorerie, patrimoine, pont et soldes à date restent toujours au réel.</span>
+      </div>
+
       {uncategorized > 0 && (
         <Link
           href="/transactions"
@@ -115,8 +155,11 @@ export default function DashboardPage() {
             le patrimoine total (placements incl.) est l'autre vue, à part. */}
         <StatCard label="Trésorerie (hors placements)" value={eur(treasury?.bank_total_eur)} tone="pos" />
         <StatCard label="Patrimoine total (placements incl.)" value={eur(treasury?.total_eur)} />
-        <StatCard label="Résultat P&L" value={eur(pnl?.result_eur)} tone="pos" />
-        <StatCard label="IS (réalisé à date)" value={eur(pnl?.is_estimate_eur)} />
+        <StatCard label={`Résultat P&L (${SCOPES.find((s) => s.value === scope)?.label.toLowerCase()})`} value={eur(pnl?.result_eur)} tone="pos" />
+        <StatCard
+          label={scope === 'forecast' ? "IS projeté fin d'exercice" : scope === 'engaged' ? 'IS (engagé)' : 'IS (réalisé à date)'}
+          value={eur(pnl?.is_estimate_eur)}
+        />
         <StatCard label="Factures en attente" value={eur(invoices?.outstanding_eur)} />
       </div>
 

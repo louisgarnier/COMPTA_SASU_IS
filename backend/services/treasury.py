@@ -196,7 +196,7 @@ def _bank_movements_eur(
 
 
 def balance_timeline(
-    db: Session, year: int, today: Optional[date_type] = None
+    db: Session, year: int, today: Optional[date_type] = None, scope: str = "forecast"
 ) -> dict:
     """
     Déroulé mensuel du solde de trésorerie cumulé en EUR sur `year`.
@@ -230,7 +230,7 @@ def balance_timeline(
     # ligne de solde et le cashflow racontent deux futurs incompatibles.
     from backend.services import cashflow as cashflow_service
 
-    cf = cashflow_service.monthly_cashflow(db, year, today=today)
+    cf = cashflow_service.monthly_cashflow(db, year, today=today, scope=scope)
     net_by_month = {
         m["month"]: Decimal(m["incoming_eur"]) - Decimal(m["outgoing_eur"])
         for m in cf["months"]
@@ -243,7 +243,7 @@ def balance_timeline(
     # intermédiaire (sinon les encaissements d'août-déc N seraient perdus).
     if (year, 1) > current:
         for y in range(today.year, year):
-            cf_y = cashflow_service.monthly_cashflow(db, y, today=today)
+            cf_y = cashflow_service.monthly_cashflow(db, y, today=today, scope=scope)
             for m_y in cf_y["months"]:
                 ym = int(m_y["month"][:4]), int(m_y["month"][5:7])
                 if ym > current:

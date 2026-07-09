@@ -25,8 +25,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/pnl-summary")
 def get_pnl_summary(
     year: int = Query(...),
+    scope: str = Query(default="engaged", pattern="^(realized|engaged|forecast)$"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Retourne le résumé P&L (équation) pour l'exercice `year`."""
-    logger.info("📥 [Dashboard] pnl-summary: year=%d", year)
-    return pnl_service.summary(db, year)
+    """Résumé P&L de l'exercice — `scope` = niveau de certitude du dashboard."""
+    logger.info("📥 [Dashboard] pnl-summary: year=%d scope=%s", year, scope)
+    return pnl_service.summary(db, year, scope=scope)

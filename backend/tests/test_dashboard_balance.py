@@ -185,7 +185,7 @@ def _client(session, monkeypatch):
 
     real = mod.balance_timeline
     monkeypatch.setattr(
-        mod, "balance_timeline", lambda db, year: real(db, year, today=TODAY)
+        mod, "balance_timeline", lambda db, year, scope="forecast": real(db, year, today=TODAY, scope=scope)
     )
 
     app = FastAPI()

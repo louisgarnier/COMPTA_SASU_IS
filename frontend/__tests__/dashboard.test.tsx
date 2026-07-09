@@ -91,7 +91,10 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/Cashflow/)).toBeInTheDocument();
     // Libellés décision produit 2026-07 : pilotage cash hors placements.
     expect((await screen.findAllByText('Trésorerie (hors placements)')).length).toBeGreaterThan(0);
-    expect(await screen.findByText('P&L (réalisé à date)')).toBeInTheDocument();
+    expect(await screen.findByText('P&L (engagé)')).toBeInTheDocument();
+    // Sélecteur de certitude présent (Réalisé / Engagé / Prévisionnel).
+    expect(screen.getByText('Réalisé')).toBeInTheDocument();
+    expect(screen.getByText('Prévisionnel')).toBeInTheDocument();
     // Bannière « à catégoriser » (2 transactions mockées) avec lien vers /transactions.
     expect(await screen.findByText(/2 transactions à catégoriser/)).toBeInTheDocument();
     // Toggle vue caisse / vue fiscale du cashflow.

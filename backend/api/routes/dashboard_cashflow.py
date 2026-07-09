@@ -25,8 +25,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/cashflow")
 def get_cashflow(
     year: int = Query(...),
+    scope: str = Query(default="forecast", pattern="^(realized|engaged|forecast)$"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Retourne les flux de trésorerie mensuels par devise pour `year`."""
-    logger.info("📥 [Cashflow] get: year=%d", year)
-    return cashflow_service.monthly_cashflow(db, year)
+    """Flux mensuels par devise — `scope` = niveau de certitude du dashboard."""
+    logger.info("📥 [Cashflow] get: year=%d scope=%s", year, scope)
+    return cashflow_service.monthly_cashflow(db, year, scope=scope)
