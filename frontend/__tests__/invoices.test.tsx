@@ -38,8 +38,9 @@ describe('InvoicesPage', () => {
   it('affiche le titre, le numéro généré et les actions du cycle de vie', async () => {
     render(<InvoicesPage />);
     expect(screen.getByRole('heading', { name: /Factures/ })).toBeInTheDocument();
-    // Facture 'due' → numéro + bouton "Ouvrir la facture"
-    expect(await screen.findByText('68')).toBeInTheDocument();
+    // Facture 'due' → numéro éditable (input) + bouton "Ouvrir la facture"
+    const numInput = (await screen.findByLabelText('N° facture 68')) as HTMLInputElement;
+    expect(numInput.value).toBe('68');
     expect(await screen.findByText('Ouvrir la facture')).toBeInTheDocument();
     // Facture 'forecast' → bouton "Générer"
     expect(await screen.findByText('Générer')).toBeInTheDocument();

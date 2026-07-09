@@ -77,6 +77,40 @@ def test_projected_revenue_equals_days_rate_fx(db_session):
     assert projection["totals"]["revenue_eur"] == Decimal("17100.00")
 
 
+def test_projection_includes_issued_invoices_at_pnl_value(db_session):
+    """
+    Décision produit 2026-07 : le « CA projeté » inclut les factures ÉMISES et
+    PAYÉES de l'exercice (même logique que le P&L accrual) — générer une facture
+    ne fait plus chuter le CA projeté. Une payée compte à son EUR RÉEL encaissé.
+    """
+    client = _make_client(db_session)
+    db_session.add(models.FxRate(currency="USD", rate=Decimal("0.9")))
+    # Prévision mars : 10 j × 500 × 0.9 = 4500 (forecast).
+    forecast_service.upsert_inputs(db_session, [
+        {"month": "2026-03", "client_id": client.id, "rate_unit": "day",
+         "days": Decimal("10"), "rate": Decimal("500"), "note": ""},
+    ])
+    # Facture ÉMISE janv : prévisionnel 9000.
+    db_session.add(models.Invoice(
+        number="200", client_id=client.id, month="2026-01", status="due",
+        currency="USD", amount=Decimal("10000"), amount_eur_forecast=Decimal("9000"),
+    ))
+    # Facture PAYÉE fév : EUR réel encaissé 8500 (≠ prévisionnel 8100).
+    db_session.add(models.Invoice(
+        number="201", client_id=client.id, month="2026-02", status="paid",
+        currency="USD", amount=Decimal("9000"), amount_eur_forecast=Decimal("8100"),
+        amount_eur_received=Decimal("8500"),
+    ))
+    db_session.commit()
+
+    projection = forecast_service.project(db_session, 2026)
+    by_month = {m["month"]: m for m in projection["months"]}
+    assert by_month["2026-01"]["revenue_eur"] == Decimal("9000.00")  # due
+    assert by_month["2026-02"]["revenue_eur"] == Decimal("8500.00")  # paid, RÉEL
+    assert by_month["2026-03"]["revenue_eur"] == Decimal("4500.00")  # forecast
+    assert projection["totals"]["revenue_eur"] == Decimal("22000.00")
+
+
 def test_upsert_is_idempotent_on_month_client(db_session):
     client = _make_client(db_session)
     forecast_service.upsert_inputs(

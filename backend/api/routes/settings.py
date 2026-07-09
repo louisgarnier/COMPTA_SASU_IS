@@ -46,6 +46,7 @@ class SettingsOut(BaseModel):
     is_threshold: Decimal
     is_high_rate: Decimal
     retained_earnings_eur: Decimal
+    is_start_year: Optional[int]
     next_invoice_number: int
 
 
@@ -70,6 +71,7 @@ class SettingsUpdate(BaseModel):
     is_threshold: Optional[Decimal] = Field(default=None, ge=0)
     is_high_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)
     retained_earnings_eur: Optional[Decimal] = None  # peut être négatif (report déficitaire)
+    is_start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
     next_invoice_number: Optional[int] = Field(default=None, ge=1)
 
 

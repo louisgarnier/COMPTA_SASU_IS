@@ -6,8 +6,8 @@ import { PageTitle, Card, StatCard, Empty } from '@/components/ui';
 import { FacturationTabs } from '@/components/FacturationTabs';
 import { eur, pct, MONTH_LABELS } from '@/lib/format';
 
-// Aujourd'hui (réf. projet) — pilote les mois écoulés vs à venir.
-const TODAY = new Date('2026-07-03T00:00:00');
+// Aujourd'hui (date réelle) — pilote les mois écoulés vs à venir.
+const TODAY = new Date();
 const CUR_YEAR = TODAY.getFullYear();
 const CUR_MONTH = TODAY.getMonth() + 1; // 1..12
 // Année précédente incluse : saisie de factures passées (payées cette année).
@@ -125,19 +125,20 @@ export default function ForecastPage() {
     setLoading(true);
     setError('');
     try {
-      // Trésorerie de départ = vrai solde consolidé actuel → le déroulé cumulé
-      // démarre au solde réel (et non à 0). Non bloquant : si l'appel tréso
-      // échoue, on démarre à 0 plutôt que de vider tout le forecast.
+      // Trésorerie de départ = solde BANCAIRE actuel (hors placements — décision
+      // produit : le pilotage cash exclut le XRP, même base que la courbe du
+      // dashboard). Non bloquant : si l'appel tréso échoue, on démarre à 0.
       let startingCash = 0;
       try {
         const treasury = await treasuryAPI.get();
-        startingCash = num(treasury?.total_eur ?? treasury?.bank_total_eur ?? 0);
+        startingCash = num(treasury?.bank_total_eur ?? 0);
       } catch {
         startingCash = 0;
       }
-      // Inclure les factures émises (due/paid) quand on regarde le passé, pour
-      // que la grille montre ce qui a déjà été facturé.
-      const includeIssued = pastMode || y < CUR_YEAR;
+      // Toujours inclure les factures émises (due/paid) : la grille doit montrer
+      // ce qui a déjà été facturé (badge + verrouillé), sinon les jours saisis
+      // « disparaissent » dès qu'une facture est générée.
+      const includeIssued = true;
       const [clientList, forecast, fxList] = await Promise.all([
         clientsAPI.list() as Promise<Client[]>,
         forecastAPI.get(y, startingCash, includeIssued) as Promise<ForecastData>,
@@ -216,7 +217,9 @@ export default function ForecastPage() {
           if (!m.editable) return;
           const cell = grid[cellKey(c.id, m.key)];
           if (!cell) return;
-          if (cell.status === 'paid') return; // facture rapprochée = figée
+          // Facture déjà émise (due/paid) = figée : ne pas la ré-enregistrer,
+          // sinon on créerait un doublon prévisionnel. Elle se gère dans Factures.
+          if (cell.status === 'due' || cell.status === 'paid') return;
           const driver = isHour ? num(cell.hours) : num(cell.days);
           if (driver <= 0) return;
           inputs.push({
@@ -344,11 +347,11 @@ export default function ForecastPage() {
 
       {/* KPI */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label={`CA projeté ${year}`} value={eur(totals.revenue_eur)} tone="pos" />
+        <StatCard label={`CA exercice ${year} (émis + prévu)`} value={eur(totals.revenue_eur)} tone="pos" />
         <StatCard label="Charges projetées" value={eur(totals.charges_eur)} tone="neg" />
-        <StatCard label="Base IS" value={eur(is.base_eur)} />
+        <StatCard label="Base IS (projetée)" value={eur(is.base_eur)} />
         <Card>
-          <div className="text-xs uppercase tracking-wide text-[var(--muted)]">IS estimé</div>
+          <div className="text-xs uppercase tracking-wide text-[var(--muted)]">IS projeté fin d&apos;exercice</div>
           <div className="tabular mt-2 text-2xl font-semibold text-[var(--neg)]">{eur(is.is_total_eur)}</div>
           <div className="mt-1 text-xs text-[var(--muted)]">
             {pct(is.low_rate)} jusqu&apos;à {eur(is.threshold_eur)} + {pct(is.high_rate)} au-delà
@@ -487,7 +490,7 @@ function ClientGrid({
 
   const input = (m: { key: string; editable: boolean }, field: 'days' | 'hours' | 'rate') => {
     const cell = grid[cellKey(client.id, m.key)];
-    const locked = cell?.status === 'paid'; // facture rapprochée = figée
+    const locked = cell?.status === 'due' || cell?.status === 'paid'; // facture émise = figée
     return (
       <input
         type="number"
@@ -644,7 +647,7 @@ function ClientGrid({
                 <td key={m.key} className="px-1 py-1">
                   <input
                     type="text"
-                    disabled={!m.editable || grid[cellKey(client.id, m.key)]?.status === 'paid'}
+                    disabled={!m.editable || ['due', 'paid'].includes(grid[cellKey(client.id, m.key)]?.status ?? '')}
                     aria-label={`Note ${client.code} ${m.key}`}
                     placeholder="—"
                     value={grid[cellKey(client.id, m.key)]?.note ?? ''}

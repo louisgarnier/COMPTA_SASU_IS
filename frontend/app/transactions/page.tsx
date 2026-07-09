@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { transactionsAPI, categoriesAPI, bankingAPI } from '@/api/client';
+import { transactionsAPI, categoriesAPI, bankingAPI, fxAPI } from '@/api/client';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { eur, money, dateFR } from '@/lib/format';
 
@@ -61,6 +61,8 @@ function kindTone(kind: string | null): 'neutral' | 'pos' | 'neg' | 'warn' {
 export default function TransactionsPage() {
   const [rows, setRows] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // Taux théoriques des Réglages — repli EUR (≈) quand le FX réel n'est pas alloué.
+  const [rates, setRates] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [syncMsg, setSyncMsg] = useState<string>('');
@@ -73,6 +75,23 @@ export default function TransactionsPage() {
   const [dateTo, setDateTo] = useState<string>('');
   const [search, setSearch] = useState<string>(''); // recherche texte (client-side)
   const [checked, setChecked] = useState<Record<number, boolean>>({}); // sélection groupée
+  // Vue trésorerie : filtre prédéfini = une ligne du pont « D'où vient ma
+  // trésorerie ? » (classement fait côté backend — total liste == ligne du pont).
+  const [bridgeFilter, setBridgeFilter] = useState<string>('');
+  const [bridgeAsOf, setBridgeAsOf] = useState<string>('');
+
+  // Pré-remplissage depuis l'URL (clic sur une ligne du pont) : ?bridge=&as_of=.
+  // as_of assaini : date pure AAAA-MM-JJ uniquement (une datetime est tronquée,
+  // une valeur invalide est ignorée) — le backend tolère aussi, double ceinture.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const b = sp.get('bridge');
+    if (b) {
+      setBridgeFilter(b);
+      const raw = (sp.get('as_of') || '').slice(0, 10);
+      setBridgeAsOf(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '');
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +101,8 @@ export default function TransactionsPage() {
         kind: kindFilter || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
+        bridge: bridgeFilter || undefined,
+        as_of: bridgeFilter ? bridgeAsOf || undefined : undefined,
       };
       if (categoryFilter === 'uncat') {
         params.uncategorized = true;
@@ -95,14 +116,44 @@ export default function TransactionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, kindFilter, dateFrom, dateTo]);
+  }, [categoryFilter, kindFilter, dateFrom, dateTo, bridgeFilter, bridgeAsOf]);
 
   useEffect(() => {
     categoriesAPI
       .list()
       .then((c) => setCategories(c as Category[]))
       .catch(() => setCategories([]));
+    fxAPI
+      .list()
+      .then((rs) =>
+        setRates(
+          Object.fromEntries(
+            (rs as { currency: string; rate: string | number }[]).map((r) => [
+              r.currency,
+              Number(r.rate),
+            ]),
+          ),
+        ),
+      )
+      .catch(() => setRates({}));
   }, []);
+
+  // Année de la vue tréso (suit la date du pont si fournie) + catégories de
+  // transferts/placements proposées dans le dropdown (dynamiques, depuis la base).
+  const bridgeYear = (bridgeAsOf || new Date().toISOString()).slice(0, 4);
+  const treasuryCats = categories.filter((c) =>
+    ['transfer', 'internal', 'investment'].includes(c.type),
+  );
+
+  // EUR d'une transaction : réel (`amount_eur`, figé par l'allocation FX) sinon
+  // montant si déjà en EUR, sinon ≈ natif × taux théorique des Réglages.
+  const eurOf = (tx: Transaction): { value: number; approx: boolean } | null => {
+    if (tx.amount_eur != null) return { value: Number(tx.amount_eur), approx: false };
+    const amt = parseFloat(tx.amount);
+    if ((tx.currency || 'EUR').toUpperCase() === 'EUR') return { value: amt, approx: false };
+    const rate = rates[(tx.currency || '').toUpperCase()];
+    return rate > 0 ? { value: amt * rate, approx: true } : null;
+  };
 
   useEffect(() => {
     load();
@@ -156,13 +207,16 @@ export default function TransactionsPage() {
   const selectCls =
     'rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]';
 
-  // Recherche texte sur description + contrepartie (insensible à la casse).
+  // Recherche texte sur description + contrepartie + montant (insensible à la
+  // casse ; le montant matche en notation point OU virgule : « 386.17 » / « 386,17 »).
   const q = search.trim().toLowerCase();
   const filtered = q
     ? rows.filter(
         (t) =>
           (t.description ?? '').toLowerCase().includes(q) ||
-          (t.counterparty ?? '').toLowerCase().includes(q),
+          (t.counterparty ?? '').toLowerCase().includes(q) ||
+          (t.amount ?? '').includes(q.replace(',', '.')) ||
+          (t.amount ?? '').replace('.', ',').includes(q),
       )
     : rows;
 
@@ -209,7 +263,29 @@ export default function TransactionsPage() {
             className={selectCls}
           />
         </label>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[var(--muted)]">Vue tréso</span>
+            <select
+              value={bridgeFilter}
+              onChange={(e) => setBridgeFilter(e.target.value)}
+              aria-label="Vue trésorerie"
+              className={selectCls}
+            >
+              <option value="">— (tout)</option>
+              <option value="received_current">Encaissé — factures {bridgeYear}</option>
+              <option value="received_prior">Encaissé — factures &lt; {bridgeYear}</option>
+              <option value="other_revenue">Autres revenus (non facturés)</option>
+              <option value="charges">Charges (nettes)</option>
+              {treasuryCats.map((c) => (
+                <option key={c.id} value={`cat:${c.name}`}>
+                  {c.name}
+                </option>
+              ))}
+              <option value="residual">Écarts FX (conversions)</option>
+            </select>
+          </label>
+
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-[var(--muted)]">Catégorie</span>
             <select
@@ -274,10 +350,11 @@ export default function TransactionsPage() {
         <Empty>{q ? 'Aucune transaction ne correspond à la recherche.' : 'Aucune transaction.'}</Empty>
       ) : (
         <Card className="overflow-x-auto p-0">
-          <table className="w-full text-sm">
+          {/* Densité « Excel » : rangées fines, texte 13px, description sur une ligne. */}
+          <table className="w-full text-[13px] leading-tight">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
-                <th className="px-4 py-3 font-medium">
+                <th className="px-3 py-1 font-medium">
                   <input
                     type="checkbox"
                     checked={allChecked}
@@ -286,12 +363,12 @@ export default function TransactionsPage() {
                     title="Tout sélectionner (lignes affichées)"
                   />
                 </th>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Description</th>
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 font-medium">Catégorie</th>
-                <th className="px-4 py-3 text-right font-medium">Montant</th>
-                <th className="px-4 py-3 text-right font-medium">EUR</th>
+                <th className="px-3 py-1 font-medium">Date</th>
+                <th className="px-3 py-1 font-medium">Description</th>
+                <th className="px-3 py-1 font-medium">Type</th>
+                <th className="px-3 py-1 font-medium">Catégorie</th>
+                <th className="px-3 py-1 text-right font-medium">Montant (devise)</th>
+                <th className="px-3 py-1 text-right font-medium">Montant (EUR)</th>
               </tr>
             </thead>
             <tbody>
@@ -305,7 +382,7 @@ export default function TransactionsPage() {
                       checked[tx.id] ? 'bg-[var(--accent)]/5' : ''
                     }`}
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-1">
                       <input
                         type="checkbox"
                         checked={!!checked[tx.id]}
@@ -313,18 +390,24 @@ export default function TransactionsPage() {
                         aria-label={`Sélectionner ${tx.description || tx.id}`}
                       />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-[var(--muted)]">
+                    <td className="whitespace-nowrap px-3 py-1 text-[var(--muted)]">
                       {dateFR(tx.booked_date)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{tx.description || '—'}</div>
-                      {tx.counterparty && (
-                        <div className="text-xs text-[var(--muted)]">
-                          {tx.counterparty}
-                        </div>
-                      )}
+                    <td className="max-w-[320px] px-3 py-1">
+                      {/* Une seule ligne (tronquée) — contrepartie inline, détail au survol. */}
+                      <div
+                        className="truncate"
+                        title={[tx.description, tx.counterparty].filter(Boolean).join(' — ')}
+                      >
+                        <span className="font-medium">{tx.description || '—'}</span>
+                        {tx.counterparty && (
+                          <span className="ml-1.5 text-xs text-[var(--muted)]">
+                            {tx.counterparty}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-1">
                       {tx.kind ? (
                         <Badge tone={kindTone(tx.kind)}>
                           {KIND_LABELS[tx.kind] ?? tx.kind}
@@ -333,12 +416,12 @@ export default function TransactionsPage() {
                         <span className="text-[var(--muted)]">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-1">
                       <select
                         value={tx.category_id ?? ''}
                         onChange={(e) => updateCategory(tx, e.target.value)}
                         aria-label={`Catégorie de ${tx.description || tx.id}`}
-                        className={`rounded-lg border px-2 py-1.5 text-sm outline-none focus:border-[var(--accent)] ${
+                        className={`rounded-md border px-1.5 py-0.5 text-xs outline-none focus:border-[var(--accent)] ${
                           uncategorized
                             ? 'border-amber-300 bg-amber-50 text-amber-800'
                             : 'border-[var(--border)] bg-[var(--panel)]'
@@ -353,20 +436,46 @@ export default function TransactionsPage() {
                       </select>
                     </td>
                     <td
-                      className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums"
+                      className="whitespace-nowrap px-3 py-1 text-right font-medium tabular-nums"
                       style={{
                         color: amt < 0 ? 'var(--neg)' : amt > 0 ? 'var(--pos)' : undefined,
                       }}
                     >
                       {money(tx.amount, tx.currency)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-[var(--muted)]">
-                      {tx.amount_eur != null ? eur(tx.amount_eur) : '—'}
+                    <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums text-[var(--muted)]">
+                      {(() => {
+                        const e = eurOf(tx);
+                        if (e == null) return '—';
+                        // ≈ = converti au taux théorique (pas encore de FX réel alloué).
+                        return `${e.approx ? '≈ ' : ''}${eur(e.value)}`;
+                      })()}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
+            <tfoot>
+              {/* Total EUR des lignes AFFICHÉES — suit recherche + filtres. */}
+              <tr className="border-t-2 border-[var(--border)] bg-gray-50/60 font-semibold">
+                <td colSpan={6} className="px-3 py-1.5 text-right">
+                  Total ({filtered.length} ligne{filtered.length > 1 ? 's' : ''} affichées)
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
+                  {(() => {
+                    let total = 0;
+                    let approx = false;
+                    for (const tx of filtered) {
+                      const e = eurOf(tx);
+                      if (e == null) continue;
+                      total += e.value;
+                      if (e.approx) approx = true;
+                    }
+                    return `${approx ? '≈ ' : ''}${eur(total)}`;
+                  })()}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </Card>
       )}

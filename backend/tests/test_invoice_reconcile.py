@@ -43,6 +43,7 @@ def _setup(db):
                            counterparty_match="SWIB")
     db.add(client)
     db.add(models.BankAccount(provider="revolut", account_uid="ACC", currency="USD"))
+    db.add(models.FxRate(currency="USD", rate=Decimal("0.90")))
     db.commit()
     db.refresh(client)
     return client
@@ -88,6 +89,24 @@ def test_manual_reconcile_sets_payment_and_variance(db):
     assert out.variance_eur == Decimal("45.00")     # 9045 − 9000
     db.refresh(tx)
     assert tx.invoice_id == inv.id
+
+
+def test_manual_reconcile_foreign_without_realized_never_stores_native_as_eur(db):
+    """
+    Break D : rapprocher manuellement une transaction en devise dont le FX réel
+    n'est pas encore calculé (`amount_eur` None, aucune conversion) ne doit JAMAIS
+    figer le montant natif comme des euros. `manual_reconcile` rappelle `allocate`,
+    qui pose l'EUR (ici théorique 10050×0.90=9045), pas le natif 10050.
+    """
+    client = _setup(db)
+    inv = _due_invoice(db, client, forecast_eur="9000")
+    tx = _tx(db, "t1", "10050", eur=None)  # FX réel pas encore connu
+
+    out = invoices_service.manual_reconcile(db, inv.id, tx.id)
+
+    assert out.amount_eur_received == Decimal("9045.00")  # 10050 × 0.90 théorique
+    assert out.amount_eur_received != Decimal("10050.00")  # surtout PAS le natif
+    assert out.variance_eur == Decimal("45.00")
 
 
 def test_manual_reconcile_rejects_forecast_and_linked_tx(db):

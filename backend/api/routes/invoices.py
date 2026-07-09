@@ -79,9 +79,10 @@ class InvoiceCreate(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
-    """Payload de mise à jour partielle du statut (enum validé)."""
+    """Payload de mise à jour partielle (statut enum validé, n° éditable)."""
 
     status: Optional[Literal["forecast", "due", "paid"]] = None
+    number: Optional[str] = None
 
 
 def _to_out(invoice: models.Invoice) -> InvoiceOut:
@@ -167,6 +168,13 @@ def unreconcile_route(invoice_id: int, db: Session = Depends(get_db)) -> Invoice
     return _to_out(invoice)
 
 
+@router.post("/{invoice_id}/rollback", response_model=InvoiceOut)
+def rollback_route(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
+    """Repasse une facture émise (due) en prévision — dernier numéro uniquement."""
+    invoice = invoices_service.rollback_to_forecast(db, invoice_id)
+    return _to_out(invoice)
+
+
 @router.post("/{invoice_id}/generate", response_model=InvoiceOut)
 def generate_invoice_route(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
     """Génère la facture (forecast → due) : numéro réel, dates, désignation."""
@@ -220,19 +228,42 @@ def delete_invoice_route(invoice_id: int, db: Session = Depends(get_db)):
 def update_invoice(
     invoice_id: int, payload: InvoiceUpdate, db: Session = Depends(get_db)
 ) -> InvoiceOut:
-    """Met à jour le statut d'une facture (404 si absente).
+    """Met à jour une facture (404 si absente) — n° éditable, statut verrouillé.
 
-    Le statut `paid` n'est **pas** posable manuellement : une facture n'est
-    encaissée que par rapprochement avec une transaction réelle (POST
-    /reconcile). Sinon la date de paiement et le montant reçu seraient inventés.
+    Machine à états gardée : AUCUNE transition de statut par PATCH. Le cycle de
+    vie passe par les actions dédiées — generate (forecast→due), reconcile
+    (due→paid), unreconcile (paid→due), delete. Un PATCH due→forecast
+    dé-numéroterait silencieusement une facture émise (trou de séquence) ;
+    forecast→due poserait un statut émis sans numéro réel ni dates.
     """
     invoice = _get_or_404(db, invoice_id)
     changes = payload.model_dump(exclude_unset=True)
-    if changes.get("status") == "paid":
+    new_status = changes.get("status")
+    if new_status is not None and new_status != invoice.status:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Statut « payé » réservé au rapprochement d'une transaction",
+            detail=(
+                "Statut non modifiable directement — utiliser générer / "
+                "rapprocher / annuler le rapprochement / supprimer"
+            ),
         )
+    # N° de facture : correction manuelle, unicité contrôlée (numérotation légale).
+    new_number = changes.get("number")
+    if new_number is not None:
+        new_number = new_number.strip()
+        if not new_number:
+            raise HTTPException(status_code=422, detail="N° de facture vide")
+        clash = (
+            db.query(models.Invoice)
+            .filter(models.Invoice.number == new_number, models.Invoice.id != invoice_id)
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"N° {new_number} déjà utilisé",
+            )
+        changes["number"] = new_number
     for field, value in changes.items():
         setattr(invoice, field, value)
     db.commit()

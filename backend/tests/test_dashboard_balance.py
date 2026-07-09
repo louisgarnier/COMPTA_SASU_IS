@@ -139,6 +139,20 @@ def test_future_months_are_forecast_and_increment_at_payment_date(session):
     assert result["projected_year_end_eur"] == Decimal("3000.00")
 
 
+def test_next_year_timeline_chains_through_end_of_current_year(session):
+    """
+    Vue 2027 (T-3) : la courbe doit PARTIR du solde projeté au 31/12/2026
+    (solde actuel + nets d'août-déc 2026, dont l'encaissement d'octobre),
+    pas du solde d'aujourd'hui — sinon les nets de fin 2026 sont perdus.
+    """
+    result = balance_timeline(session, 2027, today=TODAY)
+    months = {m["month"]: m for m in result["months"]}
+    # Solde actuel 2000 (1000+500+800−300) + encaissement oct 2026 (+1000) = 3000.
+    assert months["2027-01"]["balance_eur"] == Decimal("3000.00")
+    assert months["2027-12"]["balance_eur"] == Decimal("3000.00")
+    assert all(m["is_forecast"] for m in result["months"])
+
+
 def test_open_due_invoice_appears_in_balance_line(session):
     """Régression : une facture `due` (générée) doit remonter dans la ligne de solde
     (avant le fix, le solde futur lisait forecast.project qui ignore les factures due)."""

@@ -7,7 +7,15 @@ jest.mock('@/api/client', () => ({
     get: jest.fn().mockResolvedValue({
       bank_total_eur: '49660.77',
       total_eur: '49660.77',
+      accounts: [
+        { account_uid: 'cd56227f', name: 'Revolut Main', provider: 'revolut',
+          currency: 'EUR', balance: '49660.77', balance_eur: '49660.77' },
+      ],
     }),
+  },
+  transactionsAPI: {
+    // 2 transactions non catégorisées → la bannière « à catégoriser » s'affiche.
+    list: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]),
   },
   dashboardAPI: {
     cashflow: jest.fn().mockResolvedValue({
@@ -44,6 +52,22 @@ jest.mock('@/api/client', () => ({
         { currency: 'EUR', revenue_native: '15007.98', revenue_eur: '15007.98', charges_eur: '17926.19' },
       ],
     }),
+    treasuryBridge: jest.fn().mockResolvedValue({
+      year: 2026,
+      opening_eur: '121331.03',
+      lines: [
+        { key: 'received_prior', label: 'Encaissé — factures < 2026', amount_eur: '43969.65' },
+        { key: 'received_current', label: 'Encaissé — factures 2026', amount_eur: '144613.40' },
+        { key: 'other_revenue', label: 'Autres revenus (non facturés)', amount_eur: '296.65' },
+        { key: 'charges', label: 'Charges (nettes)', amount_eur: '-22050.10' },
+        { key: 'cat:Dividendes / distribution dirigeant', label: 'Dividendes / distribution dirigeant', amount_eur: '-166200.00' },
+        { key: 'cat:Investissement', label: 'Investissement', amount_eur: '-70000.00' },
+      ],
+      residual_eur: '-2299.85',
+      residual_warning: false,
+      bank_today_eur: '49660.78',
+      due_pending_eur: '53452.80',
+    }),
     invoiceTimeline: jest.fn().mockResolvedValue({
       months: [{ month: '2026-06', paid_eur: '2000.00', due_eur: '0.00', overdue_eur: '500.00' }],
       outstanding_eur: '6175.03',
@@ -65,8 +89,21 @@ describe('DashboardPage', () => {
   it('affiche les 4 widgets FreeAgent', async () => {
     render(<DashboardPage />);
     expect(await screen.findByText(/Cashflow/)).toBeInTheDocument();
-    expect(await screen.findByText('Solde de trésorerie')).toBeInTheDocument();
-    expect(await screen.findByText('Profit & Loss (live)')).toBeInTheDocument();
+    // Libellés décision produit 2026-07 : pilotage cash hors placements.
+    expect((await screen.findAllByText('Trésorerie (hors placements)')).length).toBeGreaterThan(0);
+    expect(await screen.findByText('P&L (réalisé à date)')).toBeInTheDocument();
+    // Bannière « à catégoriser » (2 transactions mockées) avec lien vers /transactions.
+    expect(await screen.findByText(/2 transactions à catégoriser/)).toBeInTheDocument();
+    // Toggle vue caisse / vue fiscale du cashflow.
+    expect(screen.getByText('Année en cours')).toBeInTheDocument();
+    expect(screen.getByText('Année fiscale')).toBeInTheDocument();
+    // Widget pont de trésorerie : titre + lignes dynamiques + résiduel.
+    expect(await screen.findByText(/D'où vient ma trésorerie/)).toBeInTheDocument();
+    expect(screen.getByText(/Dividendes \/ distribution dirigeant/)).toBeInTheDocument();
+    expect(screen.getByText(/Frais & écarts FX \(résiduel\)/)).toBeInTheDocument();
+    // Widget soldes à une date : titre + total.
+    expect(screen.getByText('Soldes bancaires à une date')).toBeInTheDocument();
+    expect(screen.getByLabelText('Date des soldes')).toBeInTheDocument();
     expect(await screen.findByText('Invoice Timeline')).toBeInTheDocument();
     // Le distribuable P&L est rendu (net + distribuable → au moins 1)
     expect((await screen.findAllByText(/142\s*257,66\s*€/)).length).toBeGreaterThan(0);

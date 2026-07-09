@@ -18,6 +18,8 @@ type Ccy = {
 };
 
 export type PnlSummary = {
+  year?: number;
+  is_regime?: 'IR' | 'IS';
   revenue_eur: string | number;
   charges_eur: string | number;
   result_eur: string | number;
@@ -25,6 +27,8 @@ export type PnlSummary = {
   net_result_eur: string | number;
   retained_earnings_eur: string | number;
   distributable_eur: string | number;
+  distributed_this_year_eur?: string | number;
+  remaining_distributable_eur?: string | number;
   by_currency: Ccy[];
 };
 
@@ -55,7 +59,7 @@ function Cell({ label, value, tone }: { label: string; value: string; tone?: 'po
 export function PnlWidget({ data }: { data: PnlSummary }) {
   return (
     <Card>
-      <div className="mb-1 text-sm font-semibold">Profit &amp; Loss (live)</div>
+      <div className="mb-1 text-sm font-semibold">P&amp;L (réalisé à date)</div>
 
       <div className="my-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <Cell label="Revenus" value={eur(data.revenue_eur)} />
@@ -64,23 +68,71 @@ export function PnlWidget({ data }: { data: PnlSummary }) {
         <Op sign="=" />
         <Cell label="Résultat" value={eur(data.result_eur)} tone="pos" />
         <Op sign="−" />
-        <Cell label="IS estimé" value={eur(data.is_estimate_eur)} />
+        <Cell label={data.is_regime === 'IR' ? 'IS — régime IR' : 'IS (réalisé à date)'} value={eur(data.is_estimate_eur)} />
         <Op sign="=" />
         <Cell label="Résultat net" value={eur(data.net_result_eur)} tone="pos" />
       </div>
 
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
-        <div className="mb-1.5 text-[11px] font-semibold text-[var(--muted)]">
-          Résultat distribuable <span className="font-normal">(réserves + exercice)</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
-          <Cell label="Résultat net" value={eur(data.net_result_eur)} tone="pos" />
-          <Op sign="+" />
-          <Cell label="Report à nouveau" value={eur(data.retained_earnings_eur)} />
-          <Op sign="=" />
-          <Cell label="Distribuable" value={eur(data.distributable_eur)} tone="pos" />
-        </div>
-      </div>
+      {(() => {
+        // Maquette validée 2026-07-09 : RAN affiché NET des versements de
+        // l'exercice (plancher 0, jamais négatif) ; l'excédent apparaît comme
+        // « Acomptes sur l'exercice » ; le chiffre final = restant réel.
+        // Tout est dérivé des transactions catégorisées « distribution ».
+        const num = (v: string | number | undefined) => {
+          const n = typeof v === 'string' ? parseFloat(v) : v ?? 0;
+          return Number.isFinite(n) ? n : 0;
+        };
+        const ranBrut = num(data.retained_earnings_eur);
+        const verse = num(data.distributed_this_year_eur);
+        const ranNet = Math.max(0, ranBrut - verse);
+        const acomptes = Math.max(0, verse - ranBrut);
+        const restant = num(data.remaining_distributable_eur ?? data.distributable_eur);
+        return (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
+            <div className="mb-1.5 text-[11px] font-semibold text-[var(--muted)]">
+              Résultat distribuable <span className="font-normal">(réserves + exercice)</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+              <Cell label="Résultat net" value={eur(data.net_result_eur)} tone="pos" />
+              <Op sign="+" />
+              <Cell
+                label={verse > 0 ? 'Report à nouveau (net des versements)' : 'Report à nouveau (cumul auto)'}
+                value={eur(ranNet)}
+              />
+              {acomptes > 0 && (
+                <>
+                  <Op sign="−" />
+                  <Cell label="Acomptes sur l'exercice" value={eur(acomptes)} />
+                </>
+              )}
+              <Op sign="=" />
+              <Cell
+                label="Distribuable (restant)"
+                value={eur(restant)}
+                tone={restant >= 0 ? 'pos' : undefined}
+              />
+            </div>
+            {verse > 0 && (
+              <div className="mt-1.5 text-[11px] text-[var(--muted)]">
+                Report à nouveau initial : <b>{eur(ranBrut)}</b> − versé cet exercice :{' '}
+                <b>{eur(verse)}</b>
+                {acomptes > 0 && (
+                  <>
+                    {' '}
+                    (dont <b>{eur(acomptes)}</b> en acompte sur le résultat {data.year ?? ''})
+                  </>
+                )}
+                {acomptes === 0 && ranNet === 0 && <> → soldé.</>}
+              </div>
+            )}
+            {restant < 0 && (
+              <div className="mt-1.5 text-[11px] font-semibold text-red-600">
+                ⚠ Distributions supérieures au distribuable — sur-distribution à régulariser.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <table className="mt-3 w-full text-sm tabular">
         <thead>

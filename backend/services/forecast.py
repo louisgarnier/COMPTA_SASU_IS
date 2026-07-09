@@ -147,7 +147,7 @@ def _issue_fields(db: Session, month: str, client: Optional[models.Client]) -> d
     settings.next_invoice_number = settings.next_invoice_number + 1
     y, m = int(month[:4]), int(month[5:7])
     last = date(y, m, calendar.monthrange(y, m)[1])
-    terms = client.payment_terms_days if client and client.payment_terms_days else 60
+    terms = client.payment_terms_days if client and client.payment_terms_days else 45
     return {
         "number": number,
         "status": "due",
@@ -572,11 +572,27 @@ def project(
     if today is None:
         today = date.today()
 
-    inputs = get_inputs(db, year)
+    # CA de l'exercice = prévisions + factures ÉMISES + PAYÉES (décision produit
+    # 2026-07 : générer une facture ne fait plus chuter le CA projeté). Même
+    # valorisation que le P&L accrual (`invoice_revenue_eur` : EUR réel encaissé
+    # pour une payée, prévisionnel sinon). Import local — pnl importe forecast.
+    from backend.services.pnl import invoice_revenue_eur
+    from backend.services.fx import load_rates
+
+    rates = load_rates(db)
+    months_set = set(_months(year))
+    invoices = (
+        db.query(models.Invoice)
+        .filter(
+            models.Invoice.status.in_(("forecast", "due", "paid")),
+            models.Invoice.month.in_(months_set),
+        )
+        .all()
+    )
     revenue_by_month: dict[str, Decimal] = {}
-    for row in inputs:
-        revenue_by_month[row.month] = revenue_by_month.get(row.month, _ZERO) + Decimal(
-            row.amount_eur
+    for inv in invoices:
+        revenue_by_month[inv.month] = revenue_by_month.get(inv.month, _ZERO) + Decimal(
+            invoice_revenue_eur(inv, rates)
         )
 
     charges_by_month = _charge_forecast(db, year, today)

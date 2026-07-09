@@ -38,6 +38,7 @@ _TYPE_TO_KIND = {
     "conversion": "conversion",
     "transfer": "transfer",
     "internal": "investment",
+    "distribution": "transfer",  # dividendes/salaire dirigeant → sortie de type virement
     "uncategorized": "other",
 }
 
@@ -145,15 +146,33 @@ def categorize_transaction(db: Session, transaction: models.Transaction) -> int:
 
 def recategorize_all(db: Session) -> int:
     """
-    Rejoue la catégorisation sur toutes les transactions.
+    Rejoue la catégorisation sur toutes les transactions — SANS jamais rétrograder.
+
+    Règles (bug du 2026-07-09 : chaque sync effaçait les catégorisations
+    manuelles) :
+    - une règle qui matche re-route toujours (les règles restent maîtresses) ;
+    - AUCUNE règle ne matche → la transaction garde sa catégorie actuelle si
+      elle en a une (catégorisation manuelle préservée) ; seules les
+      transactions encore non catégorisées tombent dans le fourre-tout.
 
     Retourne le nombre de transactions dont le `category_id` a changé.
     """
+    uncat = get_or_create_uncategorized(db)
     transactions = db.execute(select(models.Transaction)).scalars().all()
     changed = 0
     for tx in transactions:
         before = tx.category_id
-        after = categorize_transaction(db, tx)
+        rule_cat = apply_rules(db, tx)
+        if rule_cat is None:
+            # Pas de règle : ne JAMAIS écraser une catégorisation existante.
+            if tx.category_id is not None and tx.category_id != uncat.id:
+                continue
+            after = uncat.id
+        else:
+            after = rule_cat
+        tx.category_id = after
+        category = db.get(models.Category, after)
+        tx.kind = kind_for_category_type(category.type if category else None)
         if before != after:
             changed += 1
     db.commit()

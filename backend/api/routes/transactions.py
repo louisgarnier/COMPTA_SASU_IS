@@ -93,8 +93,17 @@ def list_transactions(
     category_id: Optional[int] = Query(None),
     kind: Optional[str] = Query(None),
     uncategorized: Optional[bool] = Query(None),
+    bridge: Optional[str] = Query(None),
+    as_of: Optional[str] = Query(None),
 ) -> list[TransactionOut]:
-    """Liste les transactions selon les filtres, triées par date d'opération décroissante."""
+    """Liste les transactions selon les filtres, triées par date d'opération décroissante.
+
+    `bridge=<clé>` : filtre « vue trésorerie » — les transactions d'une ligne du
+    pont (charges, received_current/prior, other_revenue, cat:<nom>, residual =
+    conversions FX). MÊME logique de classement que le widget (`bridge_key_for_tx`)
+    → le total de la liste égale la ligne du pont. Période : année de `as_of`
+    (défaut aujourd'hui) jusqu'à `as_of` inclus.
+    """
     stmt = select(models.Transaction)
     if date_from is not None:
         stmt = stmt.where(models.Transaction.booked_date >= date_from)
@@ -118,6 +127,27 @@ def list_transactions(
     stmt = stmt.order_by(models.Transaction.booked_date.desc(), models.Transaction.id.desc())
 
     rows = db.execute(stmt).scalars().all()
+
+    if bridge:
+        from backend.api.query_utils import parse_as_of
+        from backend.services.treasury import bridge_key_for_tx
+
+        ref = parse_as_of(as_of) or date.today()
+        year = ref.year
+        cats = {c.id: c for c in db.query(models.Category).all()}
+        inv_month = {
+            i.id: i.month
+            for i in db.query(models.Invoice.id, models.Invoice.month).all()
+        }
+        rows = [
+            t
+            for t in rows
+            if t.booked_date is not None
+            and t.booked_date.year == year
+            and t.booked_date <= ref
+            and bridge_key_for_tx(t, cats, inv_month.get(t.invoice_id), year) == bridge
+        ]
+
     logger.info("📤 [Transactions] list: %d résultat(s)", len(rows))
     return [_to_out(tx) for tx in rows]
 

@@ -86,8 +86,21 @@ def test_generate_assigns_number_dates_and_due_status(db):
     assert out.period_end == date(2026, 5, 31)
     # Compteur incrémenté
     assert db.get(models.Settings, 1).next_invoice_number == 69
-    # Montant inchangé
-    assert out.amount == Decimal("18240.00")
+
+
+def test_generate_anchors_issue_to_month_end_and_due_plus_term(db):
+    """Sans issue_date : émission = fin du mois de SERVICE (pas aujourd'hui),
+    échéance = fin de mois + délai client (règle métier : 45 j)."""
+    client = _setup(db)
+    client.payment_terms_days = 45
+    db.commit()
+    inv = _forecast_invoice(db, client)  # mois de service 2026-05
+
+    out = invoices_service.generate_invoice(db, inv.id)  # issue_date=None
+
+    assert out.issue_date == date(2026, 5, 31)
+    assert out.due_date == date(2026, 7, 15)  # 31/05 + 45 j
+    assert out.amount == Decimal("18240.00")  # montant inchangé
 
 
 def test_generate_rejects_non_forecast(db):

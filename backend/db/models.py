@@ -57,9 +57,13 @@ class Settings(Base):
     is_threshold: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("42500"))
     is_high_rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.25"))
 
-    # Report à nouveau (résultat distribuable cumulé des exercices antérieurs).
-    # Éditable dans les Réglages ; 0 le 1er exercice, se cumule ensuite.
+    # Poche distribuable initiale : stock accumulé AVANT le 1er exercice IS
+    # (ère IR / pré-app). Le RAN des exercices IS se CHAÎNE ensuite tout seul
+    # (nets des exercices − distributions versées) — cf. pnl.retained_earnings.
     retained_earnings_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    # Exercice de début du régime IS (ex. 2026). Avant : régime IR → IS estimé
+    # nul et exercices exclus du chaînage du RAN. NULL = tout est à l'IS.
+    is_start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     next_invoice_number: Mapped[int] = mapped_column(Integer, default=62)
 
@@ -81,7 +85,7 @@ class Client(Base):
     # Mode de facturation : 'tjm' (taux journalier) | 'thm' (taux horaire).
     billing_mode: Mapped[str] = mapped_column(String, default="tjm")
     default_hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
-    payment_terms_days: Mapped[int] = mapped_column(Integer, default=60)
+    payment_terms_days: Mapped[int] = mapped_column(Integer, default=45)
     pay_iban: Mapped[str] = mapped_column(String, default="")
     counterparty_match: Mapped[str] = mapped_column(String, default="")
 
@@ -105,6 +109,36 @@ class BankAccount(Base):
     opening_balance_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     transactions: Mapped[list["Transaction"]] = relationship(back_populates="account")
+
+
+class OpeningBalance(Base):
+    """
+    Solde d'ouverture d'exercice — saisi depuis le relevé officiel de fin d'année.
+
+    Ancre la reconstruction de trésorerie : le solde au 1er janvier d'un exercice
+    est le solde de clôture au 31/12 de l'exercice précédent, repris du relevé.
+    Ré-ancrer chaque année corrige la dérive cumulée (arrondis FX, flux manquants).
+
+    Clé (account_uid, year) — `year` = exercice **ouvert** : le solde vaut au
+    01/01/`year` (= 31/12/`year`-1). Pure donnée, aucune valeur en dur dans le code :
+    l'utilisateur la saisit via Réglages → Soldes d'ouverture d'exercice.
+    """
+
+    __tablename__ = "opening_balances"
+    __table_args__ = (
+        UniqueConstraint("account_uid", "year", name="uq_opening_account_year"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_uid: Mapped[str] = mapped_column(
+        ForeignKey("bank_accounts.account_uid"), index=True
+    )
+    year: Mapped[int] = mapped_column(Integer, index=True)  # exercice ouvert
+    balance: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
 
 
 class Category(Base):

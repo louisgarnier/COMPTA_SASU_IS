@@ -19,6 +19,7 @@ const ITEMS: Item[] = [
       { href: '/invoices', label: 'Factures', icon: '📄' },
     ],
   },
+  { href: '/fx', label: 'FX / Conversions', icon: '💱' },
   { href: '/clients', label: 'Clients', icon: '🧑‍💼' },
   { href: '/placements', label: 'Placements', icon: '💼' },
   { href: '/banking', label: 'Banques', icon: '🏦' },

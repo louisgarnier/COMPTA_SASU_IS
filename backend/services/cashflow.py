@@ -45,7 +45,7 @@ from backend.services.treasury import eur_amount, q2
 logger = get_logger("cashflow", channel="api")
 
 _ZERO = Decimal("0")
-_DEFAULT_TERMS = 60
+_DEFAULT_TERMS = 45
 
 
 def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
@@ -57,9 +57,14 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
     """
     rates = load_rates(db)
     cat_type = {c.id: c.type for c in db.query(models.Category).all()}
+    # Exercice de la facture liée (vue fiscale : un encaissement 2026 d'une
+    # facture 2025 est marqué `in_prior` pour pouvoir être exclu).
+    inv_month = {
+        i.id: i.month for i in db.query(models.Invoice.id, models.Invoice.month).all()
+    }
 
     flows: dict[int, dict] = {
-        m: {"in": {}, "out": {}} for m in range(1, 13)
+        m: {"in": {}, "out": {}, "in_prior": {}} for m in range(1, 13)
     }
 
     for tx in db.query(models.Transaction).all():
@@ -72,16 +77,29 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
             continue
 
         month = tx.booked_date.month
-        amt = eur_amount(tx, rates)
+        # EUR RÉELLEMENT encaissé : `tx.amount_eur` (figé par la conversion réelle
+        # Revolut via fx_realized) prime ; repli sur le taux théorique s'il manque.
+        amt = (
+            Decimal(tx.amount_eur)
+            if tx.amount_eur is not None
+            else eur_amount(tx, rates)
+        )
         ccy = (tx.currency or "EUR").upper()
 
+        # Netting intégral (+ et −), aligné P&L : un remboursement (+) sur charge
+        # réduit les sorties du mois ; un avoir client (−) réduit les entrées.
         is_revenue = (tx.kind or "") == "revenue" or ctype == "revenue"
-        if is_revenue and amt > 0:
+        if is_revenue:
             bucket = flows[month]["in"]
             bucket[ccy] = bucket.get(ccy, _ZERO) + amt
-        elif ctype == "charge" and amt < 0:
+            # Facture d'un exercice antérieur → marqué prior (vue fiscale).
+            im = inv_month.get(tx.invoice_id) if tx.invoice_id else None
+            if im and not im.startswith(f"{year:04d}"):
+                p = flows[month]["in_prior"]
+                p[ccy] = p.get(ccy, _ZERO) + amt
+        elif ctype == "charge":
             bucket = flows[month]["out"]
-            bucket[ccy] = bucket.get(ccy, _ZERO) + (-amt)  # magnitude positive
+            bucket[ccy] = bucket.get(ccy, _ZERO) + (-amt)  # sorties en positif, net
 
     return flows
 
@@ -109,16 +127,22 @@ def _expected_payment_date(inv: models.Invoice) -> Optional[date]:
     return date(y, m, last_day) + timedelta(days=terms)
 
 
-def _expected_inflows(db: Session, year: int) -> dict[str, dict]:
+def _expected_inflows(db: Session, year: int) -> tuple[dict, dict, dict]:
     """
-    Encaissements ATTENDUS par mois ('YYYY-MM') → {ccy: eur}.
+    Encaissements ATTENDUS, ventilés pour les deux vues (caisse / fiscale).
 
-    Factures non payées (`status ∈ {forecast, due}`) bucketisées sur leur date de
-    paiement attendue (cf. `_expected_payment_date`), montant EUR groupé par devise
-    du client. Les factures `paid` sont exclues (leur cash est déjà dans le réel).
+    Retourne (within, within_prior, overflow) :
+    - within : {mois 'YYYY-MM' → {ccy: eur}} — date de paiement attendue dans `year` ;
+    - within_prior : sous-ensemble de `within` dont la FACTURE est d'un exercice
+      antérieur (exclu en vue fiscale) ;
+    - overflow : {ccy: eur} — factures de l'exercice `year` attendues APRÈS le
+      31/12 (ex. déc payée mi-février) : hors barres caisse, comptées en fiscal.
+    Les factures `paid` sont exclues (leur cash est déjà dans le réel).
     """
     rates = load_rates(db)
-    out: dict[str, dict] = {}
+    within: dict[str, dict] = {}
+    within_prior: dict[str, dict] = {}
+    overflow: dict[str, Decimal] = {}
     invoices = (
         db.query(models.Invoice)
         .filter(models.Invoice.status.in_(("forecast", "due")))
@@ -126,14 +150,37 @@ def _expected_inflows(db: Session, year: int) -> dict[str, dict]:
     )
     for inv in invoices:
         pay_date = _expected_payment_date(inv)
-        if pay_date is None or pay_date.year != year:
+        if pay_date is None:
             continue
-        key = f"{pay_date.year:04d}-{pay_date.month:02d}"
         ccy = (
             (inv.client.currency if inv.client else None) or inv.currency or "EUR"
         ).upper()
-        bucket = out.setdefault(key, {})
-        bucket[ccy] = bucket.get(ccy, _ZERO) + invoice_revenue_eur(inv, rates)
+        eur = invoice_revenue_eur(inv, rates)
+        is_year_invoice = (inv.month or "").startswith(f"{year:04d}")
+        if pay_date.year == year:
+            key = f"{pay_date.year:04d}-{pay_date.month:02d}"
+            bucket = within.setdefault(key, {})
+            bucket[ccy] = bucket.get(ccy, _ZERO) + eur
+            if not is_year_invoice:
+                p = within_prior.setdefault(key, {})
+                p[ccy] = p.get(ccy, _ZERO) + eur
+        elif pay_date.year > year and is_year_invoice:
+            overflow[ccy] = overflow.get(ccy, _ZERO) + eur
+    return within, within_prior, overflow
+
+
+def _overflow_real(db: Session, year: int) -> dict[str, Decimal]:
+    """Encaissements RÉELS d'années suivantes pour des factures de `year`."""
+    out: dict[str, Decimal] = {}
+    for inv in db.query(models.Invoice).filter(models.Invoice.status == "paid").all():
+        if not (inv.month or "").startswith(f"{year:04d}"):
+            continue
+        if inv.paid_date is None or inv.paid_date.year <= year:
+            continue
+        ccy = (
+            (inv.client.currency if inv.client else None) or inv.currency or "EUR"
+        ).upper()
+        out[ccy] = out.get(ccy, _ZERO) + Decimal(inv.amount_eur_received or 0)
     return out
 
 
@@ -144,7 +191,8 @@ def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> di
     current = (today.year, today.month)
 
     real = _real_month_flows(db, year)
-    forecast_in = _expected_inflows(db, year)
+    forecast_in, forecast_in_prior, overflow_expected = _expected_inflows(db, year)
+    overflow_real = _overflow_real(db, year)
     projection = forecast_service.project(db, year, today=today)
     forecast_charge = {m["month"]: m["charges_forecast_eur"] for m in projection["months"]}
 
@@ -154,18 +202,49 @@ def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> di
 
     for m in range(1, 13):
         key = f"{year:04d}-{m:02d}"
-        is_forecast = (year, m) > current
+        pos = (year, m)
+        is_forecast = pos > current
+        # Part ATTENDUE (non encaissée) exposée séparément : le front l'affiche
+        # pâle et l'exclut du « Réel » — couleur pleine = argent en banque.
+        expected: dict = {}
+        # Parts liées à des factures d'exercices ANTÉRIEURS (vue fiscale les retire).
+        prior_real: dict = {}
+        prior_expected: dict = dict(forecast_in_prior.get(key, {}))
+        out_forecast = _ZERO
 
         if is_forecast:
+            # Futur strict : tout prévisionnel.
             incoming = dict(forecast_in.get(key, {}))
+            expected = dict(incoming)
             chg = Decimal(forecast_charge.get(key, _ZERO))
             outgoing = {"EUR": chg} if chg > 0 else {}
-        else:
+            out_forecast = chg if chg > 0 else _ZERO
+        elif pos == current:
+            # Mois en cours : réel DÉJÀ encaissé + attendu RESTANT (factures non
+            # encore payées dont l'échéance tombe ce mois). Côté sorties, réel
+            # engagé + prorata des jours restants (charges_forecast = restant seul).
             incoming = dict(real[m]["in"])
+            prior_real = dict(real[m]["in_prior"])
+            for c, v in forecast_in.get(key, {}).items():
+                incoming[c] = incoming.get(c, _ZERO) + v
+                expected[c] = expected.get(c, _ZERO) + v
             outgoing = dict(real[m]["out"])
+            chg = Decimal(forecast_charge.get(key, _ZERO))
+            if chg > 0:
+                outgoing["EUR"] = outgoing.get("EUR", _ZERO) + chg
+                out_forecast = chg
+        else:
+            # Passé : réel uniquement.
+            incoming = dict(real[m]["in"])
+            prior_real = dict(real[m]["in_prior"])
+            outgoing = dict(real[m]["out"])
+            prior_expected = {}
 
         incoming = {c: q2(v) for c, v in sorted(incoming.items())}
         outgoing = {c: q2(v) for c, v in sorted(outgoing.items())}
+        expected = {c: q2(v) for c, v in sorted(expected.items())}
+        prior_real = {c: q2(v) for c, v in sorted(prior_real.items())}
+        prior_expected = {c: q2(v) for c, v in sorted(prior_expected.items())}
         incoming_eur = q2(sum(incoming.values(), _ZERO))
         outgoing_eur = q2(sum(outgoing.values(), _ZERO))
         total_in += incoming_eur
@@ -178,6 +257,12 @@ def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> di
                 "outgoing_by_ccy": outgoing,
                 "incoming_eur": incoming_eur,
                 "outgoing_eur": outgoing_eur,
+                "incoming_expected_by_ccy": expected,
+                "incoming_expected_eur": q2(sum(expected.values(), _ZERO)),
+                "outgoing_forecast_eur": q2(out_forecast),
+                # Vue fiscale : parts à retirer (factures d'exercices antérieurs).
+                "incoming_prior_by_ccy": prior_real,
+                "incoming_prior_expected_by_ccy": prior_expected,
                 "is_forecast": is_forecast,
             }
         )
@@ -195,5 +280,11 @@ def monthly_cashflow(db: Session, year: int, today: Optional[date] = None) -> di
             "incoming_eur": q2(total_in),
             "outgoing_eur": q2(total_out),
             "net_eur": q2(total_in - total_out),
+        },
+        # Débordement fiscal : factures de l'exercice encaissées / attendues
+        # APRÈS le 31/12 (ex. déc payée mi-février N+1). Hors vue caisse.
+        "overflow": {
+            "expected_by_ccy": {c: q2(v) for c, v in sorted(overflow_expected.items())},
+            "real_by_ccy": {c: q2(v) for c, v in sorted(overflow_real.items())},
         },
     }

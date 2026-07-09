@@ -200,6 +200,41 @@ def test_disabled_rule_is_ignored(db_session):
     assert apply_rules(db_session, tx) is None
 
 
+def test_recategorize_never_downgrades_manual_categorization(db_session):
+    """
+    RÉGRESSION (bug du 2026-07-09) : rejouer les règles (bouton « Ré-appliquer »
+    OU synchro bancaire) effaçait les catégorisations MANUELLES sans règle —
+    ~90 transactions repassaient « À catégoriser » à chaque sync.
+
+    Règle corrigée : le rejeu ne rétrograde JAMAIS. Une transaction déjà
+    catégorisée (hors fourre-tout) sans règle correspondante garde sa catégorie.
+    Une règle qui matche peut toujours re-router (les règles restent maîtresses).
+    """
+    seed_default_categories_and_rules(db_session)
+    _account(db_session)
+    # Catégorisation MANUELLE : un restaurant, aucune règle ne le couvre.
+    repas = models.Category(name="Repas", type="charge")
+    db_session.add(repas)
+    db_session.commit()
+    tx = _tx(db_session, external_id="resto", counterparty="La Marine Des Goudes")
+    tx.category_id = repas.id
+    tx.kind = "charge"
+    db_session.commit()
+
+    recategorize_all(db_session)
+
+    db_session.refresh(tx)
+    assert tx.category_id == repas.id  # ← la catégorie manuelle SURVIT au rejeu
+
+    # Une transaction couverte par une règle est toujours re-routée par elle.
+    tx2 = _tx(db_session, external_id="u1", counterparty="URSSAF PACA")
+    tx2.category_id = repas.id  # mal classée à la main…
+    db_session.commit()
+    recategorize_all(db_session)
+    db_session.refresh(tx2)
+    assert tx2.category_id == _category_id(db_session, "URSSAF")  # …la règle gagne
+
+
 def test_recategorize_all_counts_changes(db_session):
     seed_default_categories_and_rules(db_session)
     _account(db_session)

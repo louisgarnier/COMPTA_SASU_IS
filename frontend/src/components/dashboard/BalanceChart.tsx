@@ -44,11 +44,11 @@ export function BalanceChart({ data }: { data: BalanceData }) {
   return (
     <Card>
       <div className="mb-1 flex items-center justify-between">
-        <div className="text-sm font-semibold">Solde de trésorerie</div>
+        <div className="text-sm font-semibold">Trésorerie (hors placements)</div>
       </div>
       <div className="tabular text-2xl font-bold">{eur(data.current_balance_eur)}</div>
       <div className="mb-1 text-[11px] text-[var(--muted)]">
-        solde actuel · projeté fin {data.year} : <b className="tabular">{eur(data.projected_year_end_eur)}</b>
+        solde bancaire actuel · projeté fin {data.year} : <b className="tabular">{eur(data.projected_year_end_eur)}</b>
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" role="img" aria-label="Trajectoire du solde de trésorerie">

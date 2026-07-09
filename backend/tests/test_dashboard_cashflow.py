@@ -114,10 +114,154 @@ def test_totals_sum_over_year(db_session):
     totals = result["totals"]
     # Incoming : 1000 réel (Jan), aucune prévision → 1000.
     assert totals["incoming_eur"] == Decimal("1000.00")
-    # Outgoing : 300 réel (Fév) + charges prévisionnelles des 5 mois futurs
-    # (Août–Déc) à la moyenne des 6 mois écoulés = 300/6 = 50 → 5 × 50 = 250.
-    assert totals["outgoing_eur"] == Decimal("550.00")
-    assert totals["net_eur"] == Decimal("450.00")
+    # Outgoing : 300 réel (Fév) + prorata du mois COURANT (juillet, moyenne 300/6=50
+    # sur les 29 jours restants du 03/07 : 50×29/31 = 46,77) + 5 mois futurs
+    # (Août–Déc) à 50 = 250. Total = 300 + 46,77 + 250 = 596,77.
+    assert totals["outgoing_eur"] == Decimal("596.77")
+    assert totals["net_eur"] == Decimal("403.23")
+
+
+# --------------------------------------------------------------------------- #
+# Break B — mois passés : EUR réellement encaissé, pas le taux théorique       #
+# --------------------------------------------------------------------------- #
+
+
+def test_past_month_uses_realized_amount_eur_not_theoretical(db_session):
+    """
+    Un encaissement en devise avec `amount_eur` figé (conversion réelle Revolut)
+    doit compter au montant EUR RÉEL, pas natif × taux théorique des Réglages.
+    """
+    rev, _chg = _base(db_session)
+    # 2000 USD encaissés, mais réellement convertis à 1700 € (≠ 2000×0.9 = 1800).
+    db_session.add(models.Transaction(
+        account_uid="ACC", external_id="r-real", booked_date=date(2026, 1, 20),
+        amount=Decimal("2000"), currency="USD", kind="revenue", category_id=rev.id,
+        amount_eur=Decimal("1700.00"),
+    ))
+    db_session.commit()
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    jan = by["2026-01"]
+    # Réel 1700, PAS 1800 théorique.
+    assert jan["incoming_by_ccy"] == {"USD": Decimal("1700.00")}
+    assert jan["incoming_eur"] == Decimal("1700.00")
+
+
+def test_flows_are_netted_of_refunds(db_session):
+    """Un remboursement (+) sur charge réduit les sorties du mois (net)."""
+    rev, chg = _base(db_session)
+    _tx(db_session, chg.id, date(2026, 2, 5), "-100", "EUR", "charge", "c1")
+    _tx(db_session, chg.id, date(2026, 2, 18), "30", "EUR", "charge", "c2")  # refund
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    feb = by["2026-02"]
+    assert feb["outgoing_by_ccy"] == {"EUR": Decimal("70.00")}  # 100 − 30
+    assert feb["outgoing_eur"] == Decimal("70.00")
+
+
+# --------------------------------------------------------------------------- #
+# Break C — mois courant : réel déjà encaissé + attendu restant                #
+# --------------------------------------------------------------------------- #
+
+
+def test_current_month_combines_real_and_expected(db_session):
+    """
+    Le mois EN COURS doit additionner le réel déjà encaissé et l'attendu restant
+    (factures non encore payées dont l'échéance tombe ce mois-ci).
+    """
+    rev, _chg = _base(db_session)
+    # Réel déjà encaissé en juillet (mois courant) : 900 € (USD converti).
+    db_session.add(models.Transaction(
+        account_uid="ACC", external_id="r-jul", booked_date=date(2026, 7, 1),
+        amount=Decimal("1000"), currency="USD", kind="revenue", category_id=rev.id,
+        amount_eur=Decimal("900.00"),
+    ))
+    # Facture émise non payée, échéance 15/07 → attendue ce mois-ci : 3000 €.
+    client = models.Client(code="NWH", legal_name="NWH", currency="EUR", payment_terms_days=45)
+    db_session.add(client)
+    db_session.commit()
+    db_session.refresh(client)
+    db_session.add(models.Invoice(
+        number="200", client_id=client.id, month="2026-05", status="due",
+        currency="EUR", amount=Decimal("3000"), amount_eur_forecast=Decimal("3000"),
+        issue_date=date(2026, 5, 31), due_date=date(2026, 7, 15),
+    ))
+    db_session.commit()
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    jul = by["2026-07"]
+    assert jul["is_forecast"] is False
+    # 900 réel encaissé + 3000 attendu (facture due) = combinés.
+    assert jul["incoming_by_ccy"] == {"EUR": Decimal("3000.00"), "USD": Decimal("900.00")}
+    assert jul["incoming_eur"] == Decimal("3900.00")
+    # Ventilation exposée : la part ATTENDUE (non encaissée) est identifiable,
+    # pour l'afficher pâle et ne pas la compter en « Réel » côté front.
+    assert jul["incoming_expected_by_ccy"] == {"EUR": Decimal("3000.00")}
+    assert jul["incoming_expected_eur"] == Decimal("3000.00")
+
+    # Mois passé : aucune part attendue.
+    jan = by["2026-01"]
+    assert jan["incoming_expected_eur"] == Decimal("0.00")
+    # Mois futur : tout est attendu (cohérent avec is_forecast=True).
+    aou = by["2026-08"]
+    assert aou["incoming_expected_eur"] == aou["incoming_eur"]
+
+
+# --------------------------------------------------------------------------- #
+# Vue fiscale : ventilation prior-year + débordement année suivante            #
+# --------------------------------------------------------------------------- #
+
+
+def test_prior_year_receipts_are_flagged_per_month(db_session):
+    """Un encaissement 2026 d'une facture 2025 est marqué `prior` (vue fiscale)."""
+    rev, _ = _base(db_session)
+    client = models.Client(code="SWIB", legal_name="Swib", currency="USD")
+    db_session.add(client)
+    db_session.commit()
+    db_session.refresh(client)
+    inv25 = models.Invoice(number="56", client_id=client.id, month="2025-11",
+                           status="paid", currency="USD", amount=Decimal("16320"),
+                           amount_eur_received=Decimal("13964.59"),
+                           paid_date=date(2026, 1, 23))
+    db_session.add(inv25)
+    db_session.commit()
+    db_session.add(models.Transaction(
+        account_uid="ACC", external_id="p56", booked_date=date(2026, 1, 23),
+        amount=Decimal("16320"), currency="USD", kind="revenue", category_id=rev.id,
+        amount_eur=Decimal("13964.59"), invoice_id=inv25.id,
+    ))
+    db_session.commit()
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    jan = by["2026-01"]
+    assert jan["incoming_by_ccy"] == {"USD": Decimal("13964.59")}          # vue caisse
+    assert jan["incoming_prior_by_ccy"] == {"USD": Decimal("13964.59")}    # marqué prior
+    # Vue fiscale (front) : incoming − prior = 0 pour janvier.
+
+
+def test_year_invoice_paid_next_year_lands_in_overflow(db_session):
+    """Facture déc 2026 encaissée (ou attendue) début 2027 → bucket `overflow`."""
+    _base(db_session)
+    client = models.Client(code="NWH", legal_name="NWH", currency="CAD",
+                           payment_terms_days=45)
+    db_session.add(client)
+    db_session.commit()
+    db_session.refresh(client)
+    # Émise, non payée : service déc 2026, échéance 14/02/2027 → hors barres 2026.
+    db_session.add(models.Invoice(
+        number="80", client_id=client.id, month="2026-12", status="due",
+        currency="CAD", amount=Decimal("30000"), amount_eur_forecast=Decimal("18600"),
+        issue_date=date(2026, 12, 31), due_date=date(2027, 2, 14),
+    ))
+    db_session.commit()
+
+    out = cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY)
+    # Absente des 12 mois (cash 2027)…
+    assert all(m["incoming_by_ccy"] == {} or "CAD" not in m["incoming_by_ccy"]
+               for m in out["months"])
+    # …mais présente dans le débordement fiscal (attendu).
+    assert out["overflow"]["expected_by_ccy"] == {"CAD": Decimal("18600.00")}
+    assert out["overflow"]["real_by_ccy"] == {}
 
 
 # --------------------------------------------------------------------------- #

@@ -63,3 +63,25 @@ def init_db() -> None:
     from backend.db import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
+
+
+def _ensure_columns() -> None:
+    """
+    Micro-migration SQLite : ajoute les colonnes déclarées dans les modèles mais
+    absentes de la base existante (`create_all` ne modifie pas les tables).
+    Additif uniquement — jamais de suppression ni de changement de type.
+    """
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}"
+                conn.execute(text(ddl))

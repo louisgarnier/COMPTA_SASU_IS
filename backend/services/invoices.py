@@ -35,6 +35,20 @@ from backend.services import fx
 
 logger = get_logger("invoices", channel="backend")
 
+# Délai de paiement par défaut : échéance = fin du mois de service + N jours.
+_DEFAULT_TERMS = 45
+
+
+def _period_end(month: str) -> date:
+    """Dernier jour du mois de service 'YYYY-MM'."""
+    y, m = int(month[:4]), int(month[5:7])
+    return date(y, m, calendar.monthrange(y, m)[1])
+
+
+def _term_days(client: Optional[models.Client]) -> int:
+    """Délai de paiement du client (jours), repli sur le défaut métier."""
+    return client.payment_terms_days if client and client.payment_terms_days else _DEFAULT_TERMS
+
 # Racine projet (…/compta_sasu) : base.py utilise parents[2], on fait pareil.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
@@ -94,16 +108,14 @@ def create_invoice(db: Session, data: dict, issue_date: Optional[date] = None) -
     amount = hours * rate
 
     number = str(settings.next_invoice_number)
+    month = data.get("month") or _month_key(issue_date or date.today())
+    # Émission ancrée sur la FIN DU MOIS DE SERVICE (pas aujourd'hui) sauf date
+    # explicite. Échéance = émission + délai de paiement du client.
     if issue_date is None:
-        issue_date = date.today()
+        issue_date = _period_end(month)
 
-    # Échéance = émission + délai de paiement du client (indispensable au cashflow
-    # prévisionnel qui bucketise sur la date d'encaissement attendue).
     client = db.get(models.Client, data["client_id"])
-    terms = client.payment_terms_days if client and client.payment_terms_days else 60
-    due_date = issue_date + timedelta(days=terms)
-
-    month = data.get("month") or _month_key(issue_date)
+    due_date = issue_date + timedelta(days=_term_days(client))
     invoice = models.Invoice(
         number=number,
         client_id=data["client_id"],
@@ -196,15 +208,15 @@ def generate_invoice(
 
     settings = _get_settings(db)
     client = db.get(models.Client, invoice.client_id)
-    if issue_date is None:
-        issue_date = date.today()
-
-    terms = client.payment_terms_days if client else 60
     year, month = int(invoice.month[:4]), int(invoice.month[5:7])
+    # Émission = fin du mois de SERVICE (pas aujourd'hui) sauf date explicite ;
+    # échéance = fin de mois + délai de paiement du client.
+    if issue_date is None:
+        issue_date = _period_end(invoice.month)
 
     invoice.number = str(settings.next_invoice_number)
     invoice.issue_date = issue_date
-    invoice.due_date = issue_date + timedelta(days=terms)
+    invoice.due_date = issue_date + timedelta(days=_term_days(client))
     invoice.period_start = date(year, month, 1)
     invoice.period_end = date(year, month, calendar.monthrange(year, month)[1])
     invoice.period_label = f"{_EN_MONTHS[month]} {year}"
@@ -277,6 +289,41 @@ _CENTS = Decimal("0.01")
 def _q(amount: Decimal) -> Decimal:
     """Arrondit un Decimal à 2 décimales (centimes)."""
     return Decimal(amount).quantize(_CENTS)
+
+
+def reprice_theoretical_eur(db: Session) -> int:
+    """
+    Recale le montant EUR **prévisionnel** (théorique) de toutes les factures sur
+    le taux FX courant des Réglages.
+
+    Le « € (prév.) » est une projection au taux courant, PAS un instantané figé :
+    seul le réalisé (`amount_eur_received`, issu des conversions Revolut) est figé.
+    À rejouer dès que les taux changent (hook sur PUT /api/fx-rates). Met aussi à
+    jour la variance des factures payées (réel − prévision recalée).
+    Retourne le nombre de factures modifiées.
+    """
+    rates = fx.load_rates(db)
+    changed = 0
+    for inv in db.query(models.Invoice).all():
+        new_fc = _q(fx.to_eur(inv.amount, inv.currency, rates))
+        rate = fx.rate_for(rates, inv.currency)
+        touched = False
+        if inv.amount_eur_forecast != new_fc:
+            inv.amount_eur_forecast = new_fc
+            touched = True
+        if inv.fx_rate_forecast != rate:
+            inv.fx_rate_forecast = rate
+            touched = True
+        if inv.status == "paid" and inv.amount_eur_received is not None:
+            new_var = _q(Decimal(inv.amount_eur_received) - new_fc)
+            if inv.variance_eur != new_var:
+                inv.variance_eur = new_var
+                touched = True
+        if touched:
+            changed += 1
+    db.commit()
+    logger.info("📤 [Invoices] reprice_theoretical_eur: %d facture(s) recalées ✅", changed)
+    return changed
 
 
 def _month_key(d: date) -> str:
@@ -421,10 +468,21 @@ def _apply_payment(invoice: models.Invoice, tx: models.Transaction) -> None:
     invoice.paid_date = tx.booked_date
     invoice.amount_received = tx.amount
     invoice.fx_rate = tx.fx_rate
-    eur_received = tx.amount_eur if tx.amount_eur is not None else tx.amount
+    # EUR reçu : le réel figé sur la transaction (`amount_eur`, via fx_realized) prime.
+    # Sinon, une transaction déjà en EUR vaut son montant ; une transaction en devise
+    # sans FX réel calculé reste `None` (JAMAIS le natif interprété comme des euros —
+    # `allocate` la remplira). La variance suit : None tant que l'EUR reçu est inconnu.
+    if tx.amount_eur is not None:
+        eur_received = Decimal(tx.amount_eur)
+    elif (tx.currency or "EUR").upper() == "EUR":
+        eur_received = Decimal(tx.amount or 0)
+    else:
+        eur_received = None
     invoice.amount_eur_received = eur_received
     forecast_eur = invoice.amount_eur_forecast or Decimal("0")
-    invoice.variance_eur = _q(eur_received or Decimal("0")) - _q(forecast_eur)
+    invoice.variance_eur = (
+        _q(eur_received) - _q(forecast_eur) if eur_received is not None else None
+    )
     tx.invoice_id = invoice.id
 
 
@@ -479,11 +537,24 @@ def manual_reconcile(
         raise HTTPException(status_code=404, detail="Transaction introuvable")
     if invoice.status == "forecast":
         raise HTTPException(status_code=409, detail="Générer la facture avant rapprochement")
+    if invoice.status == "paid":
+        # Re-rapprocher directement laisserait l'ancienne transaction rattachée
+        # (fantôme, exclue à tort du P&L) : passer par unreconcile d'abord.
+        raise HTTPException(
+            status_code=409,
+            detail="Facture déjà payée — annuler le rapprochement avant d'en lier un autre",
+        )
     if tx.invoice_id is not None and tx.invoice_id != invoice.id:
         raise HTTPException(status_code=409, detail="Transaction déjà rattachée")
 
     _apply_payment(invoice, tx)
     db.commit()
+    # Recalcule le FX réel (comme le fait la synchro bancaire) : rattache la nouvelle
+    # transaction aux conversions et fige le vrai EUR reçu + variance sur la facture.
+    # Indispensable ici, sinon l'EUR reçu resterait figé/inconnu jusqu'au prochain sync.
+    from backend.services.fx_realized import allocate as allocate_fx
+
+    allocate_fx(db)
     db.refresh(invoice)
     logger.info("✅ [Invoices] manual_reconcile: n°%s ↔ tx#%d ✅", invoice.number, tx.id)
     return invoice
@@ -492,11 +563,15 @@ def manual_reconcile(
 def unreconcile(db: Session, invoice_id: int) -> models.Invoice:
     """
     Annule le rapprochement d'une facture payée : repasse `due`, libère la
-    transaction et efface les champs de paiement/variance. 404 si absente.
+    transaction et efface les champs de paiement/variance. 404 si absente,
+    409 si la facture n'est pas payée (rien à annuler — et sur une prévision
+    l'opération poserait `due` sans numéro réel ni dates).
     """
     invoice = db.get(models.Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Facture introuvable")
+    if invoice.status != "paid":
+        raise HTTPException(status_code=409, detail="Facture non payée — rien à annuler")
 
     if invoice.paid_transaction_id is not None:
         tx = db.get(models.Transaction, invoice.paid_transaction_id)
@@ -552,6 +627,76 @@ def delete_invoice(db: Session, invoice_id: int) -> None:
     db.delete(invoice)
     db.commit()
     logger.info("🗑️ [Invoices] delete: n°%s ✅", number)
+
+
+def rollback_to_forecast(db: Session, invoice_id: int) -> models.Invoice:
+    """
+    Repasse une facture ÉMISE (`due`) en prévision (`forecast`) — action dédiée,
+    seule voie autorisée pour « dé-générer » (le PATCH de statut est verrouillé).
+
+    Garde-fous (numérotation légale continue) :
+    - 404 si absente ; 409 si `forecast` (rien à faire) ou `paid` (annuler le
+      rapprochement d'abord) ;
+    - 409 si ce n'est PAS le dernier numéro émis — un rollback au milieu de la
+      séquence créerait un trou définitif. Roll-backer dans l'ordre inverse.
+
+    Effets : numéro rendu au compteur, numéro provisoire « F-{client}-{mois} »
+    reposé, dates d'émission/échéance et période effacées, PDF supprimé.
+    """
+    invoice = db.get(models.Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    if invoice.status == "forecast":
+        raise HTTPException(status_code=409, detail="Déjà une prévision")
+    if invoice.status == "paid":
+        raise HTTPException(
+            status_code=409, detail="Facture payée — annuler le rapprochement d'abord"
+        )
+
+    settings = _get_settings(db)
+    number = invoice.number or ""
+    if not number.isdigit() or int(number) != settings.next_invoice_number - 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Seule la dernière facture émise (n°{settings.next_invoice_number - 1}) "
+                "peut repasser en prévision — sinon la numérotation aurait un trou"
+            ),
+        )
+
+    provisional = f"F-{invoice.client_id}-{invoice.month}"
+    clash = (
+        db.query(models.Invoice)
+        .filter(models.Invoice.number == provisional, models.Invoice.id != invoice.id)
+        .first()
+    )
+    if clash is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Une prévision existe déjà pour ce client et ce mois",
+        )
+
+    if invoice.pdf_path:
+        pdf = Path(invoice.pdf_path)
+        try:
+            if pdf.exists():
+                pdf.unlink()
+        except OSError as exc:
+            logger.warning("⚠️ [Invoices] rollback: PDF non effacé (%s): %s", pdf, exc)
+
+    settings.next_invoice_number = int(number)  # numéro rendu
+    invoice.number = provisional
+    invoice.status = "forecast"
+    invoice.issue_date = None
+    invoice.due_date = None
+    invoice.period_label = ""
+    invoice.period_start = None
+    invoice.period_end = None
+    invoice.pdf_path = ""
+    db.commit()
+    db.refresh(invoice)
+    logger.info("↩️ [Invoices] rollback: n°%s → prévision (%s) ✅", number, provisional)
+    return invoice
 
 
 def reconcile_payments(db: Session) -> int:

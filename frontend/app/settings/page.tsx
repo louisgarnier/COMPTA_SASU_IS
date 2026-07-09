@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { settingsAPI } from '@/api/client';
 import { PageTitle, Card } from '@/components/ui';
 import { FxRatesCard } from '@/components/FxRatesCard';
+import { OpeningBalancesCard } from '@/components/OpeningBalancesCard';
 
 const FIELDS: { key: string; label: string; type?: string; group: string; hint?: string }[] = [
   { key: 'company_name', label: 'Raison sociale', group: 'Société' },
@@ -19,7 +20,10 @@ const FIELDS: { key: string; label: string; type?: string; group: string; hint?:
   { key: 'is_low_rate', label: 'Taux IS réduit', type: 'number', group: 'Impôt société' },
   { key: 'is_threshold', label: 'Seuil IS (€)', type: 'number', group: 'Impôt société' },
   { key: 'is_high_rate', label: 'Taux IS normal', type: 'number', group: 'Impôt société' },
-  { key: 'retained_earnings_eur', label: 'Report à nouveau (€)', type: 'number', group: 'Résultat & distribution' },
+  { key: 'is_start_year', label: 'Début du régime IS (exercice)', type: 'number', group: 'Impôt société',
+    hint: 'Avant cet exercice : régime IR — pas d\'IS société, pas de report à nouveau généré.' },
+  { key: 'retained_earnings_eur', label: 'Stock à distribuer au 01/01 du 1er exercice IS (€)', type: 'number', group: 'Résultat & distribution',
+    hint: 'Trésorerie/résultats de l\'ère IR restant à sortir. Soldé par les distributions ; le RAN se chaîne ensuite automatiquement.' },
   {
     key: 'next_invoice_number',
     label: 'Prochain n° de facture',
@@ -91,6 +95,7 @@ export default function SettingsPage() {
           </Card>
         ))}
         <FxRatesCard />
+        <OpeningBalancesCard />
       </div>
     </div>
   );

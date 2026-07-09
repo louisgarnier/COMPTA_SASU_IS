@@ -68,6 +68,35 @@ export const settingsAPI = {
     put<Record<string, unknown>>('/api/settings', body),
 };
 
+export type OpeningControl = {
+  implied: string;
+  movements: string;
+  diff: string;
+  status: 'ok' | 'warn';
+};
+export type OpeningRow = {
+  account_uid: string;
+  name: string;
+  provider: string;
+  currency: string;
+  balance: string | null;
+  current_balance: string;
+  rate: string;
+  control: OpeningControl | null;
+};
+export type OpeningsView = {
+  year: number;
+  accounts: OpeningRow[];
+  tie_out: { opening_eur: string; current_eur: string; reconciles: boolean };
+};
+
+export const openingsAPI = {
+  years: () => get<{ years: number[] }>('/api/opening-balances/years'),
+  get: (year: number) => get<OpeningsView>(`/api/opening-balances?year=${year}`),
+  save: (year: number, items: { account_uid: string; balance: string }[]) =>
+    put<OpeningsView>(`/api/opening-balances?year=${year}`, { items }),
+};
+
 export const clientsAPI = {
   list: () => get<any[]>('/api/clients'),
   create: (b: Record<string, unknown>) => post<any>('/api/clients', b),
@@ -137,7 +166,7 @@ export const categoriesAPI = {
 export const treasuryAPI = {
   get: (asOf?: string) =>
     get<any>(`/api/treasury${asOf ? `?as_of=${asOf}` : ''}`),
-  pnl: (year = 2026) => get<any>(`/api/pnl?year=${year}`),
+  pnl: (year = new Date().getFullYear()) => get<any>(`/api/pnl?year=${year}`),
 };
 
 export const fxAPI = {
@@ -182,7 +211,7 @@ export const investmentsAPI = {
 };
 
 export const forecastAPI = {
-  get: (year = 2026, startingCash?: number, includeIssued = false) =>
+  get: (year = new Date().getFullYear(), startingCash?: number, includeIssued = false) =>
     get<any>(
       `/api/forecast?year=${year}` +
         (startingCash !== undefined ? `&starting_cash_eur=${startingCash}` : '') +
@@ -200,6 +229,7 @@ export const invoicesAPI = {
   update: (id: number, b: Record<string, unknown>) =>
     patch<any>(`/api/invoices/${id}`, b),
   generate: (id: number) => post<any>(`/api/invoices/${id}/generate`),
+  rollback: (id: number) => post<any>(`/api/invoices/${id}/rollback`),
   candidates: (id: number) => get<any[]>(`/api/invoices/${id}/candidates`),
   reconcile: (id: number, transaction_id: number) =>
     post<any>(`/api/invoices/${id}/reconcile`, { transaction_id }),
@@ -211,11 +241,14 @@ export const invoicesAPI = {
 };
 
 export const dashboardAPI = {
-  cashflow: (year = 2026) => get<any>(`/api/dashboard/cashflow?year=${year}`),
-  balanceTimeline: (year = 2026) =>
+  cashflow: (year = new Date().getFullYear()) => get<any>(`/api/dashboard/cashflow?year=${year}`),
+  balanceTimeline: (year = new Date().getFullYear()) =>
     get<any>(`/api/dashboard/balance-timeline?year=${year}`),
-  pnlSummary: (year = 2026) => get<any>(`/api/dashboard/pnl-summary?year=${year}`),
+  pnlSummary: (year = new Date().getFullYear()) => get<any>(`/api/dashboard/pnl-summary?year=${year}`),
   invoiceTimeline: () => get<any>('/api/dashboard/invoice-timeline'),
+  fxConversions: () => get<any>('/api/dashboard/fx-conversions'),
+  treasuryBridge: (asOf?: string) =>
+    get<any>(`/api/dashboard/treasury-bridge${asOf ? `?as_of=${asOf}` : ''}`),
 };
 
 export const bankingAPI = {

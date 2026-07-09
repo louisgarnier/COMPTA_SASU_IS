@@ -3,6 +3,9 @@ import TransactionsPage from '../app/transactions/page';
 import { transactionsAPI } from '@/api/client';
 
 jest.mock('@/api/client', () => ({
+  fxAPI: {
+    list: jest.fn().mockResolvedValue([{ currency: 'USD', rate: '0.9', missing: false }]),
+  },
   transactionsAPI: {
     bulkCategorize: jest.fn((ids: number[], category_id: number | null) =>
       Promise.resolve(
@@ -90,6 +93,9 @@ describe('TransactionsPage', () => {
       await screen.findByRole('heading', { name: 'Transactions' }),
     ).toBeInTheDocument();
     expect(await screen.findByText('Abonnement logiciel')).toBeInTheDocument();
+    // Colonnes montants : devise locale + équivalent EUR.
+    expect(screen.getByText('Montant (devise)')).toBeInTheDocument();
+    expect(screen.getByText('Montant (EUR)')).toBeInTheDocument();
   });
 
   it('filtre les transactions par recherche texte', async () => {
@@ -104,6 +110,33 @@ describe('TransactionsPage', () => {
     // Seule la transaction Acme reste (match sur contrepartie).
     expect(screen.getByText('Virement client Acme')).toBeInTheDocument();
     expect(screen.queryByText('Abonnement logiciel')).not.toBeInTheDocument();
+  });
+
+  it('recherche aussi par montant (point ou virgule)', async () => {
+    render(<TransactionsPage />);
+    await screen.findByText('Abonnement logiciel');
+
+    const box = screen.getByRole('searchbox', { name: /rechercher une transaction/i });
+    // « 34,50 » (virgule FR) doit trouver la ligne au montant -34.50.
+    fireEvent.change(box, { target: { value: '34,50' } });
+    expect(screen.getByText('Abonnement logiciel')).toBeInTheDocument();
+    expect(screen.queryByText('Virement client Acme')).not.toBeInTheDocument();
+  });
+
+  it('affiche un total EUR dynamique qui suit le filtre', async () => {
+    render(<TransactionsPage />);
+    await screen.findByText('Abonnement logiciel');
+
+    // Total initial : -34,50 + 5000,00 = 4 965,50 €.
+    expect(screen.getByText(/Total .*affichées/)).toBeInTheDocument();
+    expect(screen.getByText(/4\s*965,50\s*€/)).toBeInTheDocument();
+
+    // Filtre « acme » → seule la ligne à 5 000 € reste → total 5 000,00 €
+    // (le montant apparaît 2× : la ligne + le total en pied de table).
+    const box = screen.getByRole('searchbox', { name: /rechercher une transaction/i });
+    fireEvent.change(box, { target: { value: 'acme' } });
+    expect(screen.getAllByText(/5\s*000,00\s*€/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/4\s*965,50\s*€/)).not.toBeInTheDocument();
   });
 
   it('applique la catégorie à toutes les lignes cochées (option B)', async () => {

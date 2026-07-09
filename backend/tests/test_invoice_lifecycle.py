@@ -208,3 +208,64 @@ def test_forecast_invoice_excluded_from_outstanding_timeline(db):
     result = invoices_service.timeline(db, today=_TODAY)
     assert result["open_count"] == 0                # prévisionnel ≠ dû
     assert result["outstanding_eur"] == Decimal("0.00")
+
+
+# --------------------------------------------------------------------------- #
+# Rollback due → forecast (action dédiée, garde-fous de numérotation)          #
+# --------------------------------------------------------------------------- #
+
+
+def _issued(db, client, month="2026-05", number="62"):
+    """Facture émise (due) prête au rollback ; compteur aligné après elle."""
+    db.add(models.Settings(id=1, next_invoice_number=int(number) + 1))
+    inv = models.Invoice(
+        number=number, client_id=client.id, month=month, status="due",
+        currency="USD", amount=Decimal("9600"), amount_eur_forecast=Decimal("8640"),
+        issue_date=date(2026, 5, 31), due_date=date(2026, 7, 15),
+        period_label="Mai 2026", period_start=date(2026, 5, 1), period_end=date(2026, 5, 31),
+    )
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+
+def test_rollback_due_to_forecast_resets_and_gives_back_counter(db):
+    _, client = _base(db)
+    inv = _issued(db, client)
+
+    out = invoices_service.rollback_to_forecast(db, inv.id)
+
+    assert out.status == "forecast"
+    assert out.number == f"F-{client.id}-2026-05"   # numéro provisoire
+    assert out.issue_date is None and out.due_date is None
+    # Compteur rendu : le n°62 sera réattribué à la prochaine génération.
+    assert db.get(models.Settings, 1).next_invoice_number == 62
+
+
+def test_rollback_refused_if_not_last_number(db):
+    """Trou de séquence interdit : seule la DERNIÈRE facture émise est roll-backable."""
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    _, client = _base(db)
+    inv = _issued(db, client)  # n°62, compteur à 63
+    st = db.get(models.Settings, 1)
+    st.next_invoice_number = 64  # une n°63 a été émise depuis
+    db.commit()
+    with _pytest.raises(HTTPException) as e:
+        invoices_service.rollback_to_forecast(db, inv.id)
+    assert e.value.status_code == 409
+
+
+def test_rollback_refused_on_paid_or_forecast(db):
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    _, client = _base(db)
+    inv = _issued(db, client)
+    inv.status = "paid"
+    db.commit()
+    with _pytest.raises(HTTPException) as e:
+        invoices_service.rollback_to_forecast(db, inv.id)
+    assert e.value.status_code == 409

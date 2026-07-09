@@ -208,10 +208,37 @@ def test_route_list_and_patch_status(client, session):
     assert len(listing.json()) == 1
     assert listing.json()[0]["client_name"] == "Swib Corp"
 
-    # Un statut valide autre que « payé » passe (ici retour en prévisionnel).
+    # Machine à états gardée : AUCUNE transition de statut par PATCH (une
+    # dé-génération due→forecast ferait un trou de numérotation silencieux).
     patched = client.patch(f"/api/invoices/{created['id']}", json={"status": "forecast"})
-    assert patched.status_code == 200
-    assert patched.json()["status"] == "forecast"
+    assert patched.status_code == 409
+
+    # Re-poster le MÊME statut (no-op) reste accepté.
+    same = client.patch(f"/api/invoices/{created['id']}", json={"status": "due"})
+    assert same.status_code == 200
+    assert same.json()["status"] == "due"
+
+
+def test_patch_number_override(client, session):
+    """Le n° de facture peut être corrigé manuellement (unicité contrôlée)."""
+    client_id = session.query(models.Client).first().id
+    a = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "10", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+    b = client.post("/api/invoices", json={
+        "client_id": client_id, "hours": "5", "rate": "100",
+        "currency": "USD", "issue_date": "2026-07-01",
+    }).json()
+
+    # Renumérotation valide.
+    ok = client.patch(f"/api/invoices/{a['id']}", json={"number": "2025-001"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["number"] == "2025-001"
+
+    # Collision avec un n° existant → 409.
+    clash = client.patch(f"/api/invoices/{b['id']}", json={"number": "2025-001"})
+    assert clash.status_code == 409, clash.text
 
 
 def test_patch_status_paid_is_rejected(client, session):

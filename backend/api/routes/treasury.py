@@ -104,12 +104,15 @@ class PnlOut(BaseModel):
 
 @router.get("/api/treasury", response_model=TreasuryOut)
 def get_treasury(
-    as_of: Optional[date] = Query(default=None, description="Solde à cette date (incluse)"),
+    as_of: Optional[str] = Query(default=None, description="Solde à cette date (incluse)"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Retourne la trésorerie consolidée (tous comptes + placements)."""
-    logger.info("📥 [Treasury] GET /api/treasury as_of=%s", as_of)
-    return consolidated_treasury(db, as_of=as_of)
+    """Retourne la trésorerie consolidée (tous comptes + placements) — datetime tolérée."""
+    from backend.api.query_utils import parse_as_of
+
+    parsed = parse_as_of(as_of)
+    logger.info("📥 [Treasury] GET /api/treasury as_of=%s", parsed)
+    return consolidated_treasury(db, as_of=parsed)
 
 
 @router.get("/api/pnl", response_model=PnlOut)

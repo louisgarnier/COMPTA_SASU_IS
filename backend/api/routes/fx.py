@@ -62,5 +62,15 @@ def put_rates(payload: FxRatesUpdate, db: Session = Depends(get_db)) -> list[dic
         else:
             row.rate = Decimal(item.rate)
     db.commit()
-    logger.info("📤 [Fx] PUT /api/fx-rates: %d taux mis à jour ✅", len(payload.rates))
+
+    # Le « € (prév.) » des factures est une projection au taux COURANT : on recale
+    # amount_eur_forecast (+ variance des payées) dès qu'un taux change, sinon la
+    # colonne resterait figée à l'ancien taux.
+    from backend.services.invoices import reprice_theoretical_eur
+
+    repriced = reprice_theoretical_eur(db)
+    logger.info(
+        "📤 [Fx] PUT /api/fx-rates: %d taux mis à jour, %d facture(s) recalées ✅",
+        len(payload.rates), repriced,
+    )
     return rates_view(db)

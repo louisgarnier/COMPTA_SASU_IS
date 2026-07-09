@@ -10,6 +10,7 @@ type CategoryType =
   | 'conversion'
   | 'transfer'
   | 'internal'
+  | 'distribution'
   | 'uncategorized';
 
 type Category = {
@@ -37,6 +38,7 @@ const TYPE_OPTIONS: { value: CategoryType; label: string }[] = [
   { value: 'conversion', label: 'Conversion' },
   { value: 'transfer', label: 'Virement' },
   { value: 'internal', label: 'Interne' },
+  { value: 'distribution', label: 'Distribution (dividendes)' },
   { value: 'uncategorized', label: 'Non catégorisé' },
 ];
 

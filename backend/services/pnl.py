@@ -38,7 +38,7 @@ _ZERO = Decimal("0")
 
 # Flux exclus du résultat d'exploitation.
 _EXCLUDED_KINDS = {"investment", "conversion", "transfer", "internal"}
-_EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal"}
+_EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal", "distribution"}
 
 
 def invoice_revenue_eur(inv: models.Invoice, rates: dict) -> Decimal:
@@ -113,10 +113,19 @@ def monthly_pnl(db: Session, year: int) -> dict:
             continue
 
         month = tx.booked_date.month
-        amt = eur_amount(tx, rates)
+        # EUR réel (`amount_eur`, figé par l'allocation FX) prioritaire ;
+        # repli théorique sinon — aligné sur le cashflow et le pont tréso.
+        amt = (
+            Decimal(tx.amount_eur)
+            if tx.amount_eur is not None
+            else eur_amount(tx, rates)
+        )
 
+        # Netting intégral (+ et −) : un remboursement (+) sur une catégorie
+        # charge vient en DÉDUCTION des charges (avoir fournisseur) ; un avoir
+        # client (−) en déduction du CA. Les montants sont sommés SIGNÉS.
         is_revenue = (tx.kind or "") == "revenue" or ctype == "revenue"
-        if is_revenue and amt > 0:
+        if is_revenue:
             # Rattachée à une facture → déjà comptée côté facture (accrual).
             if tx.invoice_id is not None:
                 continue
@@ -124,16 +133,16 @@ def monthly_pnl(db: Session, year: int) -> dict:
             ccy = (tx.currency or "EUR").upper()
             currencies.add(ccy)
             revenue_ccy[month][ccy] = revenue_ccy[month].get(ccy, _ZERO) + amt
-            revenue_native[ccy] = revenue_native.get(ccy, _ZERO) + abs(
-                Decimal(tx.amount or 0)
+            revenue_native[ccy] = revenue_native.get(ccy, _ZERO) + Decimal(
+                tx.amount or 0
             )
-        elif ctype == "charge" and amt < 0:
+        elif ctype == "charge":
             charges[month] += amt
             cc = (tx.currency or "EUR").upper()
             charge_currencies.add(cc)
             charges_eur_ccy[cc] = charges_eur_ccy.get(cc, _ZERO) + amt
-            charges_native_ccy[cc] = charges_native_ccy.get(cc, _ZERO) - abs(
-                Decimal(tx.amount or 0)
+            charges_native_ccy[cc] = charges_native_ccy.get(cc, _ZERO) + Decimal(
+                tx.amount or 0
             )
 
     ccy_order = sorted(currencies)
@@ -200,15 +209,85 @@ def _get_settings(db: Session) -> models.Settings:
     return row
 
 
+def _activity_years(db: Session) -> set[int]:
+    """Exercices ayant de l'activité (factures ou transactions)."""
+    years: set[int] = set()
+    for (m,) in db.query(models.Invoice.month).all():
+        if m and len(m) >= 4 and m[:4].isdigit():
+            years.add(int(m[:4]))
+    for (d,) in db.query(models.Transaction.booked_date).all():
+        if d is not None:
+            years.add(d.year)
+    return years
+
+
+def _distributions_before(db: Session, year: int, rates: dict) -> Decimal:
+    """
+    Σ des distributions (dividendes/salaire dirigeant) versées AVANT `year`,
+    en magnitude positive. Une distribution = transaction sortante dont la
+    catégorie est de type 'distribution' (marquage par l'utilisateur dans
+    Catégories — aucun nom en dur).
+    """
+    dist_ids = {
+        c.id for c in db.query(models.Category).all() if c.type == "distribution"
+    }
+    if not dist_ids:
+        return _ZERO
+    total = _ZERO
+    for tx in db.query(models.Transaction).all():
+        if tx.category_id not in dist_ids or tx.booked_date is None:
+            continue
+        if tx.booked_date.year >= year:
+            continue
+        amt = (
+            Decimal(tx.amount_eur)
+            if tx.amount_eur is not None
+            else eur_amount(tx, rates)
+        )
+        total += -amt  # sorties négatives → magnitude positive
+    return total
+
+
+def retained_earnings(db: Session, year: int, today=None) -> Decimal:
+    """
+    Report à nouveau AUTOMATIQUE de l'exercice `year` :
+
+    base initiale (Settings — résultats accumulés AVANT le premier exercice
+    connu de l'app) + Σ résultats nets des exercices antérieurs connus
+    − Σ distributions déjà versées (le résultat reste dans la société tant que
+    la trésorerie n'en est pas sortie).
+    """
+    settings = _get_settings(db)
+    base = Decimal(settings.retained_earnings_eur or 0)
+    rates = load_rates(db)
+
+    # Régime IS à partir de `is_start_year` : les exercices antérieurs (ère IR)
+    # ne génèrent PAS de report à nouveau — leur stock est dans la poche `base`.
+    is_start = settings.is_start_year or 0
+
+    chained = _ZERO
+    for y in sorted(y for y in _activity_years(db) if is_start <= y < year):
+        totals = monthly_pnl(db, y)["totals"]
+        result_y = q2(totals["revenue_eur"]) - q2(abs(totals["charges_eur"]))
+        is_y = Decimal(
+            forecast_service.estimate_is(db, y, base_override=result_y, today=today)[
+                "is_total_eur"
+            ]
+        )
+        chained += result_y - is_y
+
+    return q2(base + chained - _distributions_before(db, year, rates))
+
+
 def summary(db: Session, year: int, today=None) -> dict:
     """
     Résumé P&L pour le dashboard (équation façon FreeAgent).
 
     Revenus − Charges = Résultat ; Résultat − IS estimé = Résultat net ;
-    Résultat net + Report à nouveau = Distribuable. Toutes les charges sont
-    exposées en **magnitude positive** (l'équation retranche les charges).
-
-    Tous les montants sont des `Decimal` quantifiés à 2 décimales.
+    Résultat net + Report à nouveau = Distribuable. Le report à nouveau est
+    CALCULÉ (résultats nets des exercices antérieurs − distributions versées),
+    la valeur des Réglages n'étant que la base initiale pré-historique.
+    Toutes les charges sont exposées en **magnitude positive**.
     """
     pnl = monthly_pnl(db, year)
     totals = pnl["totals"]
@@ -221,16 +300,32 @@ def summary(db: Session, year: int, today=None) -> dict:
     # IS estimé sur le résultat RÉALISÉ (P&L "live"), pas sur la base forecast :
     # sinon un exercice bénéficiaire afficherait un IS nul tant qu'aucun revenu
     # prévisionnel n'est saisi. base_override = résultat P&L de l'année.
-    is_estimate_eur = q2(
-        forecast_service.estimate_is(
-            db, year, base_override=result_eur, today=today
-        )["is_total_eur"]
-    )
+    # Exercices AVANT le début du régime IS (ère IR) : pas d'IS société.
+    settings = _get_settings(db)
+    pre_is = settings.is_start_year is not None and year < settings.is_start_year
+    if pre_is:
+        is_estimate_eur = q2(_ZERO)
+    else:
+        is_estimate_eur = q2(
+            forecast_service.estimate_is(
+                db, year, base_override=result_eur, today=today
+            )["is_total_eur"]
+        )
     net_result_eur = q2(result_eur - is_estimate_eur)
 
-    settings = _get_settings(db)
-    retained_earnings_eur = q2(Decimal(settings.retained_earnings_eur or 0))
+    # Le report à nouveau est un concept de l'ère IS : pour un exercice IR,
+    # on affiche 0 (le stock de l'époque vit dans la poche initiale, hors P&L).
+    retained_earnings_eur = (
+        q2(_ZERO) if pre_is else retained_earnings(db, year, today=today)
+    )
     distributable_eur = q2(net_result_eur + retained_earnings_eur)
+    # Distributions DÉJÀ versées pendant l'exercice (acomptes sur dividendes…) :
+    # le distribuable brut ne les retranche pas, on expose donc le « reste ».
+    rates = load_rates(db)
+    distributed_this_year = q2(
+        _distributions_before(db, year + 1, rates) - _distributions_before(db, year, rates)
+    )
+    remaining_distributable = q2(distributable_eur - distributed_this_year)
 
     rev_ccy = totals["revenue_by_currency"]
     rev_native_ccy = totals["revenue_native_by_currency"]
@@ -255,6 +350,7 @@ def summary(db: Session, year: int, today=None) -> dict:
     )
     return {
         "year": year,
+        "is_regime": "IR" if pre_is else "IS",
         "revenue_eur": revenue_eur,
         "charges_eur": charges_eur,
         "result_eur": result_eur,
@@ -262,5 +358,7 @@ def summary(db: Session, year: int, today=None) -> dict:
         "net_result_eur": net_result_eur,
         "retained_earnings_eur": retained_earnings_eur,
         "distributable_eur": distributable_eur,
+        "distributed_this_year_eur": distributed_this_year,
+        "remaining_distributable_eur": remaining_distributable,
         "by_currency": by_currency,
     }

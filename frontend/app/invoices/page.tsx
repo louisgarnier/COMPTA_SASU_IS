@@ -39,7 +39,7 @@ interface Tx {
   amount_eur: number | null;
 }
 
-const TODAY = new Date('2026-07-03T00:00:00');
+const TODAY = new Date();
 
 // Statut effectif (overdue dérivé pour une facture 'due' échue).
 function effStatus(i: Invoice): Status | 'overdue' {
@@ -63,6 +63,7 @@ export default function InvoicesPage() {
   const [matching, setMatching] = useState<number | null>(null);
   const [nextNumber, setNextNumber] = useState<string>('');
   const [numMsg, setNumMsg] = useState<string>('');
+  const [numDraft, setNumDraft] = useState<Record<number, string>>({});
 
   const load = async () => {
     setLoading(true);
@@ -101,15 +102,34 @@ export default function InvoicesPage() {
 
   const totals = useMemo(() => {
     const eur = (i: Invoice) => Number(i.amount_eur_forecast || 0);
+    // Payées : EUR réellement encaissé (même valeur que la colonne « Encaissé »
+    // et que le P&L) ; repli prévisionnel si le FX réel n'est pas encore alloué.
+    const eurPaid = (i: Invoice) => Number(i.amount_eur_received ?? i.amount_eur_forecast ?? 0);
     const paid = invoices.filter((i) => i.status === 'paid');
     const due = invoices.filter((i) => i.status === 'due');
     const forecast = invoices.filter((i) => i.status === 'forecast');
     return {
-      paidSum: paid.reduce((s, i) => s + eur(i), 0), paidCount: paid.length,
+      paidSum: paid.reduce((s, i) => s + eurPaid(i), 0), paidCount: paid.length,
       dueSum: due.reduce((s, i) => s + eur(i), 0), dueCount: due.length,
       fcSum: forecast.reduce((s, i) => s + eur(i), 0), fcCount: forecast.length,
     };
   }, [invoices]);
+
+  // Correction manuelle du n° d'une facture émise (commit au blur / Entrée).
+  const saveNum = async (i: Invoice) => {
+    const draft = (numDraft[i.id] ?? '').trim();
+    if (!draft || draft === i.number) {
+      setNumDraft((d) => { const n = { ...d }; delete n[i.id]; return n; });
+      return;
+    }
+    try {
+      await invoicesAPI.update(i.id, { number: draft });
+      setNumDraft((d) => { const n = { ...d }; delete n[i.id]; return n; });
+      await load();
+    } catch (e) {
+      setMsg((m) => ({ ...m, [i.id]: `❌ ${(e as Error).message}` }));
+    }
+  };
 
   const generate = async (id: number) => {
     setMsg((m) => ({ ...m, [id]: 'Génération…' }));
@@ -119,6 +139,21 @@ export default function InvoicesPage() {
       await load();
     } catch (e) {
       setMsg((m) => ({ ...m, [id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
+  // Repasse une facture émise en prévision (numéro rendu au compteur).
+  // Refusé par le backend si ce n'est pas le dernier numéro (trou de séquence).
+  const rollback = async (i: Invoice) => {
+    if (!window.confirm(
+      `Repasser la facture n°${i.number} en prévision ?\n` +
+      `Le numéro sera rendu au compteur et les dates d'émission/échéance effacées.`,
+    )) return;
+    try {
+      await invoicesAPI.rollback(i.id);
+      await load();
+    } catch (e) {
+      setMsg((m) => ({ ...m, [i.id]: `❌ ${(e as Error).message}` }));
     }
   };
 
@@ -245,7 +280,19 @@ export default function InvoicesPage() {
                 return (
                   <tr key={i.id} className="border-b border-[var(--border)] last:border-0">
                     <td className="px-4 py-3 font-medium tabular">
-                      {i.status === 'forecast' ? <span className="text-[var(--muted)]">—</span> : i.number}
+                      {i.status === 'forecast' ? (
+                        <span className="text-[var(--muted)]">—</span>
+                      ) : (
+                        <input
+                          value={numDraft[i.id] ?? i.number}
+                          onChange={(e) => setNumDraft((d) => ({ ...d, [i.id]: e.target.value }))}
+                          onBlur={() => saveNum(i)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                          aria-label={`N° facture ${i.number}`}
+                          title="Cliquer pour corriger le n° de facture"
+                          className="w-24 rounded-md border border-transparent bg-transparent px-1.5 py-1 font-medium tabular outline-none hover:border-[var(--border)] focus:border-[var(--accent)]"
+                        />
+                      )}
                     </td>
                     <td className="px-4 py-3">{i.client_name}</td>
                     <td className="px-4 py-3">
@@ -302,12 +349,21 @@ export default function InvoicesPage() {
                                 Annuler rappr.
                               </button>
                             ) : (
-                              <button
-                                onClick={() => openMatch(i.id)}
-                                className="rounded-lg border border-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent)] hover:bg-blue-50"
-                              >
-                                {matching === i.id ? 'Fermer' : 'Rapprocher'}
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => openMatch(i.id)}
+                                  className="rounded-lg border border-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent)] hover:bg-blue-50"
+                                >
+                                  {matching === i.id ? 'Fermer' : 'Rapprocher'}
+                                </button>
+                                <button
+                                  onClick={() => rollback(i)}
+                                  title="Repasser en prévision (numéro rendu au compteur — dernier numéro émis uniquement)"
+                                  className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:border-[var(--accent)]"
+                                >
+                                  ↩ Prévision
+                                </button>
+                              </>
                             )}
                           </>
                         )}

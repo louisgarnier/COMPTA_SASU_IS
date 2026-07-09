@@ -656,6 +656,13 @@ def sync(db: Session) -> dict[str, Any]:
     from backend.services.invoices import reconcile_payments
 
     reconciled = reconcile_payments(db)
+
+    # Reconstitue le taux FX RÉELLEMENT obtenu (conversions Revolut appariées) et
+    # le propage aux factures payées : `amount_eur_received` = vrai EUR encaissé,
+    # jamais le montant natif pris pour des euros (cf. services/fx_realized).
+    from backend.services.fx_realized import allocate as allocate_fx_realized
+
+    allocate_fx_realized(db)
     logger.info(
         "✅ [Banking] sync: comptes=%d/%d ajoutées=%d ignorées=%d catégorisées=%d "
         "rapprochées=%d erreurs=%d",
