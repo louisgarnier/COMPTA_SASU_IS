@@ -132,3 +132,15 @@
 - Front : `clients/page.tsx` détecte le changement au save → aperçu → `RepriceModal` (table Mois/Qté/Ancien-Nouveau USD/Ancien-Nouveau €, totaux, boutons *Ne rien changer* / *Appliquer aux N*). 2 tests front.
 - **Tests : 129 backend · 13 front · tsc clean · `next build` OK.**
 - **E2E live :** preview SWIB (tjh 120, 2 prévisions Août/Oct) → apply → 11520/14400 → **restauré à l'identique** (125/12000/15000). Navigateur : taux 120→130 enregistré → modale rendue fidèle à la maquette (screenshot), *Ne rien changer* laisse les prévisions intactes. Client + forecasts remis dans l'état initial.
+
+## 2026-07-09 — EPIC-6 Lots A/B/C : audit v2 exécuté (chiffres, clôture, confort)
+
+Suite à l'audit v2 (wireframe complet + reste-à-faire), 3 lots approuvés « okgo A B C », un commit par lot :
+
+**Lot A — chiffres irréprochables (27df48c) :** cashflow expose les sorties non-op (dividendes/IS/invest., 236 200 € masqués jusque-là) avec toggle « + dividendes / IS / invest. » ; alerte 🚨 factures d'exercice antérieur non rapprochées ; Invoice Timeline valorisée à l'EUR réel (aligné P&L, audit D7/D5) ; filtre année page Factures ; libellés FX dynamiques ; dette technique S (pattern month, year default, bank_* dormants retirés de l'API).
+
+**Lot B — clôture & expert-comptable (42ed889) :** export CSV par exercice (`GET /api/transactions/export?year=`, `;` Excel FR) + bouton ⬇ CSV ; P&L annuel détaillé imprimable (service `pnl.annual_detail`, page `/pnl`, charges par catégorie × mois) ; widget **Distributions & IS** (distribuable restant, versé, IS estimé vs payé via nouveau type de catégorie `is_payment`) ; justificatifs de solde montés sur Banques (📎 + BalanceDocsModal, orphelin depuis EPIC-3). Catégorie live « IS payé » basculée en `is_payment`.
+
+**Lot C — confort de pilotage (6493d1f) :** aging des créances (due_date/days_overdue/sent dans la timeline, badges « Retard J+n » par tranche ≤30/31–60/>60 j + totaux) ; alerte trésorerie basse (`Settings.low_treasury_alert_eur`, bandeau dashboard solde courant OU minimum projeté selon scope, preuve par mutation réversible seuil 999 999 → bandeau → 0) ; marqueur « envoyée » (`Invoice.sent_date`, bascule ✉ sur Factures, 422 sur prévision — l'immutabilité post-envoi/avoir reste hors périmètre v1) ; sidebar mobile (barre fixe + hamburger + drawer < lg) ; lien manuel FX NG8 (`POST /api/transactions/{id}/link-conversion` + bouton 🔗 sur crédits devise sans EUR réel).
+
+- **Tests : 223 backend · 26 jest · tsc clean.** Poussé sur epic-1-foundation + main.
