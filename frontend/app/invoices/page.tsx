@@ -157,6 +157,18 @@ export default function InvoicesPage() {
     }
   };
 
+  // Génère le PDF (WeasyPrint côté serveur) puis l'ouvre.
+  const downloadPdf = async (i: Invoice) => {
+    setMsg((m) => ({ ...m, [i.id]: 'PDF…' }));
+    try {
+      await invoicesAPI.generatePdf(i.id);
+      setMsg((m) => ({ ...m, [i.id]: '' }));
+      window.open(invoicesAPI.downloadUrl(i.id), '_blank');
+    } catch (e) {
+      setMsg((m) => ({ ...m, [i.id]: `❌ ${(e as Error).message}` }));
+    }
+  };
+
   const openMatch = async (id: number) => {
     if (matching === id) {
       setMatching(null);
@@ -341,6 +353,13 @@ export default function InvoicesPage() {
                             >
                               Ouvrir la facture
                             </a>
+                            <button
+                              onClick={() => downloadPdf(i)}
+                              title="Générer et télécharger le PDF"
+                              className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs font-medium hover:border-[var(--accent)]"
+                            >
+                              PDF
+                            </button>
                             {i.status === 'paid' ? (
                               <button
                                 onClick={() => unreconcile(i.id)}

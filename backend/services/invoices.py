@@ -261,20 +261,46 @@ def generate_pdf(db: Session, invoice: models.Invoice) -> str:
     Sauvegarde dans data/invoices/<number>.pdf, pose `invoice.pdf_path`, commit,
     retourne le chemin. Lève HTTPException(503) si WeasyPrint indisponible.
     """
-    try:
-        from weasyprint import HTML  # import paresseux : libs système requises
-    except (ImportError, OSError) as exc:
-        logger.error("❌ [Invoices] generate_pdf: moteur PDF indisponible (%s)", exc)
-        raise HTTPException(
-            status_code=503,
-            detail="PDF engine indisponible (installer pango/cairo: brew install pango)",
-        ) from exc
+    # WeasyPrint en SOUS-PROCESSUS : sur macOS, dyld lit DYLD_FALLBACK_LIBRARY_PATH
+    # au lancement du process — impossible à injecter dans un serveur déjà démarré.
+    # Le sous-processus reçoit le chemin des libs Homebrew (pango/cairo/gobject),
+    # surchargeable via WEASYPRINT_LIB_PATH (env, pas de chemin métier en dur).
+    import os
+    import subprocess
+    import sys
+    import tempfile
 
     html = render_html(db, invoice)
 
     _INVOICES_DIR.mkdir(parents=True, exist_ok=True)
     pdf_path = _INVOICES_DIR / f"{invoice.number}.pdf"
-    HTML(string=html).write_pdf(str(pdf_path))
+
+    lib_path = os.environ.get("WEASYPRINT_LIB_PATH")
+    if not lib_path:
+        for candidate in ("/opt/homebrew/lib", "/usr/local/lib"):
+            if Path(candidate).exists():
+                lib_path = candidate
+                break
+    env = {**os.environ}
+    if lib_path:
+        env["DYLD_FALLBACK_LIBRARY_PATH"] = lib_path
+
+    with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False) as tmp:
+        tmp.write(html)
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "weasyprint", tmp_path, str(pdf_path)],
+            env=env, capture_output=True, text=True, timeout=60,
+        )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+    if result.returncode != 0 or not pdf_path.exists():
+        logger.error("❌ [Invoices] generate_pdf: %s", result.stderr[-400:])
+        raise HTTPException(
+            status_code=503,
+            detail="PDF engine indisponible (installer pango/cairo : brew install pango glib)",
+        )
 
     invoice.pdf_path = str(pdf_path)
     db.commit()

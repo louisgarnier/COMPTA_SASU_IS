@@ -4,100 +4,151 @@
   <meta charset="utf-8" />
   <title>Facture {{ invoice.number }}</title>
   <style>
+    /* V1.1 « Suisse épurée » (maquette validée 2026-07-09).
+       Layout en TABLES (pas de flex) : rendu identique navigateur / WeasyPrint. */
     @page { size: A4; margin: 18mm 16mm; }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #476388; font-size: 13px; margin: 0; }
-    .blue { color: #5D9CF1; }
-    .dk { color: #476388; }
-    .top { display: flex; justify-content: space-between; align-items: flex-start; }
-    .from { line-height: 1.5; }
-    .from .name { font-weight: 700; }
-    .client { text-align: right; line-height: 1.4; }
-    .client .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #9bb0c9; }
-    .client .cname { font-weight: 600; }
-    .invmeta { margin-top: 26px; display: flex; justify-content: space-between; align-items: flex-end; }
-    .invno { font-size: 26px; font-weight: 700; color: #5D9CF1; }
-    .invsub { font-size: 12px; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 22px; }
-    thead th { background: #5D9CF1; color: #fff; font-size: 11px; font-weight: 700; text-align: left; padding: 6px 8px; }
-    thead th.r { text-align: right; }
-    tbody td { padding: 10px 8px; border-bottom: 1px solid #e3e9f1; font-size: 12.5px; vertical-align: top; }
-    tbody td.r { text-align: right; }
-    .totals td { padding: 6px 8px; font-weight: 700; color: #5D9CF1; }
-    .totals .lab { text-align: right; }
-    .totals .ttc td { background: #5D9CF1; color: #fff; }
-    .mentions { margin-top: 22px; font-size: 11.5px; font-weight: 700; }
-    .bank { margin-top: 14px; padding: 10px 12px; background: #f3f7fd; border-left: 3px solid #5D9CF1; font-size: 11.5px; line-height: 1.5; }
-    .bank .strong { font-weight: 700; }
-    .foot { margin-top: 26px; border-top: 1px solid #dfe6ef; padding-top: 8px; font-size: 10.5px; color: #8aa0bd; text-align: center; line-height: 1.5; }
+    body { font-family: Helvetica, Arial, sans-serif; color: #1a1a1a; font-size: 12px; line-height: 1.5; margin: 0; }
+    .num { font-variant-numeric: tabular-nums; }
+    .r { text-align: right; }
+    .muted { color: #6b7280; }
+    .faint { color: #9ca3af; }
+    .lab9 { font-size: 8.5px; text-transform: uppercase; letter-spacing: .14em; color: #9ca3af; }
+    table.layout { width: 100%; border-collapse: collapse; }
+    table.layout td { vertical-align: top; padding: 0; }
+
+    .brand { font-size: 21px; font-weight: 800; letter-spacing: -.02em; }
+    .brand-addr { color: #6b7280; font-size: 10.5px; margin-top: 5px; line-height: 1.55; }
+    .doc-title { font-size: 24px; font-weight: 300; letter-spacing: .14em; color: #111; }
+    .doc-no { font-size: 14px; font-weight: 700; margin-top: 1px; }
+
+    .strip { margin: 26px 0 30px; border-top: 2px solid #111; border-bottom: 1px solid #e5e7eb; padding: 13px 2px; }
+    .strip .left { font-size: 10px; color: #6b7280; }
+    .strip .right { font-size: 13px; text-align: right; }
+    .strip b.big { font-size: 16px; }
+
+    .billto-name { font-size: 13.5px; font-weight: 700; }
+    .billto-addr { color: #4b5563; margin-top: 2px; line-height: 1.55; }
+
+    table.items { width: 100%; border-collapse: collapse; margin-top: 34px; }
+    table.items thead th { border-bottom: 1.5px solid #111; padding: 0 0 8px; font-size: 8.5px; text-transform: uppercase; letter-spacing: .14em; color: #9ca3af; font-weight: 600; text-align: left; }
+    table.items thead th.r { text-align: right; }
+    table.items tbody td { padding: 13px 0; border-bottom: 1px solid #eceef1; }
+
+    .totals { background: #f7f8fa; border-radius: 6px; padding: 13px 18px; width: 280px; }
+    .totals .row { font-size: 11px; color: #6b7280; padding: 2px 0; }
+    .totals .grand { margin-top: 7px; padding-top: 9px; border-top: 1.5px solid #111; font-weight: 800; font-size: 15.5px; color: #1a1a1a; }
+    .totals .ccy { font-weight: 400; color: #6b7280; font-size: 11px; }
+
+    .mentions { margin-top: 28px; color: #6b7280; font-size: 10.5px; font-style: italic; }
+    .bank { margin-top: 12px; background: #f7f8fa; border-left: 2px solid #111; border-radius: 0 6px 6px 0; padding: 14px 18px; font-size: 10.5px; line-height: 1.7; }
+    .bank .iban { font-size: 11.5px; letter-spacing: .02em; }
+
+    .foot { margin-top: 34px; padding-top: 11px; border-top: 1px solid #eceef1; color: #9ca3af; font-size: 8.5px; letter-spacing: .02em; }
+
     @media screen { body { background: #e9ebee; } .sheet { background: #fff; max-width: 210mm; margin: 20px auto; padding: 18mm 16mm; box-shadow: 0 2px 16px rgba(0,0,0,.15); } }
     @media print { .sheet { padding: 0; } }
   </style>
 </head>
 <body>
   <div class="sheet">
-    <div class="top">
-      <div class="from">
-        <div class="name">{{ company.company_name }}</div>
-        <div>{{ company.address }}</div>
-        {% if company.email %}<div>@ : {{ company.email }}</div>{% endif %}
-      </div>
-      <div class="client">
-        <div class="lab">Facturé à</div>
-        <div class="cname">{{ client.legal_name }}</div>
-        {% if client.address %}<div>{{ client.address }}</div>{% endif %}
-        {# Ville, État/Région CodePostal — composition nord-américaine (« Toronto, ON M5J 2P1 ») #}
+
+    {# ── En-tête : société / FACTURE N° ─────────────────────────────── #}
+    <table class="layout">
+      <tr>
+        <td>
+          <div class="brand">{{ company.company_name }}</div>
+          <div class="brand-addr">{{ company.address }}</div>
+        </td>
+        <td class="r">
+          <div class="doc-title">FACTURE</div>
+          <div class="doc-no num">N° {{ invoice.number }}</div>
+        </td>
+      </tr>
+    </table>
+
+    {# ── Bandeau « à régler » : montant + échéance, l'info du payeur ─── #}
+    <table class="layout strip num">
+      <tr>
+        <td class="left">
+          {% if invoice.period_label or invoice.month %}Période facturée : <b style="color:#111">{{ invoice.period_label or invoice.month }}</b>{% endif %}
+          {% if invoice.issue_date %} &nbsp;·&nbsp; Émise le {{ invoice.issue_date.strftime('%d/%m/%Y') }}{% endif %}
+        </td>
+        <td class="right">
+          À régler : <b class="big">{{ invoice.amount | fr }} {{ invoice.currency }}</b>
+          {% if invoice.due_date %}&nbsp;avant le&nbsp; <b>{{ invoice.due_date.strftime('%d/%m/%Y') }}</b>{% endif %}
+        </td>
+      </tr>
+    </table>
+
+    {# ── Facturé à : ENTITÉ DE FACTURATION (contact) sinon raison sociale ── #}
+    <div>
+      <div class="lab9" style="margin-bottom:6px">Facturé à</div>
+      <div class="billto-name">{{ client.contact_name or client.legal_name }}</div>
+      <div class="billto-addr">
+        {% if client.address %}{{ client.address }}<br/>{% endif %}
         {% set locality = [client.city, (client.state_region ~ ' ' ~ client.postal_code)|trim] | select | join(', ') %}
-        {% if locality %}<div>{{ locality }}</div>{% endif %}
-        {% if client.country %}<div>{{ client.country }}</div>{% endif %}
+        {% if locality %}{{ locality }}<br/>{% endif %}
+        {% if client.country %}{{ client.country }}{% endif %}
       </div>
     </div>
 
-    <div class="invmeta">
-      <div>
-        <div class="invno">Invoice {{ invoice.number }}</div>
-        {% if invoice.issue_date %}<div class="invsub">Date d'émission : {{ invoice.issue_date.strftime('%d/%m/%Y') }}</div>{% endif %}
-        <div class="invsub">Période de validité : {{ client.payment_terms_days }} jours</div>
-      </div>
-    </div>
-
-    <table>
+    {# ── Lignes ─────────────────────────────────────────────────────── #}
+    <table class="items num">
       <thead>
         <tr>
           <th>Désignation</th>
-          <th class="r">TVA</th>
-          <th class="r">Total HT ({{ invoice.currency }})</th>
+          <th class="r">Qté</th>
+          <th class="r">{% if invoice.rate_unit == 'hour' %}Taux horaire{% else %}Taux journalier{% endif %}</th>
+          <th class="r">Montant</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>{{ designation }}</td>
-          <td class="r">0 %</td>
-          <td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td>
+          <td>Prestations de conseil{% if invoice.period_label %} <span class="faint">— {{ invoice.period_label }}</span>{% endif %}{% if invoice.note %}<br/><span class="faint" style="font-size:10.5px">{{ invoice.note }}</span>{% endif %}</td>
+          <td class="r muted">{% if invoice.rate_unit == 'hour' %}{{ invoice.hours | fr }} h{% else %}{{ invoice.days | fr }} j{% endif %}</td>
+          <td class="r muted">{{ invoice.rate | fr }} {{ invoice.currency }}</td>
+          <td class="r" style="font-weight:600">{{ invoice.amount | fr }} {{ invoice.currency }}</td>
         </tr>
       </tbody>
     </table>
 
-    <table class="totals">
-      <tbody>
-        <tr><td class="lab" style="width:75%">Sub Total HT</td><td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
-        <tr class="ttc"><td class="lab">Total TTC ({{ invoice.currency }})</td><td class="r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
-      </tbody>
+    {# ── Totaux ─────────────────────────────────────────────────────── #}
+    <table class="layout" style="margin-top:14px">
+      <tr>
+        <td></td>
+        <td style="width:280px">
+          <div class="totals num">
+            <table class="layout">
+              <tr class="row"><td class="row">Sous-total HT</td><td class="row r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
+            </table>
+            <table class="layout grand">
+              <tr><td class="grand">Total <span class="ccy">({{ invoice.currency }})</span></td><td class="grand r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
+            </table>
+          </div>
+        </td>
+      </tr>
     </table>
 
-    {% if company.invoice_legal_mention %}<div class="mentions dk">{{ company.invoice_legal_mention }}</div>{% endif %}
+    {% if company.invoice_legal_mention %}<div class="mentions">{{ company.invoice_legal_mention }}</div>{% endif %}
 
+    {# ── Règlement ──────────────────────────────────────────────────── #}
     <div class="bank">
-      <div class="strong dk">Bank details : {% if client.pay_account_label %}{{ client.pay_account_label }}{% else %}{{ company.company_name }} ({{ invoice.currency }} account){% endif %}</div>
-      {% if client.pay_iban %}<div>IBAN : {{ client.pay_iban }}{% if client.pay_bic %} · BIC : {{ client.pay_bic }}{% endif %}</div>{% endif %}
-      <div>Adresse : {{ company.address }}</div>
-      {% if client.pay_bank_name %}<div>Bank : {{ client.pay_bank_name }}{% if client.pay_bank_address %} — {{ client.pay_bank_address }}{% endif %}</div>{% endif %}
+      <div class="lab9" style="color:#6b7280; margin-bottom:4px">Règlement par virement — {% if client.pay_account_label %}{{ client.pay_account_label }}{% else %}{{ company.company_name }} ({{ invoice.currency }} account){% endif %}</div>
+      {% if client.pay_iban %}<div class="iban num"><b>IBAN</b>&nbsp; {{ client.pay_iban }}{% if client.pay_bic %} &nbsp;·&nbsp; <b>BIC</b>&nbsp; {{ client.pay_bic }}{% endif %}</div>{% endif %}
+      {% if client.pay_bank_name %}<div style="color:#4b5563">{{ client.pay_bank_name }}{% if client.pay_bank_address %} — {{ client.pay_bank_address }}{% endif %}</div>{% endif %}
+      <div class="faint">Titulaire : {{ company.company_name }} — {{ company.address }}</div>
     </div>
 
-    <div class="foot">
-      SASU au capital de {{ company.capital_eur | fr }} € · SIRET {{ company.siret }} · NAF {{ company.naf }}{% if company.tva_intracom %} · TVA intracommunautaire {{ company.tva_intracom }}{% endif %}<br />
-      Page 1/1
-    </div>
+    {# ── Pied ───────────────────────────────────────────────────────── #}
+    <table class="layout foot">
+      <tr>
+        <td>{{ company.company_name }} — au capital de {{ company.capital_eur | fr }} €</td>
+        <td style="text-align:center">SIRET {{ company.siret }} · NAF {{ company.naf }}{% if company.tva_intracom %} · TVA intracom. {{ company.tva_intracom }}{% endif %}</td>
+        <td class="r">Page 1/1</td>
+      </tr>
+    </table>
+
   </div>
 </body>
 </html>

@@ -149,6 +149,12 @@ def test_render_html_uses_client_bank_block_and_structured_address(session):
     # Mention légale depuis les Réglages.
     assert "art. 293 B" in html
 
+    # « Facturé à » = entité de facturation (Contact) prioritaire sur la raison sociale.
+    client.contact_name = "Alpha Financial Markets Consulting Inc."
+    session.commit()
+    html_c = invoices_service.render_html(session, inv)
+    assert "Alpha Financial Markets Consulting Inc." in html_c
+
     # Intitulé du compte personnalisé : prioritaire sur la composition auto.
     client.pay_account_label = "LGC Consulting (compte CAD Toronto)"
     session.commit()
