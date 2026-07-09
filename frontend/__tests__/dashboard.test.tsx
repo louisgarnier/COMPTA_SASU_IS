@@ -108,6 +108,8 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Soldes bancaires à une date')).toBeInTheDocument();
     expect(screen.getByLabelText('Date des soldes')).toBeInTheDocument();
     expect(await screen.findByText('Invoice Timeline')).toBeInTheDocument();
+    // Factures ouvertes : équivalent EUR approx. affiché à côté du natif.
+    expect(await screen.findByText(/≈\s*3\s*864,00\s*€/)).toBeInTheDocument();
     // Le distribuable P&L est rendu (net + distribuable → au moins 1)
     expect((await screen.findAllByText(/142\s*257,66\s*€/)).length).toBeGreaterThan(0);
   });

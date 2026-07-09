@@ -125,6 +125,11 @@ export function OpenInvoices({ data }: { data: InvoiceTimelineData }) {
                   {iv.status === 'overdue' ? 'En retard' : 'Dû'}
                 </span>
                 <b className="tabular">{money(iv.amount, iv.currency)}</b>
+                {/* Équivalent EUR approx. (taux théorique des Réglages) — le réel
+                    n'existera qu'à l'encaissement + conversion. */}
+                {(iv.currency || 'EUR').toUpperCase() !== 'EUR' && (
+                  <span className="tabular text-xs text-[var(--muted)]">≈ {eur(iv.amount_eur)}</span>
+                )}
               </span>
             </div>
           ))}
