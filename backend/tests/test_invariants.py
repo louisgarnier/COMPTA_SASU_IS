@@ -246,6 +246,43 @@ def test_retained_earnings_chains_across_years(db):
     assert s26["remaining_distributable_eur"] == s26["distributable_eur"] - Decimal("300.00")
 
 
+def test_retained_earnings_follows_scope(db):
+    """
+    Décision 2026-07-10 : le RAN suit le niveau de certitude sélectionné —
+    chaque cran est un monde auto-cohérent. Invariant : RAN(N+1, cran) ==
+    « Distribuable (restant) » affiché en N dans le même cran.
+    """
+    inv_paid = models.Invoice(number="1", client_id=1, month="2026-02", status="paid",
+                              currency="EUR", amount=Decimal("1000"),
+                              amount_eur_received=Decimal("1000"), paid_date=date(2026, 3, 1))
+    inv_due = models.Invoice(number="2", client_id=1, month="2026-04", status="due",
+                             currency="EUR", amount=Decimal("500"),
+                             amount_eur_forecast=Decimal("500"))
+    inv_fc = models.Invoice(number="F-1-2026-09", client_id=1, month="2026-09",
+                            status="forecast", currency="EUR", amount=Decimal("300"),
+                            amount_eur_forecast=Decimal("300"))
+    db.add_all([inv_paid, inv_due, inv_fc])
+    db.commit()
+
+    from backend.services.pnl import retained_earnings
+
+    # Réalisé : net 2026 = 1000 − IS 15 % (150) = 850.
+    assert retained_earnings(db, 2027, scope="realized") == Decimal("850.00")
+    # Engagé : net = 1500 − 225 = 1275 (défaut inchangé).
+    assert retained_earnings(db, 2027, scope="engaged") == Decimal("1275.00")
+    assert retained_earnings(db, 2027) == Decimal("1275.00")
+    # Prévisionnel : net projeté = 1800 − IS projeté.
+    fc = retained_earnings(db, 2027, scope="forecast")
+    assert fc > Decimal("1275.00")
+
+    # Invariant structurel : RAN(2027, cran) == restant distribuable 2026 du cran.
+    for scope in ("realized", "engaged", "forecast"):
+        s26 = summary(db, 2026, scope=scope)
+        assert retained_earnings(db, 2027, scope=scope) == Decimal(
+            str(s26["remaining_distributable_eur"])
+        ), scope
+
+
 def test_is_regime_start_year_excludes_prior_years(db):
     """
     Régime réel de l'utilisateur : IS à partir de 2026, 2025 était à l'IR.

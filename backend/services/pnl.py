@@ -256,14 +256,71 @@ def _distributions_before(db: Session, year: int, rates: dict) -> Decimal:
     return total
 
 
-def retained_earnings(db: Session, year: int, today=None) -> Decimal:
+_SCOPE_STATUSES = {
+    "realized": ("paid",),
+    "engaged": ("due", "paid"),
+    "forecast": ("forecast", "due", "paid"),
+}
+
+
+def _scope_result(db: Session, year: int, scope: str, today=None) -> dict:
+    """
+    Cœur de calcul PARTAGÉ par `summary` (affichage) et `retained_earnings`
+    (chaînage) — garantie structurelle : le net affiché pour un exercice dans
+    un cran == le net chaîné dans le RAN de l'exercice suivant, même cran.
+
+    Retourne {revenue_eur, charges_eur, result_eur, is_estimate_eur,
+    net_result_eur, pre_is, pnl} (montants q2, charges en magnitude positive).
+    """
+    if scope not in _SCOPE_STATUSES:
+        scope = "engaged"
+    pnl = monthly_pnl(db, year, statuses=_SCOPE_STATUSES[scope])
+    totals = pnl["totals"]
+    revenue_eur = q2(totals["revenue_eur"])
+    charges_eur = q2(abs(totals["charges_eur"]))
+    if scope == "forecast":
+        # Charges réelles + PROJETÉES — même source que la page Heures & jours.
+        projection = forecast_service.project(db, year, today=today)
+        charges_eur = q2(Decimal(str(projection["totals"]["charges_eur"])))
+    result_eur = q2(revenue_eur - charges_eur)
+
+    settings = _get_settings(db)
+    pre_is = settings.is_start_year is not None and year < settings.is_start_year
+    if pre_is:
+        is_estimate_eur = q2(_ZERO)
+    elif scope == "forecast":
+        # IS PROJETÉ fin d'exercice (base projection + PV latentes).
+        is_estimate_eur = q2(
+            forecast_service.estimate_is(db, year, today=today)["is_total_eur"]
+        )
+    else:
+        is_estimate_eur = q2(
+            forecast_service.estimate_is(
+                db, year, base_override=result_eur, today=today
+            )["is_total_eur"]
+        )
+    return {
+        "revenue_eur": revenue_eur,
+        "charges_eur": charges_eur,
+        "result_eur": result_eur,
+        "is_estimate_eur": is_estimate_eur,
+        "net_result_eur": q2(result_eur - is_estimate_eur),
+        "pre_is": pre_is,
+        "pnl": pnl,
+    }
+
+
+def retained_earnings(
+    db: Session, year: int, today=None, scope: str = "engaged"
+) -> Decimal:
     """
     Report à nouveau AUTOMATIQUE de l'exercice `year` :
 
-    base initiale (Settings — résultats accumulés AVANT le premier exercice
-    connu de l'app) + Σ résultats nets des exercices antérieurs connus
-    − Σ distributions déjà versées (le résultat reste dans la société tant que
-    la trésorerie n'en est pas sortie).
+    base initiale (Settings — poche pré-IS) + Σ résultats nets des exercices
+    IS antérieurs − Σ distributions versées. Le net de chaque exercice est
+    calculé AU MÊME niveau de certitude (`scope`) que la vue courante : chaque
+    cran (réalisé / engagé / prévisionnel) est un monde auto-cohérent —
+    RAN(N+1, cran) == restant distribuable affiché en N dans ce cran.
     """
     settings = _get_settings(db)
     base = Decimal(settings.retained_earnings_eur or 0)
@@ -275,23 +332,9 @@ def retained_earnings(db: Session, year: int, today=None) -> Decimal:
 
     chained = _ZERO
     for y in sorted(y for y in _activity_years(db) if is_start <= y < year):
-        totals = monthly_pnl(db, y)["totals"]
-        result_y = q2(totals["revenue_eur"]) - q2(abs(totals["charges_eur"]))
-        is_y = Decimal(
-            forecast_service.estimate_is(db, y, base_override=result_y, today=today)[
-                "is_total_eur"
-            ]
-        )
-        chained += result_y - is_y
+        chained += _scope_result(db, y, scope, today=today)["net_result_eur"]
 
     return q2(base + chained - _distributions_before(db, year, rates))
-
-
-_SCOPE_STATUSES = {
-    "realized": ("paid",),
-    "engaged": ("due", "paid"),
-    "forecast": ("forecast", "due", "paid"),
-}
 
 
 def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
@@ -312,45 +355,20 @@ def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
     """
     if scope not in _SCOPE_STATUSES:
         scope = "engaged"
-    pnl = monthly_pnl(db, year, statuses=_SCOPE_STATUSES[scope])
+    core = _scope_result(db, year, scope, today=today)
+    pnl = core["pnl"]
     totals = pnl["totals"]
-
-    revenue_eur = q2(totals["revenue_eur"])
-    # monthly_pnl stocke les charges en négatif → magnitude positive ici.
-    charges_eur = q2(abs(totals["charges_eur"]))
-    if scope == "forecast":
-        # Charges = réelles + projetées (prorata mois courant + moyenne des mois
-        # futurs) — la même source que la page Heures & jours.
-        projection = forecast_service.project(db, year, today=today)
-        charges_eur = q2(Decimal(str(projection["totals"]["charges_eur"])))
-    result_eur = q2(revenue_eur - charges_eur)
-
-    # IS estimé sur le résultat RÉALISÉ (P&L "live"), pas sur la base forecast :
-    # sinon un exercice bénéficiaire afficherait un IS nul tant qu'aucun revenu
-    # prévisionnel n'est saisi. base_override = résultat P&L de l'année.
-    # Exercices AVANT le début du régime IS (ère IR) : pas d'IS société.
-    settings = _get_settings(db)
-    pre_is = settings.is_start_year is not None and year < settings.is_start_year
-    if pre_is:
-        is_estimate_eur = q2(_ZERO)
-    elif scope == "forecast":
-        # IS PROJETÉ fin d'exercice (base projection + PV latentes) — identique
-        # à la page Heures & jours : une seule vérité en mode prévisionnel.
-        is_estimate_eur = q2(
-            forecast_service.estimate_is(db, year, today=today)["is_total_eur"]
-        )
-    else:
-        is_estimate_eur = q2(
-            forecast_service.estimate_is(
-                db, year, base_override=result_eur, today=today
-            )["is_total_eur"]
-        )
-    net_result_eur = q2(result_eur - is_estimate_eur)
+    revenue_eur = core["revenue_eur"]
+    charges_eur = core["charges_eur"]
+    result_eur = core["result_eur"]
+    is_estimate_eur = core["is_estimate_eur"]
+    net_result_eur = core["net_result_eur"]
+    pre_is = core["pre_is"]
 
     # Le report à nouveau est un concept de l'ère IS : pour un exercice IR,
     # on affiche 0 (le stock de l'époque vit dans la poche initiale, hors P&L).
     retained_earnings_eur = (
-        q2(_ZERO) if pre_is else retained_earnings(db, year, today=today)
+        q2(_ZERO) if pre_is else retained_earnings(db, year, today=today, scope=scope)
     )
     distributable_eur = q2(net_result_eur + retained_earnings_eur)
     # Distributions DÉJÀ versées pendant l'exercice (acomptes sur dividendes…) :
