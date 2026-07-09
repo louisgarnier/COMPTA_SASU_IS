@@ -68,7 +68,28 @@ def _fr_amount(value) -> str:
     return f"{Decimal(value or 0):,.2f}".replace(",", " ").replace(".", ",")
 
 
+def _ordinal(day: int) -> str:
+    """Ordinal anglais d'un jour : 1 → '1st', 2 → '2nd', 30 → '30th'."""
+    if 11 <= day % 100 <= 13:
+        return f"{day}th"
+    return f"{day}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th') }"
+
+
 _jinja_env.filters["fr"] = _fr_amount
+_jinja_env.filters["ord"] = _ordinal
+
+
+def pdf_filename(invoice: models.Invoice, client: models.Client, suffix: str) -> str:
+    """
+    Nom du fichier PDF, fidèle aux factures d'origine :
+    `Invoice_{Mois anglais}_{Année}_{Code client}_{suffixe}.pdf`
+    (ex. Invoice_June_2026_SWIB_LG.pdf). Repli sur le n° si le mois manque.
+    """
+    m = invoice.month or ""
+    if len(m) >= 7 and m[:4].isdigit() and m[5:7].isdigit():
+        month_name = calendar.month_name[int(m[5:7])]
+        return f"Invoice_{month_name}_{m[:4]}_{client.code}_{suffix}.pdf"
+    return f"Invoice_{invoice.number}_{client.code}_{suffix}.pdf"
 
 
 def _get_settings(db: Session) -> models.Settings:
@@ -273,7 +294,10 @@ def generate_pdf(db: Session, invoice: models.Invoice) -> str:
     html = render_html(db, invoice)
 
     _INVOICES_DIR.mkdir(parents=True, exist_ok=True)
-    pdf_path = _INVOICES_DIR / f"{invoice.number}.pdf"
+    client = db.get(models.Client, invoice.client_id)
+    settings = _get_settings(db)
+    suffix = getattr(settings, "invoice_filename_suffix", None) or "LG"
+    pdf_path = _INVOICES_DIR / pdf_filename(invoice, client, suffix)
 
     lib_path = os.environ.get("WEASYPRINT_LIB_PATH")
     if not lib_path:

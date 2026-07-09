@@ -213,7 +213,7 @@ def download_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)) -> File
     return FileResponse(
         invoice.pdf_path,
         media_type="application/pdf",
-        filename=f"{invoice.number}.pdf",
+        filename=os.path.basename(invoice.pdf_path),  # Invoice_June_2026_SWIB_LG.pdf
     )
 
 

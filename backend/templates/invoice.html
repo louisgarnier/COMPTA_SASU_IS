@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>Facture {{ invoice.number }}</title>
+  <title>Invoice {{ invoice.number }}</title>
   <style>
     /* V1.1 « Suisse épurée » (maquette validée 2026-07-09).
        Layout en TABLES (pas de flex) : rendu identique navigateur / WeasyPrint. */
@@ -61,7 +61,7 @@
           <div class="brand-addr">{{ company.address }}</div>
         </td>
         <td class="r">
-          <div class="doc-title">FACTURE</div>
+          <div class="doc-title">INVOICE</div>
           <div class="doc-no num">N° {{ invoice.number }}</div>
         </td>
       </tr>
@@ -71,19 +71,19 @@
     <table class="layout strip num">
       <tr>
         <td class="left">
-          {% if invoice.period_label or invoice.month %}Période facturée : <b style="color:#111">{{ invoice.period_label or invoice.month }}</b>{% endif %}
-          {% if invoice.issue_date %} &nbsp;·&nbsp; Émise le {{ invoice.issue_date.strftime('%d/%m/%Y') }}{% endif %}
+          {% if invoice.period_label or invoice.month %}Billing period: <b style="color:#111">{{ invoice.period_label or invoice.month }}</b>{% endif %}
+          {% if invoice.issue_date %} &nbsp;·&nbsp; Issued {{ invoice.issue_date.strftime('%d/%m/%Y') }}{% endif %}
         </td>
         <td class="right">
-          À régler : <b class="big">{{ invoice.amount | fr }} {{ invoice.currency }}</b>
-          {% if invoice.due_date %}&nbsp;avant le&nbsp; <b>{{ invoice.due_date.strftime('%d/%m/%Y') }}</b>{% endif %}
+          Amount due: <b class="big">{{ invoice.amount | fr }} {{ invoice.currency }}</b>
+          {% if invoice.due_date %}&nbsp;by&nbsp; <b>{{ invoice.due_date.strftime('%d/%m/%Y') }}</b>{% endif %}
         </td>
       </tr>
     </table>
 
     {# ── Facturé à : ENTITÉ DE FACTURATION (contact) sinon raison sociale ── #}
     <div>
-      <div class="lab9" style="margin-bottom:6px">Facturé à</div>
+      <div class="lab9" style="margin-bottom:6px">Billed to</div>
       <div class="billto-name">{{ client.contact_name or client.legal_name }}</div>
       <div class="billto-addr">
         {% if client.address %}{{ client.address }}<br/>{% endif %}
@@ -97,15 +97,15 @@
     <table class="items num">
       <thead>
         <tr>
-          <th>Désignation</th>
-          <th class="r">Qté</th>
-          <th class="r">{% if invoice.rate_unit == 'hour' %}Taux horaire{% else %}Taux journalier{% endif %}</th>
-          <th class="r">Montant</th>
+          <th>Description</th>
+          <th class="r">Qty</th>
+          <th class="r">{% if invoice.rate_unit == 'hour' %}Hourly rate{% else %}Daily rate{% endif %}</th>
+          <th class="r">Amount</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>Prestations de conseil{% if invoice.period_label %} <span class="faint">— {{ invoice.period_label }}</span>{% endif %}{% if invoice.note %}<br/><span class="faint" style="font-size:10.5px">{{ invoice.note }}</span>{% endif %}</td>
+          <td>Consultancy fees{% if invoice.period_start and invoice.period_end %} <span class="faint">— period {{ invoice.period_start.day | ord }} to the {{ invoice.period_end.day | ord }} of {{ invoice.period_end.strftime('%B %Y') }}</span>{% elif invoice.period_label %} <span class="faint">— {{ invoice.period_label }}</span>{% endif %}{% if invoice.note %}<br/><span class="faint" style="font-size:10.5px">{{ invoice.note }}</span>{% endif %}</td>
           <td class="r muted">{% if invoice.rate_unit == 'hour' %}{{ invoice.hours | fr }} h{% else %}{{ invoice.days | fr }} j{% endif %}</td>
           <td class="r muted">{{ invoice.rate | fr }} {{ invoice.currency }}</td>
           <td class="r" style="font-weight:600">{{ invoice.amount | fr }} {{ invoice.currency }}</td>
@@ -120,7 +120,7 @@
         <td style="width:280px">
           <div class="totals num">
             <table class="layout">
-              <tr class="row"><td class="row">Sous-total HT</td><td class="row r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
+              <tr class="row"><td class="row">Sub Total (excl. VAT)</td><td class="row r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
             </table>
             <table class="layout grand">
               <tr><td class="grand">Total <span class="ccy">({{ invoice.currency }})</span></td><td class="grand r">{{ invoice.amount | fr }} {{ invoice.currency }}</td></tr>
@@ -134,10 +134,10 @@
 
     {# ── Règlement ──────────────────────────────────────────────────── #}
     <div class="bank">
-      <div class="lab9" style="color:#6b7280; margin-bottom:4px">Règlement par virement — {% if client.pay_account_label %}{{ client.pay_account_label }}{% else %}{{ company.company_name }} ({{ invoice.currency }} account){% endif %}</div>
+      <div class="lab9" style="color:#6b7280; margin-bottom:4px">Payment by wire transfer — Bank details: {% if client.pay_account_label %}{{ client.pay_account_label }}{% else %}{{ company.company_name }} ({{ invoice.currency }} account){% endif %}</div>
       {% if client.pay_iban %}<div class="iban num"><b>IBAN</b>&nbsp; {{ client.pay_iban }}{% if client.pay_bic %} &nbsp;·&nbsp; <b>BIC</b>&nbsp; {{ client.pay_bic }}{% endif %}</div>{% endif %}
       {% if client.pay_bank_name %}<div style="color:#4b5563">{{ client.pay_bank_name }}{% if client.pay_bank_address %} — {{ client.pay_bank_address }}{% endif %}</div>{% endif %}
-      <div class="faint">Titulaire : {{ company.company_name }} — {{ company.address }}</div>
+      <div class="faint">Account holder: {{ company.company_name }} — {{ company.address }}</div>
     </div>
 
     {# ── Pied ───────────────────────────────────────────────────────── #}

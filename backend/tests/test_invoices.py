@@ -382,3 +382,15 @@ def test_route_create_unknown_client_404(client):
         "client_id": 9999, "hours": "1", "rate": "1", "currency": "USD",
     })
     assert resp.status_code == 404
+
+
+def test_pdf_filename_matches_original_convention(session):
+    """Nom fidèle aux originaux : Invoice_{Mois EN}_{Année}_{CODE}_{suffixe}.pdf."""
+    client = _seed(session)
+    inv = models.Invoice(number="70", client_id=client.id, month="2026-06",
+                         status="due", currency="USD", amount=Decimal("100"))
+    assert invoices_service.pdf_filename(inv, client, "LG") == "Invoice_June_2026_SWIB_LG.pdf"
+    inv.month = "2026-01"
+    assert invoices_service.pdf_filename(inv, client, "LG") == "Invoice_January_2026_SWIB_LG.pdf"
+    inv.month = ""  # repli sans mois
+    assert invoices_service.pdf_filename(inv, client, "LG") == "Invoice_70_SWIB_LG.pdf"

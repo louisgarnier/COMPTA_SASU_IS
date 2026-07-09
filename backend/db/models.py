@@ -72,6 +72,9 @@ class Settings(Base):
     # nul et exercices exclus du chaînage du RAN. NULL = tout est à l'IS.
     is_start_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Suffixe des noms de fichiers PDF (Invoice_Mois_Année_CODE_{suffixe}.pdf).
+    invoice_filename_suffix: Mapped[str] = mapped_column(String, default="LG")
+
     next_invoice_number: Mapped[int] = mapped_column(Integer, default=62)
 
 
