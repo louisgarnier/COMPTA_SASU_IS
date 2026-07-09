@@ -2,6 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import TransactionsPage from '../app/transactions/page';
 import { transactionsAPI } from '@/api/client';
 
+// useSearchParams (Next) → relit l'URL réelle de jsdom.
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
+
 jest.mock('@/api/client', () => ({
   fxAPI: {
     list: jest.fn().mockResolvedValue([{ currency: 'USD', rate: '0.9', missing: false }]),

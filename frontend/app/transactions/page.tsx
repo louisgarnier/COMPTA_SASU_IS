@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { transactionsAPI, categoriesAPI, bankingAPI, fxAPI } from '@/api/client';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { eur, money, dateFR } from '@/lib/format';
@@ -58,7 +59,7 @@ function kindTone(kind: string | null): 'neutral' | 'pos' | 'neg' | 'warn' {
   return 'neutral';
 }
 
-export default function TransactionsPage() {
+function TransactionsPageInner() {
   const [rows, setRows] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   // Taux théoriques des Réglages — repli EUR (≈) quand le FX réel n'est pas alloué.
@@ -81,17 +82,17 @@ export default function TransactionsPage() {
   const [bridgeAsOf, setBridgeAsOf] = useState<string>('');
 
   // Pré-remplissage depuis l'URL (clic sur une ligne du pont) : ?bridge=&as_of=.
-  // as_of assaini : date pure AAAA-MM-JJ uniquement (une datetime est tronquée,
-  // une valeur invalide est ignorée) — le backend tolère aussi, double ceinture.
+  // useSearchParams est RÉACTIF : Next App Router ne re-monte pas la page quand
+  // seule la query change (navigation douce depuis le dashboard) — un effet « au
+  // montage » ratait donc le filtre. as_of assaini : date pure AAAA-MM-JJ
+  // (datetime tronquée, invalide ignoré) — le backend tolère aussi.
+  const searchParams = useSearchParams();
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    const b = sp.get('bridge');
-    if (b) {
-      setBridgeFilter(b);
-      const raw = (sp.get('as_of') || '').slice(0, 10);
-      setBridgeAsOf(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '');
-    }
-  }, []);
+    const b = searchParams.get('bridge') || '';
+    setBridgeFilter(b);
+    const raw = (searchParams.get('as_of') || '').slice(0, 10);
+    setBridgeAsOf(b && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : '');
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -480,5 +481,16 @@ export default function TransactionsPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Wrapper Suspense requis par Next pour `useSearchParams` en composant client.
+ */
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-[var(--muted)]">Chargement…</p>}>
+      <TransactionsPageInner />
+    </Suspense>
   );
 }
