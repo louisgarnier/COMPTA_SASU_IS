@@ -85,3 +85,14 @@ def _ensure_columns() -> None:
                     continue
                 ddl = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}"
                 conn.execute(text(ddl))
+                # Backfill des lignes EXISTANTES avec le défaut scalaire du modèle
+                # (SQLite pose NULL sinon → 500 de validation sur les schémas str).
+                default = getattr(col.default, "arg", None)
+                if default is not None and not callable(default):
+                    lit = str(default).replace("'", "''")
+                    conn.execute(
+                        text(
+                            f"UPDATE {table.name} SET {col.name} = '{lit}' "
+                            f"WHERE {col.name} IS NULL"
+                        )
+                    )

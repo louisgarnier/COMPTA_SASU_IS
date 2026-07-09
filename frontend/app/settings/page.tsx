@@ -14,9 +14,11 @@ const FIELDS: { key: string; label: string; type?: string; group: string; hint?:
   { key: 'address', label: 'Adresse', group: 'Société' },
   { key: 'email', label: 'Email', group: 'Société' },
   { key: 'capital_eur', label: 'Capital social (€)', type: 'number', group: 'Société' },
-  { key: 'bank_name', label: 'Banque', group: 'Banque (réception)' },
-  { key: 'bank_bic', label: 'BIC', group: 'Banque (réception)' },
-  { key: 'bank_address', label: 'Adresse banque', group: 'Banque (réception)' },
+  // Bloc bancaire de réception : déplacé sur la FICHE CLIENT (2026-07-09).
+  {
+    key: 'invoice_legal_mention', label: 'Mention légale facture', group: 'Facturation',
+    hint: 'Imprimée sous le total (ex. franchise en base art. 293 B). Vide = pas de mention.',
+  },
   { key: 'is_low_rate', label: 'Taux IS réduit', type: 'number', group: 'Impôt société' },
   { key: 'is_threshold', label: 'Seuil IS (€)', type: 'number', group: 'Impôt société' },
   { key: 'is_high_rate', label: 'Taux IS normal', type: 'number', group: 'Impôt société' },

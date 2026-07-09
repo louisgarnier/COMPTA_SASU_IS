@@ -119,6 +119,9 @@ def test_generate_rejects_non_forecast(db):
 
 def test_render_html_contains_key_elements(db):
     client = _setup(db)
+    # Nouveau modèle (2026-07-09) : le bloc bancaire vit sur la FICHE CLIENT.
+    client.pay_bic = "REVOFRP2"
+    db.commit()
     inv = _forecast_invoice(db, client)
     invoices_service.generate_invoice(db, inv.id, issue_date=date(2026, 6, 1))
 
@@ -126,7 +129,7 @@ def test_render_html_contains_key_elements(db):
 
     assert "Alpha Financial Markets Consulting Inc." in html
     assert "FR7628233000011271129737484" in html          # IBAN client
-    assert "REVOFRP2" in html                               # BIC settings
+    assert "REVOFRP2" in html                               # BIC fiche client
     assert "152" in html and "120" in html                 # heures @ taux
     assert "18" in html and "240" in html                  # montant
     assert "293 B" in html                                  # mention TVA

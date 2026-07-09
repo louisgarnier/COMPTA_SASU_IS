@@ -16,6 +16,9 @@ type Client = {
   code: string;
   legal_name: string;
   address: string;
+  city: string;
+  state_region: string;
+  postal_code: string;
   country: string;
   contact_name: string;
   email: string;
@@ -25,6 +28,9 @@ type Client = {
   default_hours_per_day: string | number;
   payment_terms_days: number;
   pay_iban: string;
+  pay_bic: string;
+  pay_bank_name: string;
+  pay_bank_address: string;
   counterparty_match: string;
 };
 
@@ -45,20 +51,26 @@ const FIELDS: Field[] = [
   { key: 'currency', label: 'Devise', type: 'select', options: CURRENCIES, group: 'Identité' },
   { key: 'contact_name', label: 'Contact', group: 'Envoi facture', ph: 'Jane Doe' },
   { key: 'email', label: 'Email', group: 'Envoi facture', type: 'email', ph: 'billing@…' },
-  { key: 'address', label: 'Adresse', group: 'Envoi facture', ph: '437 Madison Ave…' },
-  { key: 'country', label: 'Pays', group: 'Envoi facture', ph: 'USA' },
+  { key: 'address', label: 'Adresse (rue)', group: 'Envoi facture', ph: '1 University Ave, Unit 11-101' },
+  { key: 'city', label: 'Ville', group: 'Envoi facture', ph: 'Toronto' },
+  { key: 'state_region', label: 'État / Région', group: 'Envoi facture', ph: 'ON' },
+  { key: 'postal_code', label: 'Code postal', group: 'Envoi facture', ph: 'M5J 2P1' },
+  { key: 'country', label: 'Pays', group: 'Envoi facture', ph: 'Canada' },
   { key: 'billing_mode', label: 'Mode', type: 'select', options: ['tjm', 'thm'], group: 'Facturation' },
   { key: 'tjh', label: 'Taux (jour/heure)', type: 'number', group: 'Facturation', ph: '120' },
   { key: 'default_hours_per_day', label: 'Heures / jour', type: 'number', group: 'Facturation', ph: '8' },
   { key: 'payment_terms_days', label: 'Échéance (jours)', type: 'number', group: 'Facturation', ph: '60' },
   { key: 'counterparty_match', label: 'Libellé rapprochement', group: 'Facturation', ph: 'texte relevé bancaire' },
   { key: 'pay_iban', label: 'IBAN de réception', group: 'Paiement', ph: 'FR76… (ton compte où ce client paie)' },
+  { key: 'pay_bic', label: 'BIC', group: 'Paiement', ph: 'REVOFRP2' },
+  { key: 'pay_bank_name', label: 'Banque', group: 'Paiement', ph: 'Revolut Bank UAB' },
+  { key: 'pay_bank_address', label: 'Adresse banque', group: 'Paiement', ph: 'Konstitucijos ave. 21B, 08130 Vilnius…' },
 ];
 
 const EMPTY: Partial<Client> = {
-  code: '', legal_name: '', currency: 'USD', address: '', country: '',
+  code: '', legal_name: '', currency: 'USD', address: '', city: '', state_region: '', postal_code: '', country: '',
   contact_name: '', email: '', tjh: '', billing_mode: 'tjm',
-  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '', pay_iban: '',
+  default_hours_per_day: 8, payment_terms_days: 60, counterparty_match: '', pay_iban: '', pay_bic: '', pay_bank_name: '', pay_bank_address: '',
 };
 
 // Libellé lisible pour les options de select.

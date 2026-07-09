@@ -46,6 +46,9 @@
         <div class="lab">Facturé à</div>
         <div class="cname">{{ client.legal_name }}</div>
         {% if client.address %}<div>{{ client.address }}</div>{% endif %}
+        {# Ville, État/Région CodePostal — composition nord-américaine (« Toronto, ON M5J 2P1 ») #}
+        {% set locality = [client.city, (client.state_region ~ ' ' ~ client.postal_code)|trim] | select | join(', ') %}
+        {% if locality %}<div>{{ locality }}</div>{% endif %}
         {% if client.country %}<div>{{ client.country }}</div>{% endif %}
       </div>
     </div>
@@ -82,13 +85,13 @@
       </tbody>
     </table>
 
-    <div class="mentions dk">TVA non applicable, art. 293 B du CGI.</div>
+    {% if company.invoice_legal_mention %}<div class="mentions dk">{{ company.invoice_legal_mention }}</div>{% endif %}
 
     <div class="bank">
       <div class="strong dk">Bank details : {{ company.company_name }} ({{ invoice.currency }} account)</div>
-      {% if client.pay_iban %}<div>IBAN : {{ client.pay_iban }}{% if company.bank_bic %} · BIC : {{ company.bank_bic }}{% endif %}</div>{% endif %}
+      {% if client.pay_iban %}<div>IBAN : {{ client.pay_iban }}{% if client.pay_bic %} · BIC : {{ client.pay_bic }}{% endif %}</div>{% endif %}
       <div>Adresse : {{ company.address }}</div>
-      {% if company.bank_name %}<div>Bank : {{ company.bank_name }}{% if company.bank_address %} — {{ company.bank_address }}{% endif %}</div>{% endif %}
+      {% if client.pay_bank_name %}<div>Bank : {{ client.pay_bank_name }}{% if client.pay_bank_address %} — {{ client.pay_bank_address }}{% endif %}</div>{% endif %}
     </div>
 
     <div class="foot">

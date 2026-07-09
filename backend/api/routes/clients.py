@@ -37,6 +37,9 @@ class ClientOut(BaseModel):
     code: str
     legal_name: str
     address: str
+    city: str
+    state_region: str
+    postal_code: str
     country: str
     contact_name: str
     email: str
@@ -46,6 +49,9 @@ class ClientOut(BaseModel):
     default_hours_per_day: Decimal
     payment_terms_days: int
     pay_iban: str
+    pay_bic: str
+    pay_bank_name: str
+    pay_bank_address: str
     counterparty_match: str
 
 
@@ -55,6 +61,9 @@ class ClientCreate(BaseModel):
     code: str
     legal_name: str
     address: str = ""
+    city: str = ""
+    state_region: str = ""
+    postal_code: str = ""
     country: str = ""
     contact_name: str = ""
     email: str = ""
@@ -64,6 +73,9 @@ class ClientCreate(BaseModel):
     default_hours_per_day: Decimal = Decimal("8")
     payment_terms_days: int = 60
     pay_iban: str = ""
+    pay_bic: str = ""
+    pay_bank_name: str = ""
+    pay_bank_address: str = ""
     counterparty_match: str = ""
 
 
@@ -73,6 +85,9 @@ class ClientUpdate(BaseModel):
     code: Optional[str] = None
     legal_name: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
+    state_region: Optional[str] = None
+    postal_code: Optional[str] = None
     country: Optional[str] = None
     contact_name: Optional[str] = None
     email: Optional[str] = None
@@ -82,6 +97,9 @@ class ClientUpdate(BaseModel):
     default_hours_per_day: Optional[Decimal] = None
     payment_terms_days: Optional[int] = None
     pay_iban: Optional[str] = None
+    pay_bic: Optional[str] = None
+    pay_bank_name: Optional[str] = None
+    pay_bank_address: Optional[str] = None
     counterparty_match: Optional[str] = None
 
 

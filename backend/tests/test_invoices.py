@@ -110,6 +110,46 @@ def test_render_html_contains_key_fields(session):
     assert "1 000" in html             # montant 10 * 100 (format espace)
 
 
+def test_render_html_uses_client_bank_block_and_structured_address(session):
+    """
+    Décision 2026-07-09 : le bloc bancaire vit sur la FICHE CLIENT (IBAN + BIC +
+    banque + adresse banque), l'adresse client est structurée (ville, état, CP),
+    et la mention légale vient des Réglages (plus de texte en dur).
+    """
+    client = _seed(session)
+    client.address = "1 University Ave, Unit 11-101"
+    client.city = "Toronto"
+    client.state_region = "ON"
+    client.postal_code = "M5J 2P1"
+    client.country = "Canada"
+    client.pay_iban = "FR7628233000014550298993527"
+    client.pay_bic = "REVOFRP2"
+    client.pay_bank_name = "Revolut Bank UAB"
+    client.pay_bank_address = "Konstitucijos ave. 21B, 08130 Vilnius, Lituanie"
+    st = session.get(models.Settings, 1)
+    st.invoice_legal_mention = "TVA non applicable, art. 293 B du CGI."
+    session.commit()
+
+    inv = invoices_service.create_invoice(
+        session,
+        {"client_id": client.id, "hours": Decimal("10"), "rate": Decimal("100"),
+         "currency": "CAD"},
+        issue_date=date(2026, 7, 1),
+    )
+    html = invoices_service.render_html(session, inv)
+    # Adresse structurée composée façon nord-américaine.
+    assert "1 University Ave, Unit 11-101" in html
+    assert "Toronto, ON M5J 2P1" in html
+    assert "Canada" in html
+    # Bloc bancaire depuis la FICHE CLIENT.
+    assert "REVOFRP2" in html
+    assert "Revolut Bank UAB" in html
+    assert "Konstitucijos" in html
+    assert "(CAD account)" in html
+    # Mention légale depuis les Réglages.
+    assert "art. 293 B" in html
+
+
 def test_reconcile_links_matching_transaction(session):
     client = _seed(session)
     inv = invoices_service.create_invoice(

@@ -48,10 +48,17 @@ class Settings(Base):
     email: Mapped[str] = mapped_column(String, default="")
     capital_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("100"))
 
-    # Bloc bancaire (constant Revolut ; l'IBAN de réception vit sur le client).
+    # Bloc bancaire — DÉPRÉCIÉ (2026-07-09) : le bloc de réception vit désormais
+    # sur la fiche client (pay_bic/pay_bank_name/pay_bank_address). Colonnes
+    # conservées dormantes (migrations additives uniquement).
     bank_name: Mapped[str] = mapped_column(String, default="")
     bank_bic: Mapped[str] = mapped_column(String, default="")
     bank_address: Mapped[str] = mapped_column(Text, default="")
+    # Mention légale imprimée sur la facture (ex. franchise en base art. 293 B) —
+    # paramétrable, plus de texte en dur dans le template.
+    invoice_legal_mention: Mapped[str] = mapped_column(
+        Text, default="TVA non applicable, art. 293 B du CGI."
+    )
 
     is_low_rate: Mapped[Decimal] = mapped_column(RATE, default=Decimal("0.15"))
     is_threshold: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("42500"))
@@ -76,7 +83,12 @@ class Client(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(String, unique=True, index=True)
     legal_name: Mapped[str] = mapped_column(String)
+    # Adresse structurée (facturation internationale) : rue en libre, puis
+    # ville / état-région / code postal composés « Toronto, ON M5J 2P1 ».
     address: Mapped[str] = mapped_column(Text, default="")
+    city: Mapped[str] = mapped_column(String, default="")
+    state_region: Mapped[str] = mapped_column(String, default="")
+    postal_code: Mapped[str] = mapped_column(String, default="")
     country: Mapped[str] = mapped_column(String, default="")
     contact_name: Mapped[str] = mapped_column(String, default="")
     email: Mapped[str] = mapped_column(String, default="")
@@ -86,7 +98,13 @@ class Client(Base):
     billing_mode: Mapped[str] = mapped_column(String, default="tjm")
     default_hours_per_day: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("8"))
     payment_terms_days: Mapped[int] = mapped_column(Integer, default=45)
+    # Bloc bancaire de RÉCEPTION par client (décision 2026-07-09) : l'IBAN est
+    # par compte devise, le BIC/banque/adresse banque l'accompagnent — la fiche
+    # client est autonome (tout ce qui s'imprime sur sa facture est ici).
     pay_iban: Mapped[str] = mapped_column(String, default="")
+    pay_bic: Mapped[str] = mapped_column(String, default="")
+    pay_bank_name: Mapped[str] = mapped_column(String, default="")
+    pay_bank_address: Mapped[str] = mapped_column(Text, default="")
     counterparty_match: Mapped[str] = mapped_column(String, default="")
 
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="client")
