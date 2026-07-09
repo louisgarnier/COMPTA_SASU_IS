@@ -80,6 +80,8 @@ function TransactionsPageInner() {
   // trésorerie ? » (classement fait côté backend — total liste == ligne du pont).
   const [bridgeFilter, setBridgeFilter] = useState<string>('');
   const [bridgeAsOf, setBridgeAsOf] = useState<string>('');
+  // Export CSV : exercice choisi (options dérivées des transactions chargées).
+  const [exportYear, setExportYear] = useState<string>(String(new Date().getFullYear()));
 
   // Pré-remplissage depuis l'URL (clic sur une ligne du pont) : ?bridge=&as_of=.
   // useSearchParams est RÉACTIF : Next App Router ne re-monte pas la page quand
@@ -138,6 +140,10 @@ function TransactionsPageInner() {
       )
       .catch(() => setRates({}));
   }, []);
+
+  const exportYears = Array.from(
+    new Set(rows.map((r) => (r.booked_date || '').slice(0, 4)).filter(Boolean)),
+  ).sort();
 
   // Année de la vue tréso (suit la date du pont si fournie) + catégories de
   // transferts/placements proposées dans le dropdown (dynamiques, depuis la base).
@@ -239,6 +245,24 @@ function TransactionsPageInner() {
           selectedCount > 0 ? ` · ${selectedCount} sélectionnée(s) — change la catégorie d'une ligne cochée pour l'appliquer à toutes` : ''
         }`}
         action={
+          <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/api/transactions/export?year=${exportYear}`}
+            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:border-[var(--accent)]"
+            title="Export CSV de l'exercice pour l'expert-comptable"
+          >
+            ⬇ CSV {exportYear}
+          </a>
+          <select
+            value={exportYear}
+            onChange={(e) => setExportYear(e.target.value)}
+            aria-label="Exercice à exporter"
+            className="rounded-lg border border-[var(--border)] px-2 py-2 text-sm outline-none"
+          >
+            {exportYears.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
           <button
             onClick={sync}
             disabled={syncing}
@@ -246,6 +270,7 @@ function TransactionsPageInner() {
           >
             {syncing ? 'Synchronisation…' : 'Synchroniser'}
           </button>
+          </div>
         }
       />
 

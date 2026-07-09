@@ -247,6 +247,7 @@ export const dashboardAPI = {
     get<any>(`/api/dashboard/pnl-summary?year=${year}&scope=${scope}`),
   invoiceTimeline: () => get<any>('/api/dashboard/invoice-timeline'),
   fxConversions: () => get<any>('/api/dashboard/fx-conversions'),
+  pnlDetail: (year: number) => get<any>(`/api/dashboard/pnl-detail?year=${year}`),
   treasuryBridge: (asOf?: string) =>
     get<any>(`/api/dashboard/treasury-bridge${asOf ? `?as_of=${asOf}` : ''}`),
 };

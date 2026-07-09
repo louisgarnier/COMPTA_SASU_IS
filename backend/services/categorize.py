@@ -39,6 +39,7 @@ _TYPE_TO_KIND = {
     "transfer": "transfer",
     "internal": "investment",
     "distribution": "transfer",  # dividendes/salaire dirigeant → sortie de type virement
+    "is_payment": "transfer",    # paiement IS (acomptes/solde DGFIP) → hors charges
     "uncategorized": "other",
 }
 

@@ -85,6 +85,62 @@ def _to_out(tx: models.Transaction) -> TransactionOut:
     return out
 
 
+@router.get("/export")
+def export_transactions_csv(
+    year: int = Query(..., ge=2000, le=2100),
+    db: Session = Depends(get_db),
+):
+    """
+    Export CSV d'un exercice pour l'expert-comptable (clôture).
+
+    Colonnes : date;description;contrepartie;categorie;type;devise;montant;
+    montant_eur;compte — montant EUR = réel (`amount_eur`) sinon théorique.
+    Séparateur `;` (Excel FR), champs échappés (csv.QUOTE_MINIMAL).
+    """
+    import csv
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    from backend.services.fx import load_rates, to_eur
+
+    rates = load_rates(db)
+    cats = {c.id: c.name for c in db.query(models.Category).all()}
+    accounts = {a.account_uid: (a.name or a.provider) for a in db.query(models.BankAccount).all()}
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(["date", "description", "contrepartie", "categorie", "type",
+                     "devise", "montant", "montant_eur", "compte"])
+    rows = (
+        db.query(models.Transaction)
+        .order_by(models.Transaction.booked_date, models.Transaction.id)
+        .all()
+    )
+    n = 0
+    for t in rows:
+        if t.booked_date is None or t.booked_date.year != year:
+            continue
+        eur_v = (
+            t.amount_eur
+            if t.amount_eur is not None
+            else to_eur(t.amount, t.currency, rates)
+        )
+        writer.writerow([
+            t.booked_date.isoformat(), t.description or "", t.counterparty or "",
+            cats.get(t.category_id, ""), t.kind or "", t.currency,
+            f"{t.amount:.2f}", f"{eur_v:.2f}", accounts.get(t.account_uid, t.account_uid),
+        ])
+        n += 1
+    logger.info("📤 [Transactions] export CSV: exercice=%d, %d ligne(s) ✅", year, n)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="transactions_{year}.csv"'},
+    )
+
+
 @router.get("", response_model=list[TransactionOut])
 def list_transactions(
     db: Session = Depends(get_db),

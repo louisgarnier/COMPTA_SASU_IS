@@ -29,6 +29,7 @@ export type PnlSummary = {
   retained_earnings_eur: string | number;
   distributable_eur: string | number;
   distributed_this_year_eur?: string | number;
+  is_paid_eur?: string | number;
   remaining_distributable_eur?: string | number;
   by_currency: Ccy[];
 };

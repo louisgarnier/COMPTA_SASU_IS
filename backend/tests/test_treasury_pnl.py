@@ -321,3 +321,25 @@ def test_synced_account_prefers_real_balance(session):
     at = consolidated_treasury(session, as_of=date(2026, 2, 28))
     eur_h = next(a for a in at["accounts"] if a["account_uid"] == "eur-1")
     assert eur_h["balance"] == Decimal("2900.00")
+
+
+def test_pnl_detail_charges_by_category(session):
+    """
+    Lot B (clôture) : détail annuel — charges par CATÉGORIE × mois (net des
+    remboursements), en plus des produits mensuels existants.
+    """
+    from backend.services.pnl import annual_detail
+
+    out = annual_detail(session, 2026)
+    assert len(out["months"]) == 12
+    cats = {r["category"]: r for r in out["charges_by_category"]}
+    # Frais (fév −300) et USD (fév −100×0.9=−90) selon le seed du module :
+    assert "Frais" in cats
+    row = cats["Frais"]
+    assert row["total_eur"] > 0                      # magnitudes positives
+    assert len(row["by_month"]) == 12
+    assert sum(Decimal(str(v)) for v in row["by_month"]) == Decimal(str(row["total_eur"]))
+    # Total charges du détail == total charges du P&L (cohérence).
+    total = sum(Decimal(str(r["total_eur"])) for r in out["charges_by_category"])
+    from backend.services.pnl import monthly_pnl
+    assert total == abs(Decimal(str(monthly_pnl(session, 2026)["totals"]["charges_eur"])))

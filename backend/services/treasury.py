@@ -323,7 +323,7 @@ def bridge_key_for_tx(
                 return "received_current"
             return "received_prior"
         return "other_revenue"
-    if ctype in ("transfer", "internal", "investment", "distribution") or kind in (
+    if ctype in ("transfer", "internal", "investment", "distribution", "is_payment") or kind in (
         "transfer",
         "investment",
     ):

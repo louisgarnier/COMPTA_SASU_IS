@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { bankingAPI } from '@/api/client';
+import { BalanceDocsModal } from '@/components/BalanceDocsModal';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { money, dateFR } from '@/lib/format';
 
@@ -53,6 +54,7 @@ export default function BankingPage() {
   const [attaching, setAttaching] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
+  const [docsOpen, setDocsOpen] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string>('');
 
   const loadConnections = useCallback(async () => {
@@ -182,13 +184,22 @@ export default function BankingPage() {
         title="Banques"
         subtitle="Connexion Open Banking (Enable Banking) & synchronisation"
         action={
-          <button
-            onClick={handleSync}
-            disabled={syncing || loading}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {syncing ? 'Synchronisation…' : 'Synchroniser'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDocsOpen(true)}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:border-[var(--accent)]"
+              title="Justificatifs de solde (relevés) par compte"
+            >
+              📎 Justificatifs
+            </button>
+            <button
+              onClick={handleSync}
+              disabled={syncing || loading}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {syncing ? 'Synchronisation…' : 'Synchroniser'}
+            </button>
+          </div>
         }
       />
 
@@ -401,6 +412,7 @@ export default function BankingPage() {
           </Card>
         </div>
       )}
+          {docsOpen && <BalanceDocsModal onClose={() => setDocsOpen(false)} />}
     </div>
   );
 }

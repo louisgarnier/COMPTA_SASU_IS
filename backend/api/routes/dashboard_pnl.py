@@ -22,6 +22,16 @@ logger = get_logger("dashboard_pnl", channel="api")
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
+@router.get("/pnl-detail")
+def get_pnl_detail(
+    year: int = Query(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Détail annuel (clôture) : mensuel + charges par catégorie × mois."""
+    logger.info("📥 [Dashboard] pnl-detail: year=%d", year)
+    return pnl_service.annual_detail(db, year)
+
+
 @router.get("/pnl-summary")
 def get_pnl_summary(
     year: int = Query(...),

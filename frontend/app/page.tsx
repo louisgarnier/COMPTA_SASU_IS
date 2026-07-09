@@ -15,6 +15,7 @@ import {
 } from '@/components/dashboard/InvoiceTimeline';
 import { TreasuryBridge } from '@/components/dashboard/TreasuryBridge';
 import { BalancesAtDate } from '@/components/dashboard/BalancesAtDate';
+import { DistributionsCard } from '@/components/dashboard/DistributionsCard';
 
 const CUR_YEAR = new Date().getFullYear();
 // N-1 inclus : l'exercice précédent (P&L, IS) reste consultable après la clôture.
@@ -178,9 +179,10 @@ export default function DashboardPage() {
 
       {cashflow && <CashflowChart data={cashflow} />}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
         {balance && <BalanceChart data={balance} />}
         {pnl && <PnlWidget data={pnl} />}
+        {pnl && <DistributionsCard data={pnl} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

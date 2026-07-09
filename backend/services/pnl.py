@@ -43,7 +43,7 @@ _ZERO = Decimal("0")
 
 # Flux exclus du résultat d'exploitation.
 _EXCLUDED_KINDS = {"investment", "conversion", "transfer", "internal"}
-_EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal", "distribution"}
+_EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal", "distribution", "is_payment"}
 
 
 def invoice_revenue_eur(inv: models.Invoice, rates: dict) -> Decimal:
@@ -208,6 +208,56 @@ def monthly_pnl(
                 c: q2(charges_native_ccy.get(c, _ZERO)) for c in charge_ccy_order
             },
         },
+    }
+
+
+def annual_detail(db: Session, year: int) -> dict:
+    """
+    Détail annuel pour la clôture (page P&L imprimable) :
+    - `months` : produits/charges/résultat mensuels (= monthly_pnl, engagé) ;
+    - `charges_by_category` : une ligne par catégorie de type charge ayant des
+      mouvements — total EUR net (magnitude positive) + ventilation 12 mois.
+    Somme des lignes == total charges du P&L (même valorisation : EUR réel
+    prioritaire, netting des remboursements).
+    """
+    pnl = monthly_pnl(db, year)
+    rates = load_rates(db)
+    cats = {c.id: c for c in db.query(models.Category).all()}
+
+    by_cat: dict[str, list[Decimal]] = {}
+    for tx in db.query(models.Transaction).all():
+        if tx.booked_date is None or tx.booked_date.year != year:
+            continue
+        if (tx.kind or "") in _EXCLUDED_KINDS:
+            continue
+        cat = cats.get(tx.category_id)
+        if cat is None or cat.type != "charge":
+            continue
+        amt = (
+            Decimal(tx.amount_eur)
+            if tx.amount_eur is not None
+            else eur_amount(tx, rates)
+        )
+        row = by_cat.setdefault(cat.name, [_ZERO] * 12)
+        row[tx.booked_date.month - 1] += -amt  # magnitude positive, net
+
+    charges_by_category = [
+        {
+            "category": name,
+            "by_month": [q2(v) for v in months],
+            "total_eur": q2(sum(months, _ZERO)),
+        }
+        for name, months in sorted(by_cat.items(), key=lambda kv: -sum(kv[1], _ZERO))
+    ]
+    logger.info(
+        "📤 [PnL] annual_detail: année=%s, %d catégorie(s) de charges ✅",
+        year, len(charges_by_category),
+    )
+    return {
+        "year": year,
+        "months": pnl["months"],
+        "totals": pnl["totals"],
+        "charges_by_category": charges_by_category,
     }
 
 
@@ -383,6 +433,16 @@ def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
         _distributions_before(db, year + 1, rates) - _distributions_before(db, year, rates)
     )
     remaining_distributable = q2(distributable_eur - distributed_this_year)
+    # IS effectivement PAYÉ dans l'exercice (catégorie type 'is_payment') —
+    # suivi à part : déjà provisionné dans le net, jamais une charge.
+    is_paid = _ZERO
+    ispay_ids = {c.id for c in db.query(models.Category).all() if c.type == "is_payment"}
+    if ispay_ids:
+        for tx in db.query(models.Transaction).all():
+            if tx.category_id in ispay_ids and tx.booked_date and tx.booked_date.year == year:
+                amt = Decimal(tx.amount_eur) if tx.amount_eur is not None else eur_amount(tx, rates)
+                is_paid += -amt
+    is_paid = q2(is_paid)
 
     rev_ccy = totals["revenue_by_currency"]
     rev_native_ccy = totals["revenue_native_by_currency"]
@@ -417,6 +477,7 @@ def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
         "retained_earnings_eur": retained_earnings_eur,
         "distributable_eur": distributable_eur,
         "distributed_this_year_eur": distributed_this_year,
+        "is_paid_eur": is_paid,
         "remaining_distributable_eur": remaining_distributable,
         "by_currency": by_currency,
     }

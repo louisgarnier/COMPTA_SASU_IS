@@ -246,6 +246,23 @@ def test_retained_earnings_chains_across_years(db):
     assert s26["remaining_distributable_eur"] == s26["distributable_eur"] - Decimal("300.00")
 
 
+def test_is_paid_tracked_separately(db):
+    """
+    Lot B : les paiements d'IS (catégorie type 'is_payment') sont exclus des
+    charges ET exposés dans summary.is_paid_eur — pour le widget
+    « Distributions & IS » (estimé vs payé, reste à payer).
+    """
+    db.add(models.Category(id=7, name="IS payé", type="is_payment"))
+    db.add(models.Transaction(
+        account_uid="ACC", external_id="is1", booked_date=date(2026, 3, 15),
+        amount=Decimal("-2500"), currency="EUR", kind="transfer", category_id=7,
+    ))
+    db.commit()
+    s26 = summary(db, 2026)
+    assert s26["charges_eur"] == Decimal("0.00")       # PAS une charge
+    assert s26["is_paid_eur"] == Decimal("2500.00")    # suivi à part
+
+
 def test_retained_earnings_follows_scope(db):
     """
     Décision 2026-07-10 : le RAN suit le niveau de certitude sélectionné —

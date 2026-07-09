@@ -105,7 +105,7 @@ export default function InvoicesPage() {
   const yearOptions = useMemo(() => {
     const ys = Array.from(new Set(invoices.map((i) => i.month?.slice(0, 4)).filter(Boolean))).sort();
     return ys;
-  }, [filteredInvoices]);
+  }, [invoices]);
   const inYear = (i: Invoice) => !yearFilter || (i.month ?? '').startsWith(yearFilter);
   const filteredInvoices = useMemo(() => invoices.filter(inYear), [invoices, yearFilter]);
 
