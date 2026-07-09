@@ -65,7 +65,7 @@ def test_projected_revenue_equals_days_rate_fx(db_session):
     ]
     forecast_service.upsert_inputs(db_session, items)
 
-    projection = forecast_service.project(db_session, 2026)
+    projection = forecast_service.project(db_session, 2026, today=date(2026, 7, 3))
     by_month = {m["month"]: m for m in projection["months"]}
 
     # 20 × 500 × 0.9 = 9000
@@ -103,7 +103,7 @@ def test_projection_includes_issued_invoices_at_pnl_value(db_session):
     ))
     db_session.commit()
 
-    projection = forecast_service.project(db_session, 2026)
+    projection = forecast_service.project(db_session, 2026, today=date(2026, 7, 3))
     by_month = {m["month"]: m for m in projection["months"]}
     assert by_month["2026-01"]["revenue_eur"] == Decimal("9000.00")  # due
     assert by_month["2026-02"]["revenue_eur"] == Decimal("8500.00")  # paid, RÉEL

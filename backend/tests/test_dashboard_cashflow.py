@@ -412,3 +412,27 @@ def test_scope_forecast_is_current_behavior(db_session):
     assert by["2026-10"]["incoming_by_ccy"] == {"USD": Decimal("1800.00")}
     assert by["2026-11"]["incoming_by_ccy"] == {"USD": Decimal("4500.00")}  # prévision
     assert by["2026-09"]["outgoing_eur"] > Decimal("0")  # charges projetées (moyenne)
+
+
+def test_nonop_outflows_exposed_separately(db_session):
+    """
+    Audit v2 : dividendes / IS payé / investissements sont de VRAIES sorties de
+    cash absentes des barres (vue opérationnelle). Le backend les expose dans
+    `outgoing_nonop_*` pour que le front puisse les afficher sur demande.
+    """
+    rev, chg = _base(db_session)
+    dist = models.Category(name="Dividendes", type="distribution")
+    invst = models.Category(name="Investissement", type="internal")
+    db_session.add_all([dist, invst])
+    db_session.commit()
+    _tx(db_session, chg.id, date(2026, 2, 5), "-100", "EUR", "charge", "c1")
+    _tx(db_session, dist.id, date(2026, 2, 10), "-500", "EUR", "transfer", "d1")
+    _tx(db_session, invst.id, date(2026, 3, 1), "-2000", "EUR", "investment", "i1")
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    feb, mar = by["2026-02"], by["2026-03"]
+    # Les barres opérationnelles restent inchangées…
+    assert feb["outgoing_eur"] == Decimal("100.00")
+    # …et le non-opérationnel est exposé à part (magnitude positive).
+    assert feb["outgoing_nonop_by_ccy"] == {"EUR": Decimal("500.00")}
+    assert mar["outgoing_nonop_eur"] == Decimal("2000.00")

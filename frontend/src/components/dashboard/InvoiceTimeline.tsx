@@ -26,6 +26,8 @@ type Open = {
 export type InvoiceTimelineData = {
   months: Month[];
   outstanding_eur: string | number;
+  prior_year_open_count?: number;
+  prior_year_open_eur?: string | number;
   open: Open[];
   open_count: number;
 };

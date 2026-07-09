@@ -404,4 +404,4 @@ def test_pnl_summary_scopes(db):
 
     # Mode forecast : IS aligné sur la page Heures & jours (projection).
     from backend.services.forecast import estimate_is
-    assert s_fc["is_estimate_eur"] == Decimal(str(estimate_is(db, 2026)["is_total_eur"]))
+    assert s_fc["is_estimate_eur"] == Decimal(str(estimate_is(db, 2026, today=_TODAY)["is_total_eur"]))

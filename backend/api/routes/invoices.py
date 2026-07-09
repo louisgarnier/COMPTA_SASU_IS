@@ -6,7 +6,8 @@ Routes Factures (table `invoices`).
 - GET    /api/invoices/{id}         → détail (404 si absent).
 - POST   /api/invoices/{id}/pdf     → génère le PDF, renvoie {pdf_path} (503 si moteur absent).
 - GET    /api/invoices/{id}/download → renvoie le fichier PDF (le génère si absent).
-- PATCH  /api/invoices/{id}         → met à jour le statut (draft|sent|paid).
+- PATCH  /api/invoices/{id}         → n° éditable ; statut VERROUILLÉ (409 —
+  le cycle passe par generate/reconcile/unreconcile/rollback/delete).
 
 Montants en `Decimal`. Le service porte la logique métier (numérotation, PDF,
 rapprochement) ; ces routes ne font que valider / orchestrer.

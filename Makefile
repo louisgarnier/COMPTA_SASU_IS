@@ -1,7 +1,7 @@
 # LGC — commandes de développement
 # Ports décalés (8001/3001) pour cohabiter avec d'autres projets locaux
 # qui occupent souvent 8000/3000 (ex: Stocks). Le front cible le back via
-# frontend/.env.local (NEXT_PUBLIC_API_URL=http://localhost:8001).
+# frontend/.env.local (le rewrite Next (next.config.ts) proxifie /api vers 127.0.0.1:8001).
 
 VENV     := backend/venv
 PY       := $(VENV)/bin/python

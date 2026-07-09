@@ -143,3 +143,36 @@ def test_route_invoice_timeline(client):
     assert len(body["months"]) == 6
     numbers = {o["number"] for o in body["open"]}
     assert numbers == {"101", "102"}
+
+
+def test_timeline_values_paid_at_realized_and_flags_prior_year_dues(session):
+    """
+    Audit v2 (D7 + alerte B2) : la timeline valorise les factures PAYÉES à
+    l'EUR réellement encaissé (plus le théorique), et signale les factures
+    d'exercices ANTÉRIEURS non rapprochées (risque de double comptage).
+    """
+    from datetime import date as d
+    client = models.Client(code="X", legal_name="X", currency="USD")
+    session.add(client)
+    session.add(models.FxRate(currency="USD", rate=Decimal("0.90")))
+    session.commit()
+    session.refresh(client)
+    session.add(models.Invoice(
+        number="1", client_id=client.id, month="2026-06", status="paid",
+        currency="USD", amount=Decimal("1000"),
+        amount_eur_forecast=Decimal("900"), amount_eur_received=Decimal("850"),
+        issue_date=d(2026, 6, 30), paid_date=d(2026, 7, 1),
+    ))
+    session.add(models.Invoice(
+        number="2", client_id=client.id, month="2025-11", status="due",
+        currency="USD", amount=Decimal("500"), amount_eur_forecast=Decimal("450"),
+        issue_date=d(2025, 11, 30), due_date=d(2026, 1, 14),
+    ))
+    session.commit()
+
+    out = invoices_service.timeline(session, today=d(2026, 7, 10))
+    jun = next(m for m in out["months"] if m["month"] == "2026-06")
+    assert jun["paid_eur"] == Decimal("850.00")            # RÉEL, pas 900 théorique
+    # Facture 2025 encore due → alerte exercice antérieur.
+    assert out["prior_year_open_count"] == 1
+    assert out["prior_year_open_eur"] == Decimal("450.00")

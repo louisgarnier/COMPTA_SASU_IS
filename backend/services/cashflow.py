@@ -74,15 +74,30 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
     }
 
     flows: dict[int, dict] = {
-        m: {"in": {}, "out": {}, "in_prior": {}} for m in range(1, 13)
+        m: {"in": {}, "out": {}, "in_prior": {}, "out_nonop": {}} for m in range(1, 13)
     }
+
+    # Sorties NON opérationnelles (dividendes, IS payé, investissements) : de
+    # vraies sorties de cash, exposées à part pour affichage optionnel — les
+    # virements internes et conversions restent exclus (flux internes).
+    _NONOP_TYPES = {"distribution", "internal", "investment", "is_payment"}
 
     for tx in db.query(models.Transaction).all():
         if tx.booked_date is None or tx.booked_date.year != year:
             continue
+        ctype = cat_type.get(tx.category_id)
+        if ctype in _NONOP_TYPES:
+            amt_no = (
+                Decimal(tx.amount_eur)
+                if tx.amount_eur is not None
+                else eur_amount(tx, rates)
+            )
+            b = flows[tx.booked_date.month]["out_nonop"]
+            cc = (tx.currency or "EUR").upper()
+            b[cc] = b.get(cc, _ZERO) + (-amt_no)  # sorties en magnitude positive
+            continue
         if (tx.kind or "") in _EXCLUDED_KINDS:
             continue
-        ctype = cat_type.get(tx.category_id)
         if ctype in _EXCLUDED_CATEGORY_TYPES:
             continue
 
@@ -273,6 +288,11 @@ def monthly_cashflow(
             outgoing = dict(real[m]["out"])
             prior_expected = {}
 
+        nonop = (
+            {c: q2(v) for c, v in sorted(real[m]["out_nonop"].items())}
+            if not is_forecast
+            else {}
+        )
         incoming = {c: q2(v) for c, v in sorted(incoming.items())}
         outgoing = {c: q2(v) for c, v in sorted(outgoing.items())}
         expected = {c: q2(v) for c, v in sorted(expected.items())}
@@ -296,6 +316,9 @@ def monthly_cashflow(
                 # Vue fiscale : parts à retirer (factures d'exercices antérieurs).
                 "incoming_prior_by_ccy": prior_real,
                 "incoming_prior_expected_by_ccy": prior_expected,
+                # Sorties non opérationnelles (dividendes/IS/investissements).
+                "outgoing_nonop_by_ccy": nonop,
+                "outgoing_nonop_eur": q2(sum(nonop.values(), _ZERO)),
                 "is_forecast": is_forecast,
             }
         )

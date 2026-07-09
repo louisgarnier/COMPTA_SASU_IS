@@ -15,7 +15,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field as PydField, ConfigDict
 from sqlalchemy.orm import Session
 
 from backend.db.base import get_db
@@ -33,7 +33,7 @@ class ForecastInputOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    month: str
+    month: str = PydField(pattern=r"^\d{4}-\d{2}$")
     client_id: int
     days: Decimal
     hours: Decimal
@@ -54,7 +54,7 @@ class ForecastInputIn(BaseModel):
     Le FX vient des Réglages (taux théorique), plus de fx_rate saisi.
     """
 
-    month: str
+    month: str = PydField(pattern=r"^\d{4}-\d{2}$")
     client_id: int
     rate_unit: str = "day"
     days: Decimal = Decimal("0")

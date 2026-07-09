@@ -96,7 +96,7 @@ export default function FxPage() {
         ))}
         <StatCard label="Réel / composé" value={`${data.invoices.length - composites} · ${composites}`} tone="pos" />
         <Card>
-          <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Reliquat 2025 (hors factures)</div>
+          <div className="text-xs uppercase tracking-wide text-[var(--muted)]">Reliquat exercices antérieurs (hors factures)</div>
           <div className="mt-2 text-sm font-semibold">
             {currencies.map((c) => (
               <div key={c}>{money(data.leftover[c] ?? 0, c)}</div>
@@ -203,7 +203,7 @@ export default function FxPage() {
               <div className="text-xs font-semibold text-amber-800">{c} reliquat (exercices antérieurs)</div>
               <div className="mt-1 text-lg font-bold text-amber-900">{money(data.leftover[c] ?? 0, c)}</div>
               <div className="mt-1 text-xs text-amber-700">
-                converti en 2026 mais accumulé avant — salaire / dividendes, exclu du CA.
+                converti après coup mais accumulé lors d'exercices antérieurs — salaire / dividendes, exclu du CA.
               </div>
             </div>
           ))}

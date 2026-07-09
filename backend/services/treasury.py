@@ -208,8 +208,11 @@ def balance_timeline(
     - Mois passés (< mois courant) : solde de fin de mois reconstruit À REBOURS =
       solde actuel − Σ mouvements postérieurs à la fin de ce mois. Trajectoire
       continue qui aboutit au solde réel. is_forecast=False.
-    - Mois futurs (> mois courant) : solde actuel + cumul des nets de prévision
-      (`forecast.project(...).months[*].net_eur`). is_forecast=True.
+    - Mois futurs (> mois courant) : solde actuel + cumul des nets du CASHFLOW
+      (`cashflow.monthly_cashflow`, même source que le graphe — encaissements à
+      leur date attendue), filtrés par `scope` (realized/engaged/forecast).
+      is_forecast=True. Année entièrement future : la base enjambe la fin de
+      chaque exercice intermédiaire.
 
     Retour : {year, months:[{month, balance_eur, is_forecast}],
               current_balance_eur, projected_year_end_eur}. Montants 2 décimales.

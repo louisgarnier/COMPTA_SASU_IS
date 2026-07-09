@@ -18,6 +18,11 @@ Modèle « accrual » (revenu rattaché au mois TRAVAILLÉ, pas au mois payé) :
 - Résultat = produits + charges (les charges sont déjà négatives).
 
 Douze mois toujours présents (Jan..Déc), remplis à zéro.
+
+Niveaux de certitude (`scope`) : realized (payées seules, EUR réel) /
+engaged (+ émises, défaut) / forecast (+ prévisions, charges projetées,
+IS projeté) — `_scope_result` est partagé par `summary` (affichage) et
+`retained_earnings` (chaînage du RAN) pour garantir leur cohérence.
 """
 
 from __future__ import annotations

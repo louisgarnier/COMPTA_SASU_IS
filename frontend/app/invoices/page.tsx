@@ -64,6 +64,8 @@ export default function InvoicesPage() {
   const [nextNumber, setNextNumber] = useState<string>('');
   const [numMsg, setNumMsg] = useState<string>('');
   const [numDraft, setNumDraft] = useState<Record<number, string>>({});
+  // Filtre exercice : dérivé des factures (aucune année en dur), '' = tous.
+  const [yearFilter, setYearFilter] = useState<string>(String(new Date().getFullYear()));
 
   const load = async () => {
     setLoading(true);
@@ -100,20 +102,27 @@ export default function InvoicesPage() {
     load();
   }, []);
 
+  const yearOptions = useMemo(() => {
+    const ys = Array.from(new Set(invoices.map((i) => i.month?.slice(0, 4)).filter(Boolean))).sort();
+    return ys;
+  }, [filteredInvoices]);
+  const inYear = (i: Invoice) => !yearFilter || (i.month ?? '').startsWith(yearFilter);
+  const filteredInvoices = useMemo(() => invoices.filter(inYear), [invoices, yearFilter]);
+
   const totals = useMemo(() => {
     const eur = (i: Invoice) => Number(i.amount_eur_forecast || 0);
     // Payées : EUR réellement encaissé (même valeur que la colonne « Encaissé »
     // et que le P&L) ; repli prévisionnel si le FX réel n'est pas encore alloué.
     const eurPaid = (i: Invoice) => Number(i.amount_eur_received ?? i.amount_eur_forecast ?? 0);
-    const paid = invoices.filter((i) => i.status === 'paid');
-    const due = invoices.filter((i) => i.status === 'due');
-    const forecast = invoices.filter((i) => i.status === 'forecast');
+    const paid = filteredInvoices.filter((i) => i.status === 'paid');
+    const due = filteredInvoices.filter((i) => i.status === 'due');
+    const forecast = filteredInvoices.filter((i) => i.status === 'forecast');
     return {
       paidSum: paid.reduce((s, i) => s + eurPaid(i), 0), paidCount: paid.length,
       dueSum: due.reduce((s, i) => s + eur(i), 0), dueCount: due.length,
       fcSum: forecast.reduce((s, i) => s + eur(i), 0), fcCount: forecast.length,
     };
-  }, [invoices]);
+  }, [filteredInvoices]);
 
   // Correction manuelle du n° d'une facture émise (commit au blur / Entrée).
   const saveNum = async (i: Invoice) => {
@@ -220,7 +229,7 @@ export default function InvoicesPage() {
   // Ordre d'affichage : dues/retard d'abord, puis prévisions, puis payées.
   const sorted = useMemo(() => {
     const rank: Record<string, number> = { overdue: 0, due: 1, forecast: 2, paid: 3 };
-    return [...invoices].sort(
+    return [...filteredInvoices].sort(
       (a, b) => rank[effStatus(a)] - rank[effStatus(b)] || a.month.localeCompare(b.month),
     );
   }, [invoices]);
@@ -232,6 +241,29 @@ export default function InvoicesPage() {
         title="Facturation — Factures"
         subtitle="Cycle de vie : prévision → à encaisser → payée"
         action={
+          <div className="flex flex-wrap items-center gap-2">
+          {/* Filtre exercice — options dérivées des factures existantes. */}
+          <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)] text-sm">
+            <button
+              onClick={() => setYearFilter('')}
+              className={`border-r border-[var(--border)] px-2.5 py-1.5 font-semibold ${
+                yearFilter === '' ? 'bg-[var(--accent)] text-white' : 'text-[var(--muted)] hover:bg-gray-50'
+              }`}
+            >
+              Tous
+            </button>
+            {yearOptions.map((y) => (
+              <button
+                key={y}
+                onClick={() => setYearFilter(y!)}
+                className={`border-r border-[var(--border)] px-2.5 py-1.5 font-semibold last:border-r-0 ${
+                  yearFilter === y ? 'bg-[var(--accent)] text-white' : 'text-[var(--muted)] hover:bg-gray-50'
+                }`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-gray-50 px-3 py-2 text-sm">
             <span className="text-[var(--muted)]">Prochain n° de facture</span>
             <input
@@ -248,6 +280,7 @@ export default function InvoicesPage() {
               OK
             </button>
             {numMsg && <span className="text-xs text-[var(--muted)]">{numMsg}</span>}
+          </div>
           </div>
         }
       />

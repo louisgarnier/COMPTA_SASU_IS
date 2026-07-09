@@ -137,6 +137,19 @@ export default function DashboardPage() {
         <span className="opacity-70">Trésorerie, patrimoine, pont et soldes à date restent toujours au réel.</span>
       </div>
 
+      {Number(invoices?.prior_year_open_count ?? 0) > 0 && (
+        <Link
+          href="/invoices"
+          className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800 hover:bg-red-100"
+        >
+          <span>
+            🚨 <b>{invoices?.prior_year_open_count} facture(s) d'exercice antérieur non rapprochée(s)</b>{' '}
+            ({eur(invoices?.prior_year_open_eur)}) — à rapprocher pour éviter un double comptage entre exercices.
+          </span>
+          <span className="font-semibold">Rapprocher →</span>
+        </Link>
+      )}
+
       {uncategorized > 0 && (
         <Link
           href="/transactions"

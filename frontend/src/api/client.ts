@@ -58,10 +58,6 @@ const patch = <T>(e: string, body?: unknown) =>
   fetchAPI<T>(e, { method: 'PATCH', body: JSON.stringify(body ?? {}) });
 const del = (e: string) => fetchAPI<void>(e, { method: 'DELETE' });
 
-export const healthAPI = {
-  check: () => get<{ status: string }>('/health'),
-};
-
 export const settingsAPI = {
   get: () => get<Record<string, unknown>>('/api/settings'),
   update: (body: Record<string, unknown>) =>

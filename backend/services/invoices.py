@@ -172,15 +172,6 @@ _EN_MONTHS = [
 ]
 
 
-def _ordinal(day: int) -> str:
-    """1 → 1st, 2 → 2nd, 3 → 3rd, 30 → 30th (style factures Word)."""
-    if 11 <= day % 100 <= 13:
-        suffix = "th"
-    else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
-    return f"{day}{suffix}"
-
-
 def designation(invoice: models.Invoice) -> str:
     """
     Libellé de prestation (style .docx) selon le mode de facturation.
@@ -436,12 +427,21 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
     outstanding = Decimal("0")
     open_rows: list[dict] = []
 
+    # Alerte exercice antérieur : factures non payées d'un exercice < courant —
+    # risque de double comptage (facture en N, encaissement N+1 via le filet).
+    prior_year_open = Decimal("0")
+    prior_year_count = 0
+
     for inv in invoices:
         status = _derive_status(inv, today)
         # Les factures prévisionnelles ne sont pas encore dues : hors timeline/outstanding.
         if status == "forecast":
             continue
-        amount_eur = fx.to_eur(inv.amount, inv.currency, rates)
+        # Valorisation ALIGNÉE sur le P&L (audit D7/D5) : payée → EUR réellement
+        # encaissé ; due → prévisionnel ; repli théorique sinon.
+        from backend.services.pnl import invoice_revenue_eur
+
+        amount_eur = invoice_revenue_eur(inv, rates)
 
         if inv.issue_date is not None:
             key = _month_key(inv.issue_date)
@@ -450,6 +450,9 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
 
         if status != "paid":
             outstanding += amount_eur
+            if (inv.month or "")[:4].isdigit() and int(inv.month[:4]) < today.year:
+                prior_year_open += amount_eur
+                prior_year_count += 1
             open_rows.append(
                 {
                     "number": inv.number,
@@ -486,6 +489,8 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
         "outstanding_eur": _q(outstanding),
         "open": open_rows,
         "open_count": len(open_rows),
+        "prior_year_open_count": prior_year_count,
+        "prior_year_open_eur": _q(prior_year_open),
     }
 
 

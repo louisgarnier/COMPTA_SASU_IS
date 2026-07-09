@@ -39,9 +39,6 @@ class SettingsOut(BaseModel):
     address: str
     email: str
     capital_eur: Decimal
-    bank_name: str
-    bank_bic: str
-    bank_address: str
     is_low_rate: Decimal
     is_threshold: Decimal
     is_high_rate: Decimal
@@ -66,9 +63,6 @@ class SettingsUpdate(BaseModel):
     address: Optional[str] = None
     email: Optional[str] = None
     capital_eur: Optional[Decimal] = Field(default=None, ge=0)
-    bank_name: Optional[str] = None
-    bank_bic: Optional[str] = None
-    bank_address: Optional[str] = None
     is_low_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)  # taux ∈ [0,1]
     is_threshold: Optional[Decimal] = Field(default=None, ge=0)
     is_high_rate: Optional[Decimal] = Field(default=None, ge=0, le=1)

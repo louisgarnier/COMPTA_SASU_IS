@@ -28,6 +28,9 @@ type Month = {
   // Parts liées à des factures d'exercices ANTÉRIEURS (vue fiscale les retire).
   incoming_prior_by_ccy?: Record<string, string | number>;
   incoming_prior_expected_by_ccy?: Record<string, string | number>;
+  // Sorties non opérationnelles (dividendes, IS payé, investissements).
+  outgoing_nonop_by_ccy?: Record<string, string | number>;
+  outgoing_nonop_eur?: string | number;
   is_forecast: boolean;
 };
 
@@ -76,6 +79,10 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   // encaissements de factures antérieures, on ajoute le débordement N+1).
   const [scope, setScope] = useState<'cash' | 'fiscal'>('cash');
   const fiscal = scope === 'fiscal';
+  // Sorties non opérationnelles (dividendes/IS/investissements) : vraies
+  // sorties de cash, masquées par défaut (vue opérationnelle), affichables.
+  const [withNonop, setWithNonop] = useState(false);
+  const nonopTotal = data.months.reduce((a, m) => a + num(m.outgoing_nonop_eur), 0);
 
   // Montants ajustés selon la vue.
   const adjIn = (m: Month, c: string) =>
@@ -93,8 +100,10 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   const overflowTotal = CCY_ORDER.reduce((a, c) => a + ovExp(c) + ovReal(c), 0);
   const showOverflow = fiscal && overflowTotal > 0;
 
+  const nonop = (m: Month, c: string) => (withNonop ? num(m.outgoing_nonop_by_ccy?.[c]) : 0);
   const inTotal = (m: Month) => CCY_ORDER.reduce((a, c) => a + adjIn(m, c), 0);
-  const outTotal = (m: Month) => num(m.outgoing_eur);
+  const outTotal = (m: Month) =>
+    num(m.outgoing_eur) + (withNonop ? num(m.outgoing_nonop_eur) : 0);
   const max = Math.max(
     1,
     ...data.months.map((m) => Math.max(inTotal(m), outTotal(m))),
@@ -117,7 +126,8 @@ export function CashflowChart({ data }: { data: CashflowData }) {
     sumAll((m) => CCY_ORDER.reduce((a, c) => a + adjExp(m, c), 0)) +
     (fiscal ? CCY_ORDER.reduce((a, c) => a + ovReal(c), 0) : 0);
   const outFc = sumAll((m) => num(m.outgoing_forecast_eur));
-  const outReal = sumAll((m) => num(m.outgoing_eur)) - outFc;
+  const outReal =
+    sumAll((m) => num(m.outgoing_eur)) - outFc + (withNonop ? nonopTotal : 0);
   const netReal = inReal - outReal;
   const netFc = inFc - outFc;
   const c0 = (v: number) => (v ? Math.round(v).toLocaleString('fr-FR') : '—');
@@ -143,6 +153,12 @@ export function CashflowChart({ data }: { data: CashflowData }) {
               Année fiscale
             </button>
           </div>
+          {nonopTotal > 0 && (
+            <label className="flex cursor-pointer items-center gap-1 text-[11px] text-[var(--muted)]">
+              <input type="checkbox" checked={withNonop} onChange={(e) => setWithNonop(e.target.checked)} />
+              + dividendes / IS / invest.
+            </label>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-[var(--muted)]">
           {usedCcy.map((c) => (
@@ -187,10 +203,12 @@ export function CashflowChart({ data }: { data: CashflowData }) {
                       const total = num(m.outgoing_eur);
                       const fc = Math.min(num(m.outgoing_forecast_eur), total);
                       const real = total - fc;
+                      const no = withNonop ? num(m.outgoing_nonop_eur) : 0;
                       return (
                         <>
                           {fc > 0 && <Seg h={(fc / max) * H} bg={NEG} hatch fc label={kEur(fc)} />}
                           {real > 0 && <Seg h={(real / max) * H} bg={NEG} hatch label={kEur(real)} />}
+                          {no > 0 && <Seg h={(no / max) * H} bg="#7f1d1d" label={kEur(no)} />}
                         </>
                       );
                     })()}
