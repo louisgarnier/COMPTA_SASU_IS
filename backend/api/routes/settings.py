@@ -47,6 +47,7 @@ class SettingsOut(BaseModel):
     invoice_legal_mention: Optional[str] = None
     invoice_filename_suffix: Optional[str] = None
     next_invoice_number: int
+    low_treasury_alert_eur: Decimal
 
 
 class SettingsUpdate(BaseModel):
@@ -71,6 +72,7 @@ class SettingsUpdate(BaseModel):
     invoice_filename_suffix: Optional[str] = None
     is_start_year: Optional[int] = Field(default=None, ge=2000, le=2100)
     next_invoice_number: Optional[int] = Field(default=None, ge=1)
+    low_treasury_alert_eur: Optional[Decimal] = Field(default=None, ge=0)  # 0 = désactivée
 
 
 def _get_or_create_singleton(db: Session) -> models.Settings:

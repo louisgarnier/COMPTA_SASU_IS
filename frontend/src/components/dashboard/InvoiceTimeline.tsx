@@ -21,7 +21,18 @@ type Open = {
   amount: string | number;
   amount_eur: string | number;
   status: 'due' | 'overdue';
+  due_date?: string | null;
+  days_overdue?: number | null;
+  sent?: boolean;
 };
+
+// Tranches d'aging des créances : couleur selon l'ancienneté du retard.
+const AGING = [
+  { max: 30, label: '≤ 30 j', bg: '#fefce8', color: '#a16207' },
+  { max: 60, label: '31–60 j', bg: '#fff7ed', color: '#c2410c' },
+  { max: Infinity, label: '> 60 j', bg: '#fef2f2', color: '#dc2626' },
+];
+const agingBucket = (days: number) => AGING.find((a) => days <= a.max)!;
 
 export type InvoiceTimelineData = {
   months: Month[];
@@ -100,9 +111,38 @@ export function InvoiceTimeline({ data }: { data: InvoiceTimelineData }) {
 }
 
 export function OpenInvoices({ data }: { data: InvoiceTimelineData }) {
+  // Aging : total EUR des factures en retard par tranche (0 masqué).
+  const tranches = AGING.map((a, idx) => ({
+    ...a,
+    total: data.open
+      .filter((iv) => {
+        const d = iv.days_overdue ?? 0;
+        if (d <= 0) return false;
+        const lo = idx === 0 ? 0 : AGING[idx - 1].max;
+        return d > lo && d <= a.max;
+      })
+      .reduce((s, iv) => s + num(iv.amount_eur), 0),
+  })).filter((t) => t.total > 0);
+
   return (
     <Card>
-      <div className="mb-2 text-sm font-semibold">Factures ouvertes</div>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">Factures ouvertes</div>
+        {tranches.length > 0 && (
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className="text-[var(--muted)]">Retards :</span>
+            {tranches.map((t) => (
+              <span
+                key={t.label}
+                className="rounded px-1.5 py-0.5 font-bold tabular"
+                style={{ background: t.bg, color: t.color }}
+              >
+                {t.label} · {eur(t.total)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
       {data.open.length === 0 ? (
         <Empty>Aucune facture en attente.</Empty>
       ) : (
@@ -114,17 +154,28 @@ export function OpenInvoices({ data }: { data: InvoiceTimelineData }) {
             >
               <span>
                 <b>{iv.number}</b> <span className="text-[var(--muted)]">· {iv.client_code}</span>
+                {iv.sent && (
+                  <span className="ml-1.5 text-xs text-[var(--muted)]" title="Envoyée au client">
+                    ✉
+                  </span>
+                )}
               </span>
               <span className="flex items-center gap-2">
                 <span
                   className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
                   style={
                     iv.status === 'overdue'
-                      ? { background: '#fef2f2', color: OVER }
+                      ? {
+                          background: agingBucket(iv.days_overdue ?? 1).bg,
+                          color: agingBucket(iv.days_overdue ?? 1).color,
+                        }
                       : { background: '#fefce8', color: '#a16207' }
                   }
+                  title={iv.due_date ? `Échéance : ${iv.due_date}` : undefined}
                 >
-                  {iv.status === 'overdue' ? 'En retard' : 'Dû'}
+                  {iv.status === 'overdue'
+                    ? `Retard J+${iv.days_overdue ?? '?'}`
+                    : 'Dû'}
                 </span>
                 <b className="tabular">{money(iv.amount, iv.currency)}</b>
                 {/* Équivalent EUR approx. (taux théorique des Réglages) — le réel

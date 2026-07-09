@@ -77,6 +77,10 @@ class Settings(Base):
 
     next_invoice_number: Mapped[int] = mapped_column(Integer, default=62)
 
+    # Seuil d'alerte trésorerie basse (EUR) — bandeau dashboard si le solde
+    # courant ou projeté passe dessous. 0 = alerte désactivée.
+    low_treasury_alert_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+
 
 class Client(Base):
     """Client facturé (SWIB, NWH, ...)."""
@@ -277,6 +281,9 @@ class Invoice(Base):
     issue_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String, default="forecast")  # forecast|due|paid
+    # Date d'envoi au client — indicateur de suivi, PAS un statut (le cycle
+    # forecast→due→paid reste inchangé). NULL = pas encore marquée envoyée.
+    sent_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     pdf_path: Mapped[str] = mapped_column(String, default="")
 
     # Rapprochement / paiement (réel).

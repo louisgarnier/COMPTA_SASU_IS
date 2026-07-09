@@ -82,6 +82,10 @@ function TransactionsPageInner() {
   const [bridgeAsOf, setBridgeAsOf] = useState<string>('');
   // Export CSV : exercice choisi (options dérivées des transactions chargées).
   const [exportYear, setExportYear] = useState<string>(String(new Date().getFullYear()));
+  // Lien manuel FX (NG8) : crédit devise en cours de liaison + conversions candidates.
+  const [linking, setLinking] = useState<Transaction | null>(null);
+  const [convCandidates, setConvCandidates] = useState<Transaction[]>([]);
+  const [linkMsg, setLinkMsg] = useState('');
 
   // Pré-remplissage depuis l'URL (clic sur une ligne du pont) : ?bridge=&as_of=.
   // useSearchParams est RÉACTIF : Next App Router ne re-monte pas la page quand
@@ -210,6 +214,35 @@ function TransactionsPageInner() {
 
   const toggleOne = (id: number) =>
     setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // Lien manuel FX (NG8) : ouvre le sélecteur avec les conversions candidates
+  // (postérieures ou égales à la date du crédit — une conversion ne peut pas
+  // précéder l'encaissement qu'elle convertit).
+  const openLink = async (tx: Transaction) => {
+    setLinkMsg('');
+    try {
+      const convs = (await transactionsAPI.list({ kind: 'conversion' })) as Transaction[];
+      setConvCandidates(
+        convs.filter((c) => !tx.booked_date || !c.booked_date || c.booked_date >= tx.booked_date),
+      );
+      setLinking(tx);
+    } catch (e) {
+      setSyncMsg(`❌ ${(e as Error).message}`);
+    }
+  };
+
+  const doLink = async (conversionId: number) => {
+    if (!linking) return;
+    setLinkMsg('…');
+    try {
+      const updated = (await transactionsAPI.linkConversion(linking.id, conversionId)) as Transaction;
+      setRows((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+      setLinking(null);
+      setSyncMsg(`✅ ${updated.description || 'Crédit'} lié — EUR réel ${eur(updated.amount_eur ?? 0)}`);
+    } catch (e) {
+      setLinkMsg(`❌ ${(e as Error).message}`);
+    }
+  };
 
   const selectCls =
     'rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]';
@@ -472,9 +505,25 @@ function TransactionsPageInner() {
                     <td className="whitespace-nowrap px-3 py-1 text-right tabular-nums text-[var(--muted)]">
                       {(() => {
                         const e = eurOf(tx);
-                        if (e == null) return '—';
-                        // ≈ = converti au taux théorique (pas encore de FX réel alloué).
-                        return `${e.approx ? '≈ ' : ''}${eur(e.value)}`;
+                        // Crédit devise sans EUR réel → proposer le lien manuel (NG8).
+                        const linkable =
+                          tx.amount_eur == null &&
+                          amt > 0 &&
+                          (tx.currency || 'EUR').toUpperCase() !== 'EUR';
+                        return (
+                          <span className="inline-flex items-center gap-1.5">
+                            {e == null ? '—' : `${e.approx ? '≈ ' : ''}${eur(e.value)}`}
+                            {linkable && (
+                              <button
+                                onClick={() => openLink(tx)}
+                                title="Lier manuellement à une conversion EUR (taux réel)"
+                                className="rounded border border-[var(--border)] px-1 text-[10px] hover:border-[var(--accent)]"
+                              >
+                                🔗
+                              </button>
+                            )}
+                          </span>
+                        );
                       })()}
                     </td>
                   </tr>
@@ -504,6 +553,53 @@ function TransactionsPageInner() {
             </tfoot>
           </table>
         </Card>
+      )}
+
+      {/* Lien manuel FX (NG8) : choisir la conversion EUR correspondant au crédit devise. */}
+      {linking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-[var(--panel)] p-5 shadow-xl">
+            <div className="mb-1 text-sm font-semibold">Lier à une conversion EUR</div>
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              Crédit : <b>{linking.description || linking.counterparty}</b> —{' '}
+              {money(linking.amount, linking.currency)} le {dateFR(linking.booked_date)}. Le lien
+              pose le montant EUR réellement reçu et le taux implicite sur ce crédit.
+            </p>
+            {convCandidates.length === 0 ? (
+              <Empty>Aucune conversion postérieure au crédit.</Empty>
+            ) : (
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-[var(--border)]">
+                {convCandidates.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => doLink(c.id)}
+                    className="flex w-full items-center justify-between border-b border-[var(--border)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50"
+                  >
+                    <span className="truncate">
+                      <span className="text-[var(--muted)]">{dateFR(c.booked_date)}</span>{' '}
+                      {c.description || c.counterparty}
+                    </span>
+                    <span className="ml-2 shrink-0 tabular-nums">
+                      {money(c.amount, c.currency)}
+                      {c.amount_eur != null && (
+                        <span className="ml-1.5 text-xs text-[var(--muted)]">→ {eur(c.amount_eur)}</span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {linkMsg && <p className="mt-2 text-xs">{linkMsg}</p>}
+            <div className="mt-3 text-right">
+              <button
+                onClick={() => setLinking(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:border-[var(--accent)]"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

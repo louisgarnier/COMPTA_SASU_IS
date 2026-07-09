@@ -24,6 +24,7 @@ interface Invoice {
   issue_date: string | null;
   due_date: string | null;
   status: Status;
+  sent_date: string | null;
   paid_date: string | null;
   amount_eur_received: number | null;
   variance_eur: number | null;
@@ -123,6 +124,17 @@ export default function InvoicesPage() {
       fcSum: forecast.reduce((s, i) => s + eur(i), 0), fcCount: forecast.length,
     };
   }, [filteredInvoices]);
+
+  // Marqueur « envoyée au client » — bascule pose/efface sent_date (pas un statut).
+  const toggleSent = async (i: Invoice) => {
+    try {
+      const sent_date = i.sent_date ? null : new Date().toISOString().slice(0, 10);
+      const updated = (await invoicesAPI.update(i.id, { sent_date })) as Invoice;
+      setInvoices((rows) => rows.map((r) => (r.id === i.id ? { ...r, sent_date: updated.sent_date } : r)));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   // Correction manuelle du n° d'une facture émise (commit au blur / Entrée).
   const saveNum = async (i: Invoice) => {
@@ -365,7 +377,14 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3 text-xs">{i.due_date ? dateFR(i.due_date) : '—'}</td>
                     <td className="px-4 py-3">
-                      <Badge tone={TONE[st]}>{LABEL[st]}</Badge>
+                      <div className="flex flex-col items-start gap-0.5">
+                        <Badge tone={TONE[st]}>{LABEL[st]}</Badge>
+                        {i.sent_date && i.status !== 'paid' && (
+                          <span className="text-[10px] text-[var(--muted)]" title="Envoyée au client">
+                            ✉ {dateFR(i.sent_date)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-2">
@@ -402,6 +421,17 @@ export default function InvoicesPage() {
                               </button>
                             ) : (
                               <>
+                                <button
+                                  onClick={() => toggleSent(i)}
+                                  title={i.sent_date ? `Envoyée le ${dateFR(i.sent_date)} — cliquer pour annuler` : 'Marquer comme envoyée au client'}
+                                  className={`rounded-lg border px-3 py-1 text-xs font-medium ${
+                                    i.sent_date
+                                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                      : 'border-[var(--border)] hover:border-[var(--accent)]'
+                                  }`}
+                                >
+                                  {i.sent_date ? '✉ Envoyée' : '✉ Envoyer'}
+                                </button>
                                 <button
                                   onClick={() => openMatch(i.id)}
                                   className="rounded-lg border border-[var(--accent)] px-3 py-1 text-xs font-medium text-[var(--accent)] hover:bg-blue-50"

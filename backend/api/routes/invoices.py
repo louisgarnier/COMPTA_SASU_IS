@@ -58,6 +58,7 @@ class InvoiceOut(BaseModel):
     issue_date: Optional[date] = None
     due_date: Optional[date] = None
     status: str
+    sent_date: Optional[date] = None
     paid_transaction_id: Optional[int] = None
     paid_date: Optional[date] = None
     amount_received: Optional[Decimal] = None
@@ -80,10 +81,16 @@ class InvoiceCreate(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
-    """Payload de mise à jour partielle (statut enum validé, n° éditable)."""
+    """Payload de mise à jour partielle (statut enum validé, n° éditable).
+
+    `sent_date` : indicateur « envoyée au client » — un simple marqueur de
+    suivi (posable/effaçable), PAS une transition de statut. L'immutabilité
+    complète post-envoi (avoir obligatoire) reste hors périmètre v1.
+    """
 
     status: Optional[Literal["forecast", "due", "paid"]] = None
     number: Optional[str] = None
+    sent_date: Optional[date] = None
 
 
 def _to_out(invoice: models.Invoice) -> InvoiceOut:
@@ -265,6 +272,13 @@ def update_invoice(
                 detail=f"N° {new_number} déjà utilisé",
             )
         changes["number"] = new_number
+    # Marqueur « envoyée » : uniquement sur facture émise (une prévision n'a
+    # rien à envoyer). Effacement (null explicite) toujours permis.
+    if changes.get("sent_date") is not None and invoice.status == "forecast":
+        raise HTTPException(
+            status_code=422,
+            detail="Une prévision ne peut pas être marquée envoyée — générer la facture d'abord",
+        )
     for field, value in changes.items():
         setattr(invoice, field, value)
     db.commit()

@@ -236,6 +236,48 @@ def bulk_categorize(
     return [_to_out(tx) for tx in rows]
 
 
+class LinkConversionIn(BaseModel):
+    """Lien manuel crédit devise ↔ conversion EUR (filet de secours NG8)."""
+
+    conversion_tx_id: int
+
+
+@router.post("/{transaction_id}/link-conversion", response_model=TransactionOut)
+def link_conversion(
+    transaction_id: int,
+    payload: LinkConversionIn,
+    db: Session = Depends(get_db),
+) -> TransactionOut:
+    """
+    Lie manuellement un encaissement en devise à sa conversion EUR.
+
+    Filet de secours quand l'appariement automatique Revolut échoue (NG8) :
+    pose `linked_conversion_id`, calcule `amount_eur` réel et le `fx_rate`
+    implicite sur le crédit (cf. treasury.link_fx_conversion).
+    """
+    from backend.services.treasury import link_fx_conversion
+
+    credit = db.get(models.Transaction, transaction_id)
+    if credit is None:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if (credit.currency or "EUR").upper() == "EUR":
+        raise HTTPException(status_code=422, detail="Le crédit doit être en devise (non EUR)")
+    if credit.amount is None or credit.amount <= 0:
+        raise HTTPException(status_code=422, detail="Le lien s'applique à un encaissement (montant > 0)")
+    conversion = db.get(models.Transaction, payload.conversion_tx_id)
+    if conversion is None:
+        raise HTTPException(status_code=404, detail="Conversion introuvable")
+    if conversion.kind != "conversion":
+        raise HTTPException(status_code=422, detail="La transaction cible n'est pas une conversion FX")
+
+    updated = link_fx_conversion(db, transaction_id, payload.conversion_tx_id)
+    logger.info(
+        "📤 [Transactions] link_conversion: tx#%d ← conv#%d ✅",
+        transaction_id, payload.conversion_tx_id,
+    )
+    return _to_out(updated)
+
+
 @router.patch("/{transaction_id}", response_model=TransactionOut)
 def update_transaction(
     transaction_id: int,

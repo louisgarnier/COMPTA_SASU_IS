@@ -453,6 +453,10 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
             if (inv.month or "")[:4].isdigit() and int(inv.month[:4]) < today.year:
                 prior_year_open += amount_eur
                 prior_year_count += 1
+            # Aging : retard en jours depuis la due_date (0 si pas encore échue).
+            days_overdue = (
+                max(0, (today - inv.due_date).days) if inv.due_date is not None else None
+            )
             open_rows.append(
                 {
                     "number": inv.number,
@@ -461,6 +465,9 @@ def timeline(db: Session, today: Optional[date] = None) -> dict:
                     "amount": _q(inv.amount),
                     "amount_eur": _q(amount_eur),
                     "status": status,
+                    "due_date": inv.due_date.isoformat() if inv.due_date else None,
+                    "days_overdue": days_overdue,
+                    "sent": inv.sent_date is not None,
                     "_due_date": inv.due_date,
                 }
             )

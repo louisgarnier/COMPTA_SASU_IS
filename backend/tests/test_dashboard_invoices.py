@@ -176,3 +176,28 @@ def test_timeline_values_paid_at_realized_and_flags_prior_year_dues(session):
     # Facture 2025 encore due → alerte exercice antérieur.
     assert out["prior_year_open_count"] == 1
     assert out["prior_year_open_eur"] == Decimal("450.00")
+
+
+def test_timeline_open_rows_expose_aging(session):
+    """
+    Aging des créances : chaque facture ouverte expose due_date, days_overdue
+    (0 si pas échue, N jours sinon) et le marqueur sent (date d'envoi posée).
+    """
+    client = _seed(session)
+    # Marque la facture en retard comme envoyée.
+    inv = session.query(models.Invoice).filter_by(number="102").one()
+    inv.sent_date = date(2026, 6, 21)
+    session.commit()
+
+    result = invoices_service.timeline(session, today=TODAY)
+    open_by_number = {o["number"]: o for o in result["open"]}
+
+    # 101 : due le 2026-08-01, pas échue → 0 jour de retard, non envoyée.
+    assert open_by_number["101"]["due_date"] == "2026-08-01"
+    assert open_by_number["101"]["days_overdue"] == 0
+    assert open_by_number["101"]["sent"] is False
+
+    # 102 : due le 2026-06-30, TODAY=2026-07-03 → 3 jours de retard, envoyée.
+    assert open_by_number["102"]["due_date"] == "2026-06-30"
+    assert open_by_number["102"]["days_overdue"] == 3
+    assert open_by_number["102"]["sent"] is True

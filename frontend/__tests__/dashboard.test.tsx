@@ -17,6 +17,10 @@ jest.mock('@/api/client', () => ({
     // 2 transactions non catégorisées → la bannière « à catégoriser » s'affiche.
     list: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]),
   },
+  settingsAPI: {
+    // Seuil d'alerte tréso à 0 → alerte désactivée dans ces tests.
+    get: jest.fn().mockResolvedValue({ low_treasury_alert_eur: '0' }),
+  },
   dashboardAPI: {
     cashflow: jest.fn().mockResolvedValue({
       year: 2026,

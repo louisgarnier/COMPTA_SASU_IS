@@ -73,3 +73,54 @@ def test_transactions_csv_export(client, db):
     assert '"Resto; client"' in body          # point-virgule échappé
     assert "870.00" in body                    # EUR réel prioritaire
     assert "2025-12-30" not in body            # hors exercice
+
+
+def test_link_conversion_sets_real_eur_and_rate(client, db):
+    """
+    Lien manuel crédit devise ↔ conversion EUR (NG8) : pose linked_conversion_id,
+    amount_eur = EUR reçu à la conversion, fx_rate implicite = |EUR| / |devise|.
+    Garde-fous : crédit EUR refusé (422), cible non-conversion refusée (422).
+    """
+    db.add(models.BankAccount(provider="revolut", account_uid="ACC", currency="USD"))
+    db.commit()
+    credit = models.Transaction(
+        account_uid="ACC", external_id="c1", booked_date=date(2026, 5, 2),
+        amount=Decimal("1000.00"), currency="USD", description="SWIB wire",
+        counterparty="SWIB", kind="revenue",
+    )
+    conv = models.Transaction(
+        account_uid="ACC", external_id="x1", booked_date=date(2026, 5, 4),
+        amount=Decimal("-1000.00"), currency="USD", description="Exchange to EUR",
+        counterparty="Revolut", kind="conversion", amount_eur=Decimal("915.00"),
+    )
+    eur_credit = models.Transaction(
+        account_uid="ACC", external_id="e1", booked_date=date(2026, 5, 6),
+        amount=Decimal("50.00"), currency="EUR", description="EUR in",
+        counterparty="X", kind="revenue",
+    )
+    db.add_all([credit, conv, eur_credit])
+    db.commit()
+
+    resp = client.post(
+        f"/api/transactions/{credit.id}/link-conversion",
+        json={"conversion_tx_id": conv.id},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["linked_conversion_id"] == conv.id
+    assert Decimal(data["amount_eur"]) == Decimal("915.00")
+    assert Decimal(data["fx_rate"]) == Decimal("0.915")
+
+    # Crédit déjà en EUR → 422.
+    resp = client.post(
+        f"/api/transactions/{eur_credit.id}/link-conversion",
+        json={"conversion_tx_id": conv.id},
+    )
+    assert resp.status_code == 422
+
+    # Cible qui n'est pas une conversion → 422.
+    resp = client.post(
+        f"/api/transactions/{credit.id}/link-conversion",
+        json={"conversion_tx_id": eur_credit.id},
+    )
+    assert resp.status_code == 422

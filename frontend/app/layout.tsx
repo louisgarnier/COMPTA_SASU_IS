@@ -17,7 +17,8 @@ export default function RootLayout({
       <body>
         <div className="flex min-h-screen">
           <Nav />
-          <main className="flex-1 px-6 py-6 lg:px-10">{children}</main>
+          {/* pt-20 mobile : dégage la barre supérieure fixe (hamburger). */}
+          <main className="min-w-0 flex-1 px-4 pb-6 pt-20 lg:px-10 lg:py-6">{children}</main>
         </div>
       </body>
     </html>

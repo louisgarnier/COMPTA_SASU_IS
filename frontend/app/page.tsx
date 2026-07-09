@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { treasuryAPI, dashboardAPI, transactionsAPI, Scope } from '@/api/client';
+import { treasuryAPI, dashboardAPI, transactionsAPI, settingsAPI, Scope } from '@/api/client';
 import { PageTitle, StatCard } from '@/components/ui';
 import { eur } from '@/lib/format';
 import { CashflowChart, CashflowData } from '@/components/dashboard/CashflowChart';
@@ -46,6 +46,7 @@ export default function DashboardPage() {
   const [pnl, setPnl] = useState<PnlSummary | null>(null);
   const [invoices, setInvoices] = useState<InvoiceTimelineData | null>(null);
   const [uncategorized, setUncategorized] = useState(0);
+  const [lowAlertThreshold, setLowAlertThreshold] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -74,7 +75,31 @@ export default function DashboardPage() {
       .list({ uncategorized: true })
       .then((rows) => setUncategorized(rows.length))
       .catch(() => setUncategorized(0));
+    // Seuil d'alerte tréso basse (Réglages) — non bloquant, 0 = désactivé.
+    settingsAPI
+      .get()
+      .then((s) => setLowAlertThreshold(Number((s as { low_treasury_alert_eur?: string | number }).low_treasury_alert_eur ?? 0)))
+      .catch(() => setLowAlertThreshold(0));
   }, [year, scope]);
+
+  // Alerte trésorerie basse : solde courant sous le seuil, ou minimum projeté
+  // (mois futurs de la courbe, selon le scope affiché) qui passera dessous.
+  const lowAlert = (() => {
+    if (!lowAlertThreshold || !balance) return null;
+    const current = Number(balance.current_balance_eur ?? 0);
+    if (current < lowAlertThreshold) {
+      return { kind: 'now' as const, value: current, month: null as string | null };
+    }
+    let worst: { value: number; month: string } | null = null;
+    for (const m of balance.months) {
+      if (!m.is_forecast) continue;
+      const v = Number(m.balance_eur ?? 0);
+      if (v < lowAlertThreshold && (worst === null || v < worst.value)) {
+        worst = { value: v, month: m.month };
+      }
+    }
+    return worst ? { kind: 'projected' as const, value: worst.value, month: worst.month } : null;
+  })();
 
   const yearPicker = (
     <div className="flex flex-wrap items-center gap-2">
@@ -137,6 +162,30 @@ export default function DashboardPage() {
         {SCOPE_NOTE[scope]}{' '}
         <span className="opacity-70">Trésorerie, patrimoine, pont et soldes à date restent toujours au réel.</span>
       </div>
+
+      {lowAlert && (
+        <div
+          className={`rounded-xl border px-4 py-2.5 text-sm ${
+            lowAlert.kind === 'now'
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-orange-200 bg-orange-50 text-orange-800'
+          }`}
+        >
+          {lowAlert.kind === 'now' ? (
+            <>
+              🔻 <b>Trésorerie sous le seuil d'alerte</b> — solde actuel {eur(lowAlert.value)} pour
+              un seuil de {eur(lowAlertThreshold)} (réglable dans{' '}
+              <Link href="/settings" className="font-semibold underline">Réglages</Link>).
+            </>
+          ) : (
+            <>
+              ⚠️ <b>Trésorerie projetée sous le seuil</b> — minimum {eur(lowAlert.value)} en{' '}
+              {lowAlert.month} pour un seuil de {eur(lowAlertThreshold)} (selon le niveau «{' '}
+              {SCOPES.find((s) => s.value === scope)?.label} »).
+            </>
+          )}
+        </div>
+      )}
 
       {Number(invoices?.prior_year_open_count ?? 0) > 0 && (
         <Link

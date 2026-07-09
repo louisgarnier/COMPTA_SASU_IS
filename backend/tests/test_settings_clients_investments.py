@@ -277,3 +277,52 @@ def test_investment_patch_delete_and_404(client: TestClient):
     # 404 sur ressource absente
     assert client.patch("/api/manual-assets/9999", json={"note": "x"}).status_code == 404
     assert client.delete("/api/manual-assets/9999").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Lot C — seuil d'alerte trésorerie + marqueur « envoyée »
+# --------------------------------------------------------------------------- #
+def test_settings_low_treasury_alert_roundtrip(client: TestClient):
+    """Seuil d'alerte tréso : défaut 0 (désactivé), modifiable, négatif refusé."""
+    data = client.get("/api/settings").json()
+    assert Decimal(data["low_treasury_alert_eur"]) == Decimal("0")
+
+    resp = client.put("/api/settings", json={"low_treasury_alert_eur": "25000"})
+    assert resp.status_code == 200
+    assert Decimal(resp.json()["low_treasury_alert_eur"]) == Decimal("25000")
+
+    assert client.put("/api/settings", json={"low_treasury_alert_eur": "-1"}).status_code == 422
+
+
+def test_invoice_sent_date_marker(client: TestClient):
+    """
+    Marqueur « envoyée » : posable/effaçable sur une facture émise (due),
+    refusé (422) sur une prévision — ce n'est PAS une transition de statut.
+    """
+    c = client.post("/api/clients", json={"code": "SWIB", "legal_name": "Swib"}).json()
+    inv = client.post("/api/invoices", json={
+        "client_id": c["id"], "hours": "8", "rate": "100", "currency": "USD",
+        "issue_date": "2026-06-01",
+    }).json()
+    assert inv["status"] == "due"
+    assert inv["sent_date"] is None
+
+    resp = client.patch(f"/api/invoices/{inv['id']}", json={"sent_date": "2026-06-02"})
+    assert resp.status_code == 200
+    assert resp.json()["sent_date"] == "2026-06-02"
+
+    # Effacement (null explicite) permis.
+    resp = client.patch(f"/api/invoices/{inv['id']}", json={"sent_date": None})
+    assert resp.status_code == 200
+    assert resp.json()["sent_date"] is None
+
+    # Prévision → 422 (créée directement en base : la route POST émet toujours en 'due').
+    gen = client.app.dependency_overrides[get_db]()
+    db = next(gen)
+    fc = models.Invoice(number="F-1-2026-08", client_id=c["id"], status="forecast", month="2026-08")
+    db.add(fc)
+    db.commit()
+    fc_id = fc.id
+    db.close()
+    resp = client.patch(f"/api/invoices/{fc_id}", json={"sent_date": "2026-06-02"})
+    assert resp.status_code == 422

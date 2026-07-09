@@ -27,6 +27,11 @@ const FIELDS: { key: string; label: string; type?: string; group: string; hint?:
   { key: 'retained_earnings_eur', label: 'Stock à distribuer au 01/01 du 1er exercice IS (€)', type: 'number', group: 'Résultat & distribution',
     hint: 'Trésorerie/résultats de l\'ère IR restant à sortir. Soldé par les distributions ; le RAN se chaîne ensuite automatiquement.' },
   {
+    key: 'low_treasury_alert_eur', label: 'Seuil d\'alerte trésorerie basse (€)', type: 'number',
+    group: 'Résultat & distribution',
+    hint: 'Bandeau d\'alerte sur le dashboard si le solde courant ou projeté passe dessous. 0 = désactivé.',
+  },
+  {
     key: 'next_invoice_number',
     label: 'Prochain n° de facture',
     type: 'number',

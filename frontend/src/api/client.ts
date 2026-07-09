@@ -143,6 +143,9 @@ export const transactionsAPI = {
     patch<any>(`/api/transactions/${id}`, b),
   bulkCategorize: (ids: number[], category_id: number | null) =>
     post<any[]>('/api/transactions/bulk-categorize', { ids, category_id }),
+  // Lien manuel crédit devise ↔ conversion EUR (filet de secours NG8).
+  linkConversion: (id: number, conversion_tx_id: number) =>
+    post<any>(`/api/transactions/${id}/link-conversion`, { conversion_tx_id }),
 };
 
 export const categoriesAPI = {
