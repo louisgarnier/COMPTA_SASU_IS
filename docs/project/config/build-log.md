@@ -156,3 +156,11 @@ Suite à l'audit v2 (wireframe complet + reste-à-faire), 3 lots approuvés « o
 
 **Données corrigées (Réglages utilisateur)** : Bourse direct investi 70 000 → **69 600** (70 000 parts à 98,9), remboursement attendu **76 300 € en 2026-12** (K Technologie).
 - **Tests : 226 backend · 26 jest · tsc clean.** Commits : toggle (courbe) + gains (91f28f6), poussés main + epic-1-foundation.
+
+## 2026-07-10 (suite) — Audit widget Cashflow : sémantique des deux axes clarifiée
+
+Remarque utilisateur : la vue fiscale retirait les factures 2025 mais gardait les dividendes « cash 2025 » (asymétrie), et le net mensuel ignorait les non-op affichés. Règle validée (maquettes v1→v3) :
+- **« Année en cours »** = tous les flux datés de l'année civile. **« Année fiscale »** = flux rattachés à l'exercice : placements datés + part des dividendes AU-DELÀ du pool des exercices antérieurs (imputation chronologique, virement à cheval scindé — cent-exact avec « Acomptes sur l'exercice » du widget P&L) + part de l'IS payé au-delà de l'IS dû N-1.
+- Net mensuel = ce que la barre montre ; ligne de contexte sous le tableau (net tous flux = variation de tréso, le stock 01/01 vit sur courbe/pont — pas d'identité chiffrée ici, écart FX ~22k = rôle du pont) ; libellé « + dividendes / IS / placements » ; limite documentée : charges à date de paiement en vue fiscale.
+- Données 2026 : 166 200 versés = pile le pool 2025 → 0 acompte affiché en fiscal ; placement −70k (juin) et +76,3k (déc) visibles dans les deux vues.
+- **Tests : 229 backend · 26 jest.** Commit 08ef515, poussé main + epic-1-foundation.
