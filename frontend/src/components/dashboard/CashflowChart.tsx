@@ -34,6 +34,12 @@ type Month = {
   incoming_nonop_eur?: string | number;
   outgoing_nonop_by_ccy?: Record<string, string | number>;
   outgoing_nonop_eur?: string | number;
+  // Variante « année fiscale » : flux non-op RATTACHÉS à l'exercice (placements
+  // datés + part des dividendes/IS au-delà des pools d'exercices antérieurs).
+  incoming_nonop_fiscal_by_ccy?: Record<string, string | number>;
+  incoming_nonop_fiscal_eur?: string | number;
+  outgoing_nonop_fiscal_by_ccy?: Record<string, string | number>;
+  outgoing_nonop_fiscal_eur?: string | number;
   is_forecast: boolean;
 };
 
@@ -85,13 +91,21 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   // Sorties non opérationnelles (dividendes/IS/investissements) : vraies
   // sorties de cash, masquées par défaut (vue opérationnelle), affichables.
   const [withNonop, setWithNonop] = useState(false);
-  const nonopTotal = data.months.reduce((a, m) => a + num(m.outgoing_nonop_eur), 0);
+  // Non-op selon la vue : caisse = tous les flux datés de l'année ; fiscale =
+  // rattachés à l'exercice (placements + acomptes au-delà des pools antérieurs).
+  const nonopOutOf = (m: Month) =>
+    num(fiscal ? m.outgoing_nonop_fiscal_eur : m.outgoing_nonop_eur);
+  const nonopInOf = (m: Month) =>
+    num(fiscal ? m.incoming_nonop_fiscal_eur : m.incoming_nonop_eur);
+  const nonopOutCcy = (m: Month) =>
+    (fiscal ? m.outgoing_nonop_fiscal_by_ccy : m.outgoing_nonop_by_ccy) ?? {};
+  const nonopTotal = data.months.reduce((a, m) => a + nonopOutOf(m), 0);
   // Entrées non-op, séparées réel / attendu (mois prévisionnels = échéances).
   const nonopInReal = data.months.reduce(
-    (a, m) => a + (m.is_forecast ? 0 : num(m.incoming_nonop_eur)), 0);
+    (a, m) => a + (m.is_forecast ? 0 : nonopInOf(m)), 0);
   const nonopInFc = data.months.reduce(
-    (a, m) => a + (m.is_forecast ? num(m.incoming_nonop_eur) : 0), 0);
-  const nonopIn = (m: Month) => (withNonop ? num(m.incoming_nonop_eur) : 0);
+    (a, m) => a + (m.is_forecast ? nonopInOf(m) : 0), 0);
+  const nonopIn = (m: Month) => (withNonop ? nonopInOf(m) : 0);
 
   // Montants ajustés selon la vue.
   const adjIn = (m: Month, c: string) =>
@@ -109,10 +123,9 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   const overflowTotal = CCY_ORDER.reduce((a, c) => a + ovExp(c) + ovReal(c), 0);
   const showOverflow = fiscal && overflowTotal > 0;
 
-  const nonop = (m: Month, c: string) => (withNonop ? num(m.outgoing_nonop_by_ccy?.[c]) : 0);
   const inTotal = (m: Month) => CCY_ORDER.reduce((a, c) => a + adjIn(m, c), 0);
   const outTotal = (m: Month) =>
-    num(m.outgoing_eur) + (withNonop ? num(m.outgoing_nonop_eur) : 0);
+    num(m.outgoing_eur) + (withNonop ? nonopOutOf(m) : 0);
   const max = Math.max(
     1,
     ...data.months.map((m) => Math.max(inTotal(m) + nonopIn(m), outTotal(m))),
@@ -165,9 +178,14 @@ export function CashflowChart({ data }: { data: CashflowData }) {
             </button>
           </div>
           {nonopTotal + nonopInReal + nonopInFc > 0 && (
-            <label className="flex cursor-pointer items-center gap-1 text-[11px] text-[var(--muted)]">
+            <label
+              className="flex cursor-pointer items-center gap-1 text-[11px] text-[var(--muted)]"
+              title={fiscal
+                ? "Rattachés à l'exercice : placements datés + part des dividendes/IS au-delà des pools d'exercices antérieurs (= « Acomptes sur l'exercice » du widget P&L)"
+                : "Tous les flux non opérationnels datés de l'année (dividendes, IS payé, placements)"}
+            >
               <input type="checkbox" checked={withNonop} onChange={(e) => setWithNonop(e.target.checked)} />
-              + dividendes / IS / invest.
+              + dividendes / IS / placements
             </label>
           )}
         </div>
@@ -189,7 +207,8 @@ export function CashflowChart({ data }: { data: CashflowData }) {
       <div className="grid grid-cols-1 gap-5 md:grid-cols-[1fr_248px] md:items-center">
         <div className="flex items-end gap-2">
           {data.months.map((m, i) => {
-            const net = inTotal(m) - num(m.outgoing_eur);
+            // Net AFFICHÉ : suit exactement les barres (non-op inclus si toggle ON).
+            const net = inTotal(m) + nonopIn(m) - outTotal(m);
             return (
               <div key={m.month} className="flex flex-1 flex-col items-center gap-1">
                 <div className="flex w-full items-end justify-center gap-[3px]" style={{ height: H }}>
@@ -219,7 +238,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
                       const total = num(m.outgoing_eur);
                       const fc = Math.min(num(m.outgoing_forecast_eur), total);
                       const real = total - fc;
-                      const no = withNonop ? num(m.outgoing_nonop_eur) : 0;
+                      const no = withNonop ? nonopOutOf(m) : 0;
                       return (
                         <>
                           {fc > 0 && <Seg h={(fc / max) * H} bg={NEG} hatch fc label={kEur(fc)} />}
@@ -293,6 +312,35 @@ export function CashflowChart({ data }: { data: CashflowData }) {
           </tbody>
         </table>
       </div>
+
+      {/* Contexte quand les non-op sont affichés : un net très négatif est
+          normal en vue caisse (les distributions puisent dans le stock
+          accumulé) ; en vue fiscale on rappelle la règle de rattachement. */}
+      {withNonop && (
+        <p className="mt-2 rounded-lg bg-[var(--bg)] px-3 py-2 text-[11px] text-[var(--muted)]">
+          {fiscal ? (
+            <>
+              Flux non-op <b>rattachés à l'exercice</b> : placements datés de l'exercice +
+              part des dividendes/IS au-delà des pools d'exercices antérieurs (même calcul
+              que « Acomptes sur l'exercice » du widget P&L).
+            </>
+          ) : (
+            <>
+              <b>Net tous flux = variation de trésorerie de l'exercice.</b> Les distributions
+              et placements puisent dans le stock accumulé au 01/01 — le stock vit sur la
+              courbe de trésorerie et le pont « D'où vient ma trésorerie », pas ici.
+            </>
+          )}
+        </p>
+      )}
+
+      {/* Limite assumée de la vue fiscale : charges à leur date de paiement. */}
+      {fiscal && (
+        <p className="mt-1.5 text-[10px] text-[var(--muted)]">
+          Vue fiscale : encaissements rattachés à l'exercice (factures N-1 retirées, débordement
+          →{data.year + 1} ajouté) — les <b>charges</b> restent à leur date de paiement.
+        </p>
+      )}
     </Card>
   );
 }

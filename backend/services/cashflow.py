@@ -220,6 +220,104 @@ def _overflow_real(db: Session, year: int) -> dict[str, Decimal]:
     return out
 
 
+def _fiscal_nonop_flows(
+    db: Session, year: int, scope: str, today: Optional[date] = None
+) -> dict[str, dict]:
+    """
+    Flux non-op RATTACHÉS à l'exercice `year` (vue « Année fiscale »).
+
+    Règle validée 2026-07-10 :
+    - placements (catégorie type 'internal') : événements patrimoniaux datés →
+      tous les flux de l'année, tels quels ;
+    - distributions : imputation CHRONOLOGIQUE sur le pool des exercices
+      antérieurs (`pnl.retained_earnings`, même chiffre que « Report à nouveau
+      initial » du widget P&L, même scope) — seul l'EXCÉDENT au-delà du pool
+      est un acompte sur l'exercice, affiché au mois du virement (un virement
+      peut être à cheval) ;
+    - IS payé : même modèle — pool = IS estimé de N-1 (0 si exercice pré-IS)
+      − IS déjà payé avant l'exercice ; l'excédent = acomptes IS de N.
+
+    Retourne {month_key: {"in": {ccy: eur}, "out": {ccy: eur_positif}}}.
+    """
+    from backend.services import pnl as pnl_service
+
+    rates = load_rates(db)
+    cat_type = {c.id: c.type for c in db.query(models.Category).all()}
+    flows: dict[str, dict] = {
+        f"{year:04d}-{m:02d}": {"in": {}, "out": {}} for m in range(1, 13)
+    }
+
+    def _eur(tx) -> Decimal:
+        return (
+            Decimal(tx.amount_eur) if tx.amount_eur is not None else eur_amount(tx, rates)
+        )
+
+    def _add(bucket: dict, tx, value: Decimal) -> None:
+        cc = (tx.currency or "EUR").upper()
+        bucket[cc] = bucket.get(cc, _ZERO) + value
+
+    txs = sorted(
+        (
+            t
+            for t in db.query(models.Transaction).all()
+            if t.booked_date is not None and t.booked_date.year == year
+        ),
+        key=lambda t: (t.booked_date, t.id),
+    )
+
+    # Placements : tous les flux datés de l'exercice.
+    for tx in txs:
+        if cat_type.get(tx.category_id) != "internal":
+            continue
+        amt = _eur(tx)
+        key = f"{year:04d}-{tx.booked_date.month:02d}"
+        if amt < 0:
+            _add(flows[key]["out"], tx, -amt)
+        else:
+            _add(flows[key]["in"], tx, amt)
+
+    # Imputation FIFO d'une famille de flux sortants sur un pool antérieur :
+    # l'excédent cumulé au-delà du pool appartient à l'exercice.
+    def _fifo_excess(ctype: str, pool: Decimal) -> None:
+        cum = _ZERO
+        for tx in txs:
+            if cat_type.get(tx.category_id) != ctype:
+                continue
+            amt = -_eur(tx)  # sorties en magnitude positive
+            if amt <= 0:
+                continue
+            before = cum
+            cum += amt
+            excess = max(_ZERO, cum - pool) - max(_ZERO, before - pool)
+            if excess > 0:
+                key = f"{year:04d}-{tx.booked_date.month:02d}"
+                _add(flows[key]["out"], tx, excess)
+
+    pool_dist = max(
+        _ZERO, Decimal(pnl_service.retained_earnings(db, year, today=today, scope=scope))
+    )
+    _fifo_excess("distribution", pool_dist)
+
+    # Pool IS : dû au titre de N-1 (0 si pré-IS), net de ce qui a déjà été payé.
+    is_due_prev = Decimal(
+        pnl_service._scope_result(db, year - 1, scope, today=today)["is_estimate_eur"]
+    )
+    ispay_ids = {cid for cid, t in cat_type.items() if t == "is_payment"}
+    paid_before = _ZERO
+    if ispay_ids:
+        for t in db.query(models.Transaction).all():
+            if (
+                t.category_id in ispay_ids
+                and t.booked_date is not None
+                and t.booked_date.year < year
+            ):
+                paid_before += -_eur(t)
+    pool_is = max(_ZERO, is_due_prev - paid_before)
+    _fifo_excess("is_payment", pool_is)
+
+    return flows
+
+
 def monthly_cashflow(
     db: Session, year: int, today: Optional[date] = None, scope: str = "forecast"
 ) -> dict:
@@ -254,6 +352,10 @@ def monthly_cashflow(
     # Remboursements de placements ATTENDUS (scope prévisionnel) : le cash
     # revient en banque au mois d'échéance. Placements ouverts uniquement, et
     # jamais dans le passé (une échéance dépassée sans clôture = pas encaissé).
+    # Vue fiscale : flux non-op rattachés à l'exercice (placements datés +
+    # excédents dividendes/IS au-delà des pools antérieurs).
+    fiscal_nonop = _fiscal_nonop_flows(db, year, scope, today=today)
+
     redemption_in: dict[str, Decimal] = {}
     if scope == "forecast":
         for inv in db.query(models.Investment).all():
@@ -327,6 +429,14 @@ def monthly_cashflow(
         if red:
             nonop_in["EUR"] = nonop_in.get("EUR", _ZERO) + red
         nonop_in = {c: q2(v) for c, v in sorted(nonop_in.items())}
+        # Variante fiscale des non-op (le remboursement attendu est un flux de
+        # placement de l'exercice : présent dans les deux vues).
+        fno = fiscal_nonop.get(key, {"in": {}, "out": {}})
+        fno_in = dict(fno["in"])
+        if red:
+            fno_in["EUR"] = fno_in.get("EUR", _ZERO) + red
+        fno_in = {c: q2(v) for c, v in sorted(fno_in.items())}
+        fno_out = {c: q2(v) for c, v in sorted(fno["out"].items())}
         incoming = {c: q2(v) for c, v in sorted(incoming.items())}
         outgoing = {c: q2(v) for c, v in sorted(outgoing.items())}
         expected = {c: q2(v) for c, v in sorted(expected.items())}
@@ -354,6 +464,11 @@ def monthly_cashflow(
                 "incoming_nonop_by_ccy": nonop_in,
                 "incoming_nonop_eur": q2(sum(nonop_in.values(), _ZERO)),
                 "outgoing_nonop_by_ccy": nonop,
+                # Variante « année fiscale » : rattachés à l'exercice.
+                "incoming_nonop_fiscal_by_ccy": fno_in,
+                "incoming_nonop_fiscal_eur": q2(sum(fno_in.values(), _ZERO)),
+                "outgoing_nonop_fiscal_by_ccy": fno_out,
+                "outgoing_nonop_fiscal_eur": q2(sum(fno_out.values(), _ZERO)),
                 "outgoing_nonop_eur": q2(sum(nonop.values(), _ZERO)),
                 "is_forecast": is_forecast,
             }

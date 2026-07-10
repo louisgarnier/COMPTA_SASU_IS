@@ -489,3 +489,64 @@ def test_real_nonop_inflow_lands_in_incoming_nonop(db_session):
     assert juin["incoming_nonop_by_ccy"].get("EUR") == Decimal("76300.00")
     assert juin["outgoing_nonop_by_ccy"].get("EUR") == Decimal("70000.00")
     assert "EUR" not in juin["incoming_by_ccy"]
+
+
+def test_fiscal_nonop_attribution(db_session):
+    """
+    Vue fiscale — rattachement à l'exercice :
+    - placements : tous les flux datés de l'exercice (achat ET remboursement) ;
+    - distributions : seul l'excédent au-delà du pool des exercices antérieurs
+      (poche Réglages) s'affiche, au mois du virement, virement à cheval scindé ;
+    - IS payé : pool N-1 pré-IS = 0 → tout paiement IS de l'exercice est un
+      acompte de l'exercice, visible en fiscal.
+    """
+    rev, chg = _base(db_session)
+    dist = models.Category(name="Dividendes", type="distribution")
+    invc = models.Category(name="Investissement", type="internal")
+    ispay = models.Category(name="IS payé", type="is_payment")
+    db_session.add_all([dist, invc, ispay])
+    # Poche pré-IS = pool distribuable des exercices antérieurs : 100 000.
+    db_session.add(models.Settings(id=1, retained_earnings_eur=Decimal("100000"),
+                                   is_start_year=2026))
+    db_session.commit()
+
+    # Distributions 2026 : 60 000 (mars) puis 70 000 (mai) → cumul 130 000.
+    # Pool 100 000 → mars entièrement 2025 (masqué), mai à cheval : 30 000 en fiscal.
+    _tx(db_session, dist.id, date(2026, 3, 10), "-60000", "EUR", "transfer", "d1")
+    _tx(db_session, dist.id, date(2026, 5, 10), "-70000", "EUR", "transfer", "d2")
+    # Placement acheté en juin : visible en fiscal tel quel.
+    _tx(db_session, invc.id, date(2026, 6, 10), "-70000", "EUR", "investment", "p1")
+    # IS payé en avril (pool N-1 = 0, exercice 2025 pré-IS) : tout en fiscal.
+    _tx(db_session, ispay.id, date(2026, 4, 15), "-5000", "EUR", "transfer", "i1")
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+
+    # Caisse : tout apparaît aux mois réels.
+    assert by["2026-03"]["outgoing_nonop_by_ccy"].get("EUR") == Decimal("60000.00")
+    assert by["2026-05"]["outgoing_nonop_by_ccy"].get("EUR") == Decimal("70000.00")
+    # Fiscal : mars masqué, mai scindé (30 000), placement + IS entiers.
+    assert "EUR" not in by["2026-03"]["outgoing_nonop_fiscal_by_ccy"]
+    assert by["2026-05"]["outgoing_nonop_fiscal_by_ccy"].get("EUR") == Decimal("30000.00")
+    assert by["2026-06"]["outgoing_nonop_fiscal_by_ccy"].get("EUR") == Decimal("70000.00")
+    assert by["2026-04"]["outgoing_nonop_fiscal_by_ccy"].get("EUR") == Decimal("5000.00")
+
+    # Somme fiscale des distributions == « acomptes sur l'exercice » du P&L
+    # (versé 130 000 − pool 100 000 = 30 000) : cohérence structurelle.
+    total_dist_fiscal = sum(
+        Decimal(str(m["outgoing_nonop_fiscal_eur"])) for m in by.values()
+    ) - Decimal("70000") - Decimal("5000")
+    assert total_dist_fiscal == Decimal("30000.00")
+
+
+def test_fiscal_nonop_includes_expected_redemption(db_session):
+    """Le remboursement de placement attendu apparaît aussi en vue fiscale."""
+    _base(db_session)
+    db_session.add(models.Settings(id=1))
+    db_session.add(models.Investment(
+        label="K", type="bourse", currency="EUR",
+        opening_value_eur=Decimal("69600"),
+        expected_value_eur=Decimal("76300"), expected_month="2026-12",
+    ))
+    db_session.commit()
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
+    assert by["2026-12"]["incoming_nonop_fiscal_eur"] == Decimal("76300.00")
