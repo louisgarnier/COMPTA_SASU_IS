@@ -144,3 +144,15 @@ Suite à l'audit v2 (wireframe complet + reste-à-faire), 3 lots approuvés « o
 **Lot C — confort de pilotage (6493d1f) :** aging des créances (due_date/days_overdue/sent dans la timeline, badges « Retard J+n » par tranche ≤30/31–60/>60 j + totaux) ; alerte trésorerie basse (`Settings.low_treasury_alert_eur`, bandeau dashboard solde courant OU minimum projeté selon scope, preuve par mutation réversible seuil 999 999 → bandeau → 0) ; marqueur « envoyée » (`Invoice.sent_date`, bascule ✉ sur Factures, 422 sur prévision — l'immutabilité post-envoi/avoir reste hors périmètre v1) ; sidebar mobile (barre fixe + hamburger + drawer < lg) ; lien manuel FX NG8 (`POST /api/transactions/{id}/link-conversion` + bouton 🔗 sur crédits devise sans EUR réel).
 
 - **Tests : 223 backend · 26 jest · tsc clean.** Poussé sur epic-1-foundation + main.
+
+## 2026-07-10 — Placements : toggle courbe + gains au P&L/IS (maquette validée)
+
+**Toggle « + placements » (courbe Trésorerie)** : ligne violette banque + placements détenus (dernière valeur connue) ; un placement sort de la ligne à sa clôture réelle ou, en prévisionnel, à son échéance attendue — les deux courbes convergent au remboursement.
+
+**Gains de placements — modèle 3 moments (le LATENT reste hors P&L/IS)** :
+- *Attendu* : `Investment.expected_value(_eur)/expected_month` → gain attendu au P&L prévisionnel + IS projeté (`forecast.financial_income` remplace la taxation des PV latentes) ; cash attendu au mois d'échéance dans cashflow/courbe.
+- *Réalisé* : rapprochement placement↔encaissement réel (`/api/manual-assets/{id}/reconcile`) — gain réalisé = encaissé − investi (signé, pertes déductibles), transaction basculée en flux interne, annulable.
+- Widget P&L : cellule « + Produits financiers attendus/réalisés ». Vérifié live cent-exact : 385 940,40 + 6 700 − 44 908,68 = 347 731,72 (scope prévisionnel).
+
+**Données corrigées (Réglages utilisateur)** : Bourse direct investi 70 000 → **69 600** (70 000 parts à 98,9), remboursement attendu **76 300 € en 2026-12** (K Technologie).
+- **Tests : 226 backend · 26 jest · tsc clean.** Commits : toggle (courbe) + gains (91f28f6), poussés main + epic-1-foundation.
