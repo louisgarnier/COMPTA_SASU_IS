@@ -167,6 +167,24 @@ facture). Le taux réel encaissé + la variance sont figés sur la facture au pa
 
 ---
 
+### ERR-005 — `abs()` sur les charges : les remboursements comptés en charges (P&L projeté + IS gonflés)
+
+**Date :** 2026-07-10 · **Découvert par :** l'utilisateur (écart net cashflow fiscal +348 777 vs résultat P&L projeté 347 731,72 → 1 045,01 €)
+
+#### Root Cause
+`forecast._charges_by_date` (et `_recent_monthly_charge_avg`) faisaient `abs(eur)` sur chaque transaction de catégorie charge : un **remboursement** (+386,17 hôtel, +109,33 INPI, +24 frais bancaires, +3 Amazon = 522,50 €) devenait une charge SUPPLÉMENTAIRE au lieu d'une déduction → charges réelles gonflées de 2× le remboursé (1 045,00) + moyenne projetée des mois futurs contaminée (~967 € de plus). Le cashflow, lui, nettait correctement — d'où l'écart entre les deux widgets.
+
+#### Fix
+Contribution SIGNÉE : charge (montant < 0) → positif, remboursement → négatif ; EUR réel (`amount_eur`) prioritaire sur le taux théorique ; moyenne future clampée ≥ 0. Écart après fix : 0,02 € (arrondis de sommes mensuelles).
+
+#### Prevention Rule
+**Jamais `abs()` sur un agrégat financier** — netter en signé puis afficher en magnitude au dernier moment. Quand deux widgets divergent, décomposer l'écart composante par composante (revenus/charges/non-op) au centime avant de conclure « vision différente ».
+
+#### Test Added
+- [x] `test_charges_projection_nets_refunds` (charge 100 − refund 30 → 70, l'ancien code donnait 130).
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

@@ -586,3 +586,30 @@ def test_delete_forecast_ignores_issued_invoice(db_session):
     assert deleted is False
     # La facture émise est toujours là.
     assert db_session.query(models.Invoice).filter_by(month="2026-03").count() == 1
+
+
+def test_charges_projection_nets_refunds(db_session):
+    """
+    Régression (bug 2026-07-10) : un remboursement (+) sur une catégorie de
+    charge doit RÉDUIRE les charges du mois — l'ancien `abs()` le comptait
+    comme une charge supplémentaire (P&L projeté et IS gonflés de 2× le
+    remboursé ; écart de 1 045,01 € constaté en prod : 522,50 € de refunds).
+    """
+    chg = models.Category(name="Frais", type="charge")
+    db_session.add(chg)
+    db_session.add(models.BankAccount(provider="qonto", account_uid="A", currency="EUR"))
+    db_session.commit()
+    db_session.add(models.Transaction(
+        account_uid="A", external_id="c1", booked_date=date(2026, 2, 5),
+        amount=Decimal("-100.00"), currency="EUR", description="charge",
+        counterparty="X", kind="charge", category_id=chg.id))
+    db_session.add(models.Transaction(
+        account_uid="A", external_id="c2", booked_date=date(2026, 2, 20),
+        amount=Decimal("30.00"), currency="EUR", description="refund",
+        counterparty="X", kind="charge", category_id=chg.id))
+    db_session.commit()
+
+    proj = forecast_service.project(db_session, 2026, today=date(2026, 7, 4))
+    feb = next(m for m in proj["months"] if m["month"] == "2026-02")
+    # Net : 100 − 30 = 70 (l'ancien code donnait 130).
+    assert feb["charges_actual_eur"] == Decimal("70.00")

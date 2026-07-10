@@ -4,8 +4,9 @@ Service prévision (forecast) LGC — projection de trésorerie & estimation IS.
 - Entrées mensuelles : jours × TJH × fx par client (table `forecast_inputs`).
 - Projection : revenu projeté par mois, charges opérationnelles moyennes,
   déroulé de trésorerie cumulée.
-- Estimation IS : base imposable = résultat projeté + plus-values latentes
-  positives sur placements, barème à deux taux (Settings).
+- Estimation IS : base imposable = résultat projeté + produits financiers
+  (gains de placements attendus/réalisés — jamais le latent), barème à deux
+  taux (Settings).
 
 Tous les montants sont manipulés en `Decimal`, jamais en float.
 """
@@ -433,6 +434,12 @@ def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:
 
     Charge opérationnelle = transaction dont la catégorie est de type 'charge'
     et dont le `kind` n'est pas dans {investment, conversion, transfer}.
+
+    Montants NETS (bug du 2026-07-10 : `abs()` transformait chaque
+    remboursement — avoir, refund — en charge supplémentaire au lieu de la
+    déduire, gonflant charges projetées et IS de 2× le remboursé) : une
+    charge (montant < 0) contribue en positif, un remboursement en négatif.
+    EUR réel (`amount_eur`) prioritaire, repli taux théorique.
     """
     rows = (
         db.query(models.Transaction, models.Category)
@@ -452,8 +459,12 @@ def _charges_by_date(db: Session, year: int) -> list[tuple[date, Decimal]]:
     for txn, _category in rows:
         if txn.booked_date.year != year:
             continue
-        eur = to_eur(txn.amount, txn.currency, rates)  # taux théorique Réglages
-        out.append((txn.booked_date, abs(eur)))
+        eur = (
+            Decimal(txn.amount_eur)
+            if txn.amount_eur is not None
+            else to_eur(txn.amount, txn.currency, rates)
+        )
+        out.append((txn.booked_date, -eur))  # charge → positif, remboursement → négatif
     return out
 
 
@@ -482,8 +493,13 @@ def _recent_monthly_charge_avg(db: Session, today: date, window_months: int = 12
     total = _ZERO
     for txn, _cat in rows:
         if start <= txn.booked_date <= today:
-            total += abs(to_eur(txn.amount, txn.currency, rates))
-    return (Decimal(total) / Decimal(window_months)) if total else _ZERO
+            eur = (
+                Decimal(txn.amount_eur)
+                if txn.amount_eur is not None
+                else to_eur(txn.amount, txn.currency, rates)
+            )
+            total += -eur  # net des remboursements (cf. _charges_by_date)
+    return max(_ZERO, Decimal(total) / Decimal(window_months)) if total else _ZERO
 
 
 def _charge_forecast(
