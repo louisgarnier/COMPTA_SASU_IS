@@ -18,6 +18,8 @@ interface Transaction {
   counterparty: string | null;
   category_id: number | null;
   category_name: string | null;
+  provider: string | null;
+  account_name: string | null;
   kind: string | null;
   fx_rate: string | null;
   amount_eur: string | null;
@@ -423,6 +425,7 @@ function TransactionsPageInner() {
                   />
                 </th>
                 <th className="px-3 py-1 font-medium">Date</th>
+                <th className="px-3 py-1 font-medium">Banque</th>
                 <th className="px-3 py-1 font-medium">Description</th>
                 <th className="px-3 py-1 font-medium">Type</th>
                 <th className="px-3 py-1 font-medium">Catégorie</th>
@@ -451,6 +454,24 @@ function TransactionsPageInner() {
                     </td>
                     <td className="whitespace-nowrap px-3 py-1 text-[var(--muted)]">
                       {dateFR(tx.booked_date)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1">
+                      {tx.provider ? (
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            tx.provider === 'qonto'
+                              ? 'bg-violet-50 text-violet-700'
+                              : tx.provider === 'revolut'
+                                ? 'bg-sky-50 text-sky-700'
+                                : 'bg-gray-100 text-[var(--muted)]'
+                          }`}
+                          title={tx.account_name ?? undefined}
+                        >
+                          {tx.provider.charAt(0).toUpperCase() + tx.provider.slice(1)}
+                        </span>
+                      ) : (
+                        <span className="text-[var(--muted)]">—</span>
+                      )}
                     </td>
                     <td className="max-w-[320px] px-3 py-1">
                       {/* Une seule ligne (tronquée) — contrepartie inline, détail au survol. */}
@@ -533,7 +554,7 @@ function TransactionsPageInner() {
             <tfoot>
               {/* Total EUR des lignes AFFICHÉES — suit recherche + filtres. */}
               <tr className="border-t-2 border-[var(--border)] bg-gray-50/60 font-semibold">
-                <td colSpan={6} className="px-3 py-1.5 text-right">
+                <td colSpan={7} className="px-3 py-1.5 text-right">
                   Total ({filtered.length} ligne{filtered.length > 1 ? 's' : ''} affichées)
                 </td>
                 <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">

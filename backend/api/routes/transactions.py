@@ -46,6 +46,9 @@ class TransactionOut(BaseModel):
     counterparty: str
     category_id: Optional[int]
     category_name: Optional[str] = None
+    # Banque d'origine (dérivée du compte : 'qonto' | 'revolut') + nom du compte.
+    provider: Optional[str] = None
+    account_name: Optional[str] = None
     kind: str
     fx_rate: Optional[Decimal]
     amount_eur: Optional[Decimal]
@@ -78,10 +81,25 @@ def _kind_for_category(db: Session, category_id: Optional[int]) -> str:
     return kind_for_category_type(cat.type if cat else None)
 
 
-def _to_out(tx: models.Transaction) -> TransactionOut:
-    """Sérialise une transaction en injectant le nom de sa catégorie."""
+def _accounts_map(db: Session) -> dict[str, tuple[str, str]]:
+    """Index account_uid → (provider, nom du compte) pour la banque d'origine."""
+    return {
+        a.account_uid: (a.provider, a.name or a.provider)
+        for a in db.query(models.BankAccount).all()
+    }
+
+
+def _to_out(
+    tx: models.Transaction,
+    accounts: Optional[dict[str, tuple[str, str]]] = None,
+) -> TransactionOut:
+    """Sérialise une transaction en injectant catégorie et banque d'origine."""
     out = TransactionOut.model_validate(tx)
     out.category_name = tx.category.name if tx.category is not None else None
+    if accounts is not None:
+        prov = accounts.get(tx.account_uid)
+        if prov:
+            out.provider, out.account_name = prov
     return out
 
 
@@ -205,7 +223,8 @@ def list_transactions(
         ]
 
     logger.info("📤 [Transactions] list: %d résultat(s)", len(rows))
-    return [_to_out(tx) for tx in rows]
+    accounts = _accounts_map(db)
+    return [_to_out(tx, accounts) for tx in rows]
 
 
 @router.post("/bulk-categorize", response_model=list[TransactionOut])
@@ -233,7 +252,8 @@ def bulk_categorize(
     for tx in rows:
         db.refresh(tx)
     logger.info("📤 [Transactions] bulk_categorize: %d transaction(s) ✅", len(rows))
-    return [_to_out(tx) for tx in rows]
+    accounts = _accounts_map(db)
+    return [_to_out(tx, accounts) for tx in rows]
 
 
 class LinkConversionIn(BaseModel):
@@ -275,7 +295,7 @@ def link_conversion(
         "📤 [Transactions] link_conversion: tx#%d ← conv#%d ✅",
         transaction_id, payload.conversion_tx_id,
     )
-    return _to_out(updated)
+    return _to_out(updated, _accounts_map(db))
 
 
 @router.patch("/{transaction_id}", response_model=TransactionOut)
@@ -300,4 +320,4 @@ def update_transaction(
     db.commit()
     db.refresh(tx)
     logger.info("📤 [Transactions] update: id=%s, %d champ(s) ✅", transaction_id, len(changes))
-    return _to_out(tx)
+    return _to_out(tx, _accounts_map(db))
