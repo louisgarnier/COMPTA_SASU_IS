@@ -207,6 +207,11 @@ export const investmentsAPI = {
     patch<any>(`/api/manual-assets/${id}`, b),
   remove: (id: number) => del(`/api/manual-assets/${id}`),
   summary: () => get<any>('/api/manual-assets/summary'),
+  // Clôture : rapprochement du remboursement à un encaissement réel.
+  candidates: (id: number) => get<any[]>(`/api/manual-assets/${id}/candidates`),
+  reconcile: (id: number, transaction_id: number) =>
+    post<any>(`/api/manual-assets/${id}/reconcile`, { transaction_id }),
+  unreconcile: (id: number) => post<any>(`/api/manual-assets/${id}/unreconcile`),
 };
 
 export const forecastAPI = {

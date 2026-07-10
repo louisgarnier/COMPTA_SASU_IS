@@ -244,6 +244,23 @@ def monthly_cashflow(
     else:
         forecast_charge = {}
 
+    # Remboursements de placements ATTENDUS (scope prévisionnel) : le cash
+    # revient en banque au mois d'échéance. Placements ouverts uniquement, et
+    # jamais dans le passé (une échéance dépassée sans clôture = pas encaissé).
+    redemption_in: dict[str, Decimal] = {}
+    if scope == "forecast":
+        for inv in db.query(models.Investment).all():
+            if (
+                inv.closed_date is None
+                and inv.expected_value_eur is not None
+                and (inv.expected_month or "")[:4] == f"{year:04d}"
+            ):
+                em = inv.expected_month
+                if (int(em[:4]), int(em[5:7])) >= current:
+                    redemption_in[em] = redemption_in.get(em, _ZERO) + Decimal(
+                        inv.expected_value_eur
+                    )
+
     months = []
     total_in = _ZERO
     total_out = _ZERO
@@ -263,6 +280,9 @@ def monthly_cashflow(
         if is_forecast:
             # Futur strict : tout prévisionnel.
             incoming = dict(forecast_in.get(key, {}))
+            red = redemption_in.get(key)
+            if red:
+                incoming["EUR"] = incoming.get("EUR", _ZERO) + red
             expected = dict(incoming)
             chg = Decimal(forecast_charge.get(key, _ZERO))
             outgoing = {"EUR": chg} if chg > 0 else {}
@@ -276,6 +296,10 @@ def monthly_cashflow(
             for c, v in forecast_in.get(key, {}).items():
                 incoming[c] = incoming.get(c, _ZERO) + v
                 expected[c] = expected.get(c, _ZERO) + v
+            red = redemption_in.get(key)
+            if red:
+                incoming["EUR"] = incoming.get("EUR", _ZERO) + red
+                expected["EUR"] = expected.get("EUR", _ZERO) + red
             outgoing = dict(real[m]["out"])
             chg = Decimal(forecast_charge.get(key, _ZERO))
             if chg > 0:

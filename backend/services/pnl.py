@@ -337,7 +337,10 @@ def _scope_result(db: Session, year: int, scope: str, today=None) -> dict:
         # Charges réelles + PROJETÉES — même source que la page Heures & jours.
         projection = forecast_service.project(db, year, today=today)
         charges_eur = q2(Decimal(str(projection["totals"]["charges_eur"])))
-    result_eur = q2(revenue_eur - charges_eur)
+    # Produits financiers (placements) : gains réalisés (clôtures rapprochées),
+    # + gains attendus en prévisionnel — le latent reste hors P&L/IS.
+    financial_income_eur = q2(forecast_service.financial_income(db, year, scope=scope))
+    result_eur = q2(revenue_eur - charges_eur + financial_income_eur)
 
     settings = _get_settings(db)
     pre_is = settings.is_start_year is not None and year < settings.is_start_year
@@ -357,6 +360,7 @@ def _scope_result(db: Session, year: int, scope: str, today=None) -> dict:
     return {
         "revenue_eur": revenue_eur,
         "charges_eur": charges_eur,
+        "financial_income_eur": financial_income_eur,
         "result_eur": result_eur,
         "is_estimate_eur": is_estimate_eur,
         "net_result_eur": q2(result_eur - is_estimate_eur),
@@ -471,6 +475,7 @@ def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:
         "is_regime": "IR" if pre_is else "IS",
         "revenue_eur": revenue_eur,
         "charges_eur": charges_eur,
+        "financial_income_eur": core["financial_income_eur"],
         "result_eur": result_eur,
         "is_estimate_eur": is_estimate_eur,
         "net_result_eur": net_result_eur,

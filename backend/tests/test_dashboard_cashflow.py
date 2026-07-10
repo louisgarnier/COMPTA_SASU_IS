@@ -436,3 +436,33 @@ def test_nonop_outflows_exposed_separately(db_session):
     # …et le non-opérationnel est exposé à part (magnitude positive).
     assert feb["outgoing_nonop_by_ccy"] == {"EUR": Decimal("500.00")}
     assert mar["outgoing_nonop_eur"] == Decimal("2000.00")
+
+
+def test_expected_investment_redemption_in_forecast_inflows(db_session):
+    """
+    Remboursement de placement attendu : encaissement EUR au mois d'échéance en
+    scope prévisionnel uniquement (part « attendue »), rien une fois clôturé
+    ni dans les scopes réalisé/engagé.
+    """
+    _base(db_session)
+    db_session.add(models.Investment(
+        label="K Technologie", type="bourse", currency="EUR",
+        opening_value_eur=Decimal("69600"), current_value_eur=Decimal("77000"),
+        expected_value_eur=Decimal("76300"), expected_month="2026-12",
+    ))
+    db_session.commit()
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
+    dec = by["2026-12"]
+    assert dec["incoming_by_ccy"].get("EUR") == Decimal("76300.00")
+    assert dec["incoming_expected_by_ccy"].get("EUR") == Decimal("76300.00")
+
+    by_eng = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="engaged"))
+    assert "EUR" not in by_eng["2026-12"]["incoming_by_ccy"]
+
+    # Clôturé → plus d'attendu (le réel a pris le relais).
+    inv = db_session.query(models.Investment).first()
+    inv.closed_date = _TODAY
+    db_session.commit()
+    by2 = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
+    assert "EUR" not in by2["2026-12"]["incoming_by_ccy"]

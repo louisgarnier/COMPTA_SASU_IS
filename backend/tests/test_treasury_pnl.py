@@ -343,3 +343,34 @@ def test_pnl_detail_charges_by_category(session):
     total = sum(Decimal(str(r["total_eur"])) for r in out["charges_by_category"])
     from backend.services.pnl import monthly_pnl
     assert total == abs(Decimal(str(monthly_pnl(session, 2026)["totals"]["charges_eur"])))
+
+
+def test_pnl_financial_income_by_scope(session):
+    from backend.services import pnl as pnl_service
+
+    """
+    Produits financiers dans le P&L : gain attendu en prévisionnel seulement,
+    gain réalisé (clôture) dans tous les scopes, latent jamais — et le résultat
+    l'inclut (donc la base IS et le chaînage RAN suivent).
+    """
+    session.add(models.Investment(
+        label="K Technologie", type="bourse", currency="EUR",
+        opening_value_eur=Decimal("69600"), current_value_eur=Decimal("77000"),
+        expected_value_eur=Decimal("76300"), expected_month="2026-12",
+    ))
+    session.add(models.Investment(
+        label="Latent pur", type="crypto", currency="EUR",
+        opening_value_eur=Decimal("1000"), current_value_eur=Decimal("9999"),
+    ))
+    session.commit()
+
+    today = date(2026, 7, 10)
+    eng = pnl_service.summary(session, 2026, today=today, scope="engaged")
+    fc = pnl_service.summary(session, 2026, today=today, scope="forecast")
+
+    assert Decimal(str(eng["financial_income_eur"])) == Decimal("0.00")
+    assert Decimal(str(fc["financial_income_eur"])) == Decimal("6700.00")
+    # Le résultat prévisionnel inclut le gain attendu.
+    assert Decimal(str(fc["result_eur"])) == Decimal(str(fc["revenue_eur"])) - Decimal(
+        str(fc["charges_eur"])
+    ) + Decimal("6700.00")

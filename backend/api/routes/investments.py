@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field as PydField
 from sqlalchemy.orm import Session
 
 from backend.db import models
@@ -45,6 +45,12 @@ class InvestmentOut(BaseModel):
     current_value_eur: Decimal
     as_of_date: Optional[date] = None
     note: str
+    expected_value: Optional[Decimal] = None
+    expected_value_eur: Optional[Decimal] = None
+    expected_month: Optional[str] = None
+    closed_date: Optional[date] = None
+    closed_transaction_id: Optional[int] = None
+    realized_gain_eur: Optional[Decimal] = None
 
 
 class InvestmentCreate(BaseModel):
@@ -59,6 +65,9 @@ class InvestmentCreate(BaseModel):
     current_value_eur: Decimal = Decimal("0")
     as_of_date: Optional[date] = None
     note: str = ""
+    expected_value: Optional[Decimal] = None
+    expected_value_eur: Optional[Decimal] = None
+    expected_month: Optional[str] = PydField(default=None, pattern=r"^\d{4}-\d{2}$")
 
 
 class InvestmentUpdate(BaseModel):
@@ -73,6 +82,9 @@ class InvestmentUpdate(BaseModel):
     current_value_eur: Optional[Decimal] = None
     as_of_date: Optional[date] = None
     note: Optional[str] = None
+    expected_value: Optional[Decimal] = None
+    expected_value_eur: Optional[Decimal] = None
+    expected_month: Optional[str] = PydField(default=None, pattern=r"^\d{4}-\d{2}$")
 
 
 class InvestmentSummary(BaseModel):
@@ -151,3 +163,136 @@ def delete_investment(investment_id: int, db: Session = Depends(get_db)):
     db.delete(row)
     db.commit()
     logger.info("📤 [Investments] delete: id=%d ✅", investment_id)
+
+
+# --------------------------------------------------------------------------- #
+# Clôture / rapprochement placement ↔ encaissement réel (gain réalisé)
+# --------------------------------------------------------------------------- #
+class ReconcileIn(BaseModel):
+    """Rapprochement du remboursement d'un placement à une transaction."""
+
+    transaction_id: int
+
+
+def _tx_eur(db: Session, tx: models.Transaction) -> Decimal:
+    """EUR réel d'une transaction : `amount_eur` sinon natif × taux théorique."""
+    from backend.services.fx import load_rates, to_eur
+
+    if tx.amount_eur is not None:
+        return Decimal(tx.amount_eur)
+    if (tx.currency or "EUR").upper() == "EUR":
+        return Decimal(tx.amount or 0)
+    return to_eur(Decimal(tx.amount or 0), tx.currency, load_rates(db))
+
+
+@router.get("/{investment_id}/candidates")
+def redemption_candidates(investment_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    """
+    Encaissements candidats au rapprochement du remboursement : transactions
+    positives, sans facture liée, ne clôturant pas déjà un autre placement —
+    triées par proximité au montant attendu (sinon à l'investi), 20 max.
+    """
+    inv = _get_or_404(db, investment_id)
+    target = Decimal(
+        inv.expected_value_eur
+        if inv.expected_value_eur is not None
+        else inv.opening_value_eur or 0
+    )
+    used = {
+        i.closed_transaction_id
+        for i in db.query(models.Investment).all()
+        if i.closed_transaction_id is not None
+    }
+    rows = [
+        t
+        for t in db.query(models.Transaction).all()
+        if t.amount is not None
+        and t.amount > 0
+        and t.invoice_id is None
+        and t.id not in used
+    ]
+    rows.sort(key=lambda t: abs(_tx_eur(db, t) - target))
+    out = [
+        {
+            "id": t.id,
+            "booked_date": t.booked_date.isoformat() if t.booked_date else None,
+            "description": t.description,
+            "counterparty": t.counterparty,
+            "amount": str(t.amount),
+            "currency": t.currency,
+            "amount_eur": str(_tx_eur(db, t)),
+        }
+        for t in rows[:20]
+    ]
+    logger.info("📤 [Investments] candidates: id=%d, %d candidat(s)", investment_id, len(out))
+    return out
+
+
+@router.post("/{investment_id}/reconcile", response_model=InvestmentOut)
+def reconcile_investment(
+    investment_id: int, payload: ReconcileIn, db: Session = Depends(get_db)
+) -> models.Investment:
+    """
+    Clôture le placement sur un encaissement réel : gain réalisé = EUR encaissé
+    − investi (signé, une perte est déductible) → P&L réalisé + base IS.
+
+    La transaction est basculée en flux interne (catégorie « Investissement »
+    si présente, kind='investment') : le gain vit sur le placement, jamais en
+    double dans les revenus catégorisés.
+    """
+    inv = _get_or_404(db, investment_id)
+    if inv.closed_date is not None:
+        raise HTTPException(status_code=409, detail="Placement déjà clôturé")
+    tx = db.get(models.Transaction, payload.transaction_id)
+    if tx is None:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if tx.amount is None or tx.amount <= 0:
+        raise HTTPException(status_code=422, detail="Le remboursement doit être un encaissement (montant > 0)")
+    if tx.invoice_id is not None:
+        raise HTTPException(status_code=409, detail="Transaction déjà rapprochée d'une facture")
+    clash = (
+        db.query(models.Investment)
+        .filter(models.Investment.closed_transaction_id == payload.transaction_id)
+        .first()
+    )
+    if clash is not None:
+        raise HTTPException(status_code=409, detail=f"Transaction déjà liée au placement « {clash.label} »")
+
+    received_eur = _tx_eur(db, tx)
+    inv.closed_transaction_id = tx.id
+    inv.closed_date = tx.booked_date or date.today()
+    inv.realized_gain_eur = received_eur - Decimal(inv.opening_value_eur or 0)
+    # Flux interne : la part capital ne doit jamais compter en revenu.
+    internal_cat = (
+        db.query(models.Category)
+        .filter(models.Category.type == "internal")
+        .order_by(models.Category.id)
+        .first()
+    )
+    if internal_cat is not None:
+        tx.category_id = internal_cat.id
+    tx.kind = "investment"
+    db.commit()
+    db.refresh(inv)
+    logger.info(
+        "📤 [Investments] reconcile: id=%d ← tx#%d, gain réalisé=%s EUR ✅",
+        investment_id, tx.id, inv.realized_gain_eur,
+    )
+    return inv
+
+
+@router.post("/{investment_id}/unreconcile", response_model=InvestmentOut)
+def unreconcile_investment(
+    investment_id: int, db: Session = Depends(get_db)
+) -> models.Investment:
+    """Annule la clôture (la transaction garde sa catégorie interne)."""
+    inv = _get_or_404(db, investment_id)
+    if inv.closed_date is None:
+        raise HTTPException(status_code=409, detail="Placement non clôturé")
+    inv.closed_transaction_id = None
+    inv.closed_date = None
+    inv.realized_gain_eur = None
+    db.commit()
+    db.refresh(inv)
+    logger.info("📤 [Investments] unreconcile: id=%d ✅", investment_id)
+    return inv

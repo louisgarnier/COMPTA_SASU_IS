@@ -23,6 +23,7 @@ export type PnlSummary = {
   is_regime?: 'IR' | 'IS';
   revenue_eur: string | number;
   charges_eur: string | number;
+  financial_income_eur?: string | number;
   result_eur: string | number;
   is_estimate_eur: string | number;
   net_result_eur: string | number;
@@ -77,6 +78,17 @@ export function PnlWidget({ data }: { data: PnlSummary }) {
 
       <div className="my-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <Cell label="Revenus" value={eur(data.revenue_eur)} />
+        {/* Produits financiers (placements) : gains attendus (prévisionnel) ou
+            réalisés — n'apparaît que s'il y en a. Négatif = perte réalisée. */}
+        {Number(data.financial_income_eur ?? 0) !== 0 && (
+          <>
+            <Op sign="+" />
+            <Cell
+              label={scope === 'forecast' ? 'Produits financiers attendus' : 'Produits financiers réalisés'}
+              value={eur(data.financial_income_eur ?? 0)}
+            />
+          </>
+        )}
         <Op sign="−" />
         <Cell label={chargesLabel} value={eur(data.charges_eur)} />
         <Op sign="=" />

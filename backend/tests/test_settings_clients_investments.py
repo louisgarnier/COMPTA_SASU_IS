@@ -326,3 +326,72 @@ def test_invoice_sent_date_marker(client: TestClient):
     db.close()
     resp = client.patch(f"/api/invoices/{fc_id}", json={"sent_date": "2026-06-02"})
     assert resp.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# Gains placements — rapprochement du remboursement (gain réalisé)
+# --------------------------------------------------------------------------- #
+def _db_of(client: TestClient):
+    """Session sur la même base en mémoire que l'app de test."""
+    gen = client.app.dependency_overrides[get_db]()
+    return next(gen)
+
+
+def test_investment_reconcile_realizes_gain_and_unreconcile(client: TestClient):
+    """
+    Clôture d'un placement sur un encaissement réel : gain réalisé = EUR reçu −
+    investi ; la transaction bascule en flux interne ; unreconcile restaure.
+    Garde-fous : double clôture 409, tx déjà liée 409, débit 422.
+    """
+    db = _db_of(client)
+    cat = models.Category(name="Investissement", type="internal", is_system=True)
+    db.add(cat)
+    db.add(models.BankAccount(provider="qonto", account_uid="ACC", currency="EUR"))
+    db.commit()
+    tx = models.Transaction(
+        account_uid="ACC", external_id="r1", booked_date=__import__("datetime").date(2026, 12, 15),
+        amount=Decimal("76300.00"), currency="EUR",
+        description="BOURSE DIRECT REMBOURSEMENT", counterparty="Bourse Direct", kind="other",
+    )
+    debit = models.Transaction(
+        account_uid="ACC", external_id="r2", booked_date=__import__("datetime").date(2026, 12, 16),
+        amount=Decimal("-10.00"), currency="EUR", description="frais", counterparty="X", kind="charge",
+    )
+    db.add_all([tx, debit])
+    db.commit()
+    tx_id, debit_id = tx.id, debit.id
+
+    inv = client.post("/api/manual-assets", json={
+        "label": "K Technologie", "type": "bourse", "currency": "EUR",
+        "opening_value": "69600", "opening_value_eur": "69600",
+        "current_value": "77000", "current_value_eur": "77000",
+        "expected_value": "76300", "expected_value_eur": "76300", "expected_month": "2026-12",
+    }).json()
+
+    # Candidats : l'encaissement positif est proposé, le débit non.
+    cands = client.get(f"/api/manual-assets/{inv['id']}/candidates").json()
+    assert any(c["id"] == tx_id for c in cands)
+    assert not any(c["id"] == debit_id for c in cands)
+
+    # Rapprochement : gain réalisé = 76300 − 69600 = 6700.
+    resp = client.post(f"/api/manual-assets/{inv['id']}/reconcile", json={"transaction_id": tx_id})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert Decimal(data["realized_gain_eur"]) == Decimal("6700.00")
+    assert data["closed_date"] == "2026-12-15"
+    db.expire_all()
+    tx2 = db.get(models.Transaction, tx_id)
+    assert tx2.kind == "investment" and tx2.category_id == cat.id
+
+    # Double clôture → 409 ; débit → 422 sur un autre placement.
+    assert client.post(f"/api/manual-assets/{inv['id']}/reconcile", json={"transaction_id": tx_id}).status_code == 409
+    inv2 = client.post("/api/manual-assets", json={"label": "Autre", "type": "bourse"}).json()
+    assert client.post(f"/api/manual-assets/{inv2['id']}/reconcile", json={"transaction_id": tx_id}).status_code == 409
+    assert client.post(f"/api/manual-assets/{inv2['id']}/reconcile", json={"transaction_id": debit_id}).status_code == 422
+
+    # Annulation : champs de clôture remis à zéro.
+    resp = client.post(f"/api/manual-assets/{inv['id']}/unreconcile")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["closed_date"] is None and data["realized_gain_eur"] is None
+    db.close()

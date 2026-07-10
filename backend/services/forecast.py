@@ -640,14 +640,35 @@ def project(
     }
 
 
-def _investment_gain(db: Session) -> Decimal:
-    """Somme des plus-values latentes positives sur placements (EUR)."""
-    gain = _ZERO
+def financial_income(db: Session, year: int, scope: str = "engaged") -> Decimal:
+    """
+    Produits financiers de l'exercice `year` (gains/pertes de placements, EUR).
+
+    Modèle validé 2026-07-10 — le gain LATENT n'est jamais compté (non acquis,
+    non taxé ; le traitement fiscal fin type OPCVM 209-0 A relève de
+    l'expert-comptable) :
+    - réalisé/engagé : Σ `realized_gain_eur` des placements CLÔTURÉS dans
+      l'exercice (rapprochés à un encaissement réel) — signé, une perte
+      réalisée est déductible ;
+    - prévisionnel : + Σ gains ATTENDUS (`expected_value_eur` − investi) des
+      placements ouverts à échéance dans l'exercice.
+    """
+    total = _ZERO
     for inv in db.query(models.Investment).all():
-        delta = Decimal(inv.current_value_eur) - Decimal(inv.opening_value_eur)
-        if delta > 0:
-            gain += delta
-    return gain
+        if (
+            inv.closed_date is not None
+            and inv.closed_date.year == year
+            and inv.realized_gain_eur is not None
+        ):
+            total += Decimal(inv.realized_gain_eur)
+        elif (
+            scope == "forecast"
+            and inv.closed_date is None
+            and inv.expected_value_eur is not None
+            and (inv.expected_month or "")[:4] == f"{year:04d}"
+        ):
+            total += Decimal(inv.expected_value_eur) - Decimal(inv.opening_value_eur)
+    return total
 
 
 def _get_settings(db: Session) -> models.Settings:
@@ -671,8 +692,9 @@ def estimate_is(
     Estime l'impôt sur les sociétés (IS) pour `year`.
 
     Base imposable = (revenu projeté annuel - charges projetées annuelles)
-    + plus-values latentes positives sur placements. Si `base_override` est
-    fourni, il remplace la base calculée.
+    + produits financiers de l'exercice (gains réalisés + attendus — le latent
+    n'est PAS taxé, cf. `financial_income`). Si `base_override` est fourni,
+    il remplace la base calculée.
 
     Barème (Settings) : is_low_rate jusqu'à is_threshold, is_high_rate au-delà.
     """
@@ -683,7 +705,7 @@ def estimate_is(
     else:
         projection = project(db, year, today=today)
         result = projection["totals"]["revenue_eur"] - projection["totals"]["charges_eur"]
-        base = result + _investment_gain(db)
+        base = result + financial_income(db, year, scope="forecast")
 
     threshold = Decimal(settings.is_threshold)
     low_rate = Decimal(settings.is_low_rate)

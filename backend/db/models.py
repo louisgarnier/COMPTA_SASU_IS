@@ -302,7 +302,14 @@ class Invoice(Base):
 
 
 class Investment(Base):
-    """Placement (crypto, bourse, ...) — suivi valeur d'ouverture / courante."""
+    """Placement (crypto, bourse, ...) — suivi valeur d'ouverture / courante.
+
+    Cycle gains (2026-07-10) : le gain LATENT (courant − investi) reste hors
+    P&L/IS. Seuls comptent : le remboursement ATTENDU (`expected_*`, scope
+    prévisionnel — gain attendu au P&L + IS projeté, cash attendu dans la
+    courbe) et le RÉALISÉ (clôture rapprochée à une transaction réelle :
+    `realized_gain_eur` = encaissé − investi → P&L réalisé + base IS).
+    """
 
     __tablename__ = "investments"
 
@@ -316,6 +323,18 @@ class Investment(Base):
     current_value_eur: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
     as_of_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
+
+    # Remboursement attendu (produit structuré à échéance…) — NULL = aucun.
+    expected_value: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
+    expected_value_eur: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
+    expected_month: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # 'YYYY-MM'
+
+    # Clôture réelle : rapprochement à l'encaissement bancaire du remboursement.
+    closed_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    closed_transaction_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("transactions.id"), nullable=True
+    )
+    realized_gain_eur: Mapped[Optional[Decimal]] = mapped_column(MONEY, nullable=True)
 
 
 class FxRate(Base):

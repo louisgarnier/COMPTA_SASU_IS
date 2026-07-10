@@ -309,25 +309,42 @@ def test_is_below_threshold_only_low_rate(db_session):
     assert result["is_total_eur"] == Decimal("4500.00")
 
 
-def test_is_includes_positive_investment_gain(db_session):
+def test_is_taxes_expected_and_realized_gains_not_latent(db_session):
+    """
+    Modèle 2026-07-10 : le gain LATENT n'entre plus dans la base IS. Comptent :
+    le gain ATTENDU (échéance dans l'exercice, placement ouvert) et le gain
+    RÉALISÉ (clôture rapprochée), pertes réalisées déductibles.
+    """
+    from datetime import date as date_type
+
     client = _make_client(db_session)
     forecast_service.upsert_inputs(
         db_session,
         [{"month": "2026-01", "client_id": client.id, "days": Decimal("100"),
           "rate": Decimal("100"), "fx_rate": Decimal("1"), "note": ""}],
     )
-    # Plus-value latente +2000 (prise en compte) et une moins-value -500 (ignorée).
+    # Latent pur (+2000 non taxé), attendu (+6700), réalisé (−500 déductible).
     db_session.add(models.Investment(
-        label="BTC", type="crypto", currency="EUR",
+        label="BTC latent", type="crypto", currency="EUR",
         opening_value_eur=Decimal("1000"), current_value_eur=Decimal("3000")))
     db_session.add(models.Investment(
-        label="ETH", type="crypto", currency="EUR",
-        opening_value_eur=Decimal("2000"), current_value_eur=Decimal("1500")))
+        label="K Technologie", type="bourse", currency="EUR",
+        opening_value_eur=Decimal("69600"), current_value_eur=Decimal("77000"),
+        expected_value_eur=Decimal("76300"), expected_month="2026-12"))
+    db_session.add(models.Investment(
+        label="ETH vendu à perte", type="crypto", currency="EUR",
+        opening_value_eur=Decimal("2000"), current_value_eur=Decimal("1500"),
+        closed_date=date_type(2026, 3, 1), realized_gain_eur=Decimal("-500")))
     db_session.commit()
 
+    # Prévisionnel : attendu (76300−69600=6700) + réalisé (−500), latent exclu.
+    assert forecast_service.financial_income(db_session, 2026, scope="forecast") == Decimal("6200")
+    # Réalisé/engagé : uniquement le réalisé.
+    assert forecast_service.financial_income(db_session, 2026, scope="engaged") == Decimal("-500")
+
     result = forecast_service.estimate_is(db_session, 2026)
-    # Résultat projeté = 10000 (revenu) - 0 (charges) + 2000 (PV) = 12000
-    assert result["base_eur"] == Decimal("12000.00")
+    # Base projetée = 10000 (revenu) − 0 (charges) + 6200 (produits financiers)
+    assert result["base_eur"] == Decimal("16200.00")
 
 
 # --------------------------------------------------------------------------- #
