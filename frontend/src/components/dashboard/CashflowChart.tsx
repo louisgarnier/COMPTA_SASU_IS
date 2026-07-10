@@ -322,7 +322,9 @@ export function CashflowChart({ data }: { data: CashflowData }) {
             <>
               Flux non-op <b>rattachés à l'exercice</b> : placements datés de l'exercice +
               part des dividendes/IS au-delà des pools d'exercices antérieurs (même calcul
-              que « Acomptes sur l'exercice » du widget P&L).
+              que « Acomptes sur l'exercice » du widget P&L). Un écart avec le résultat du
+              P&L égal au <b>capital placé non encore remboursé</b> est normal : le P&L ne
+              compte que le gain, le cash compte l'aller-retour complet.
             </>
           ) : (
             <>
