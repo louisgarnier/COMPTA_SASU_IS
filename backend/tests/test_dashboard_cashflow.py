@@ -454,15 +454,38 @@ def test_expected_investment_redemption_in_forecast_inflows(db_session):
 
     by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
     dec = by["2026-12"]
-    assert dec["incoming_by_ccy"].get("EUR") == Decimal("76300.00")
-    assert dec["incoming_expected_by_ccy"].get("EUR") == Decimal("76300.00")
+    # Entrée NON-OP (symétrique de la sortie initiale vers le placement) :
+    # jamais dans les entrées opérationnelles.
+    assert dec["incoming_nonop_by_ccy"].get("EUR") == Decimal("76300.00")
+    assert dec["incoming_nonop_eur"] == Decimal("76300.00")
+    assert "EUR" not in dec["incoming_by_ccy"]
 
     by_eng = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="engaged"))
-    assert "EUR" not in by_eng["2026-12"]["incoming_by_ccy"]
+    assert by_eng["2026-12"]["incoming_nonop_eur"] == Decimal("0.00")
 
     # Clôturé → plus d'attendu (le réel a pris le relais).
     inv = db_session.query(models.Investment).first()
     inv.closed_date = _TODAY
     db_session.commit()
     by2 = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
-    assert "EUR" not in by2["2026-12"]["incoming_by_ccy"]
+    assert by2["2026-12"]["incoming_nonop_eur"] == Decimal("0.00")
+
+
+def test_real_nonop_inflow_lands_in_incoming_nonop(db_session):
+    """
+    Un encaissement réel non-op (remboursement de placement catégorisé
+    « Investissement ») va dans incoming_nonop — jamais en sortie négative ni
+    dans les entrées opérationnelles.
+    """
+    rev, chg = _base(db_session)
+    inv_cat = models.Category(name="Investissement", type="internal")
+    db_session.add(inv_cat)
+    db_session.commit()
+    _tx(db_session, inv_cat.id, date(2026, 6, 15), "76300", "EUR", "investment", "redemp1")
+    _tx(db_session, inv_cat.id, date(2026, 6, 10), "-70000", "EUR", "investment", "out1")
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    juin = by["2026-06"]
+    assert juin["incoming_nonop_by_ccy"].get("EUR") == Decimal("76300.00")
+    assert juin["outgoing_nonop_by_ccy"].get("EUR") == Decimal("70000.00")
+    assert "EUR" not in juin["incoming_by_ccy"]

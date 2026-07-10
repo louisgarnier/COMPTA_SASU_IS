@@ -234,8 +234,12 @@ def balance_timeline(
     from backend.services import cashflow as cashflow_service
 
     cf = cashflow_service.monthly_cashflow(db, year, today=today, scope=scope)
+    # Net de cash COMPLET : opérationnel + non-op (remboursements de placements
+    # attendus…) — la courbe suit la banque, pas la vue opérationnelle du graphe.
     net_by_month = {
-        m["month"]: Decimal(m["incoming_eur"]) - Decimal(m["outgoing_eur"])
+        m["month"]: Decimal(m["incoming_eur"])
+        - Decimal(m["outgoing_eur"])
+        + Decimal(m.get("incoming_nonop_eur", 0))
         for m in cf["months"]
     }
 
@@ -250,7 +254,11 @@ def balance_timeline(
             for m_y in cf_y["months"]:
                 ym = int(m_y["month"][:4]), int(m_y["month"][5:7])
                 if ym > current:
-                    running += Decimal(m_y["incoming_eur"]) - Decimal(m_y["outgoing_eur"])
+                    running += (
+                        Decimal(m_y["incoming_eur"])
+                        - Decimal(m_y["outgoing_eur"])
+                        + Decimal(m_y.get("incoming_nonop_eur", 0))
+                    )
     for m in range(1, 13):
         key = f"{year:04d}-{m:02d}"
         pos = (year, m)

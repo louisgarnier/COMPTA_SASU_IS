@@ -74,7 +74,8 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
     }
 
     flows: dict[int, dict] = {
-        m: {"in": {}, "out": {}, "in_prior": {}, "out_nonop": {}} for m in range(1, 13)
+        m: {"in": {}, "out": {}, "in_prior": {}, "out_nonop": {}, "in_nonop": {}}
+        for m in range(1, 13)
     }
 
     # Sorties NON opérationnelles (dividendes, IS payé, investissements) : de
@@ -92,9 +93,15 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
                 if tx.amount_eur is not None
                 else eur_amount(tx, rates)
             )
-            b = flows[tx.booked_date.month]["out_nonop"]
             cc = (tx.currency or "EUR").upper()
-            b[cc] = b.get(cc, _ZERO) + (-amt_no)  # sorties en magnitude positive
+            if amt_no < 0:
+                b = flows[tx.booked_date.month]["out_nonop"]
+                b[cc] = b.get(cc, _ZERO) + (-amt_no)  # sorties en magnitude positive
+            else:
+                # Entrée non-op (remboursement de placement encaissé…) : même
+                # bucket optionnel que les sorties, jamais dans l'opérationnel.
+                b = flows[tx.booked_date.month]["in_nonop"]
+                b[cc] = b.get(cc, _ZERO) + amt_no
             continue
         if (tx.kind or "") in _EXCLUDED_KINDS:
             continue
@@ -280,9 +287,6 @@ def monthly_cashflow(
         if is_forecast:
             # Futur strict : tout prévisionnel.
             incoming = dict(forecast_in.get(key, {}))
-            red = redemption_in.get(key)
-            if red:
-                incoming["EUR"] = incoming.get("EUR", _ZERO) + red
             expected = dict(incoming)
             chg = Decimal(forecast_charge.get(key, _ZERO))
             outgoing = {"EUR": chg} if chg > 0 else {}
@@ -296,10 +300,7 @@ def monthly_cashflow(
             for c, v in forecast_in.get(key, {}).items():
                 incoming[c] = incoming.get(c, _ZERO) + v
                 expected[c] = expected.get(c, _ZERO) + v
-            red = redemption_in.get(key)
-            if red:
-                incoming["EUR"] = incoming.get("EUR", _ZERO) + red
-                expected["EUR"] = expected.get("EUR", _ZERO) + red
+
             outgoing = dict(real[m]["out"])
             chg = Decimal(forecast_charge.get(key, _ZERO))
             if chg > 0:
@@ -317,6 +318,15 @@ def monthly_cashflow(
             if not is_forecast
             else {}
         )
+        # Entrées non-op : réelles (remboursements encaissés) + ATTENDUES
+        # (échéance de placement, scope prévisionnel) — symétriques des sorties
+        # non-op : la sortie initiale vers le placement était non-op, son retour
+        # aussi. Hors totaux opérationnels, affichage via le même toggle.
+        nonop_in: dict = {} if is_forecast else dict(real[m]["in_nonop"])
+        red = redemption_in.get(key)
+        if red:
+            nonop_in["EUR"] = nonop_in.get("EUR", _ZERO) + red
+        nonop_in = {c: q2(v) for c, v in sorted(nonop_in.items())}
         incoming = {c: q2(v) for c, v in sorted(incoming.items())}
         outgoing = {c: q2(v) for c, v in sorted(outgoing.items())}
         expected = {c: q2(v) for c, v in sorted(expected.items())}
@@ -340,7 +350,9 @@ def monthly_cashflow(
                 # Vue fiscale : parts à retirer (factures d'exercices antérieurs).
                 "incoming_prior_by_ccy": prior_real,
                 "incoming_prior_expected_by_ccy": prior_expected,
-                # Sorties non opérationnelles (dividendes/IS/investissements).
+                # Flux non opérationnels (dividendes/IS/investissements).
+                "incoming_nonop_by_ccy": nonop_in,
+                "incoming_nonop_eur": q2(sum(nonop_in.values(), _ZERO)),
                 "outgoing_nonop_by_ccy": nonop,
                 "outgoing_nonop_eur": q2(sum(nonop.values(), _ZERO)),
                 "is_forecast": is_forecast,

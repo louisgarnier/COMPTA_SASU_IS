@@ -28,7 +28,10 @@ type Month = {
   // Parts liées à des factures d'exercices ANTÉRIEURS (vue fiscale les retire).
   incoming_prior_by_ccy?: Record<string, string | number>;
   incoming_prior_expected_by_ccy?: Record<string, string | number>;
-  // Sorties non opérationnelles (dividendes, IS payé, investissements).
+  // Flux non opérationnels (dividendes, IS payé, investissements) — entrées
+  // incluses (remboursement de placement réel ou attendu à l'échéance).
+  incoming_nonop_by_ccy?: Record<string, string | number>;
+  incoming_nonop_eur?: string | number;
   outgoing_nonop_by_ccy?: Record<string, string | number>;
   outgoing_nonop_eur?: string | number;
   is_forecast: boolean;
@@ -83,6 +86,12 @@ export function CashflowChart({ data }: { data: CashflowData }) {
   // sorties de cash, masquées par défaut (vue opérationnelle), affichables.
   const [withNonop, setWithNonop] = useState(false);
   const nonopTotal = data.months.reduce((a, m) => a + num(m.outgoing_nonop_eur), 0);
+  // Entrées non-op, séparées réel / attendu (mois prévisionnels = échéances).
+  const nonopInReal = data.months.reduce(
+    (a, m) => a + (m.is_forecast ? 0 : num(m.incoming_nonop_eur)), 0);
+  const nonopInFc = data.months.reduce(
+    (a, m) => a + (m.is_forecast ? num(m.incoming_nonop_eur) : 0), 0);
+  const nonopIn = (m: Month) => (withNonop ? num(m.incoming_nonop_eur) : 0);
 
   // Montants ajustés selon la vue.
   const adjIn = (m: Month, c: string) =>
@@ -106,7 +115,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
     num(m.outgoing_eur) + (withNonop ? num(m.outgoing_nonop_eur) : 0);
   const max = Math.max(
     1,
-    ...data.months.map((m) => Math.max(inTotal(m), outTotal(m))),
+    ...data.months.map((m) => Math.max(inTotal(m) + nonopIn(m), outTotal(m))),
     showOverflow ? overflowTotal : 0,
   );
   const usedCcy = CCY_ORDER.filter(
@@ -120,11 +129,13 @@ export function CashflowChart({ data }: { data: CashflowData }) {
     data.months.reduce((a, m) => a + pick(m), 0);
   const inFc =
     sumAll((m) => CCY_ORDER.reduce((a, c) => a + adjExp(m, c), 0)) +
-    (fiscal ? CCY_ORDER.reduce((a, c) => a + ovExp(c), 0) : 0);
+    (fiscal ? CCY_ORDER.reduce((a, c) => a + ovExp(c), 0) : 0) +
+    (withNonop ? nonopInFc : 0);
   const inReal =
     sumAll((m) => inTotal(m)) -
     sumAll((m) => CCY_ORDER.reduce((a, c) => a + adjExp(m, c), 0)) +
-    (fiscal ? CCY_ORDER.reduce((a, c) => a + ovReal(c), 0) : 0);
+    (fiscal ? CCY_ORDER.reduce((a, c) => a + ovReal(c), 0) : 0) +
+    (withNonop ? nonopInReal : 0);
   const outFc = sumAll((m) => num(m.outgoing_forecast_eur));
   const outReal =
     sumAll((m) => num(m.outgoing_eur)) - outFc + (withNonop ? nonopTotal : 0);
@@ -153,7 +164,7 @@ export function CashflowChart({ data }: { data: CashflowData }) {
               Année fiscale
             </button>
           </div>
-          {nonopTotal > 0 && (
+          {nonopTotal + nonopInReal + nonopInFc > 0 && (
             <label className="flex cursor-pointer items-center gap-1 text-[11px] text-[var(--muted)]">
               <input type="checkbox" checked={withNonop} onChange={(e) => setWithNonop(e.target.checked)} />
               + dividendes / IS / invest.
@@ -196,6 +207,11 @@ export function CashflowChart({ data }: { data: CashflowData }) {
                         </div>
                       );
                     })}
+                    {/* Entrée non-op (remboursement de placement) : vert foncé,
+                        pâle si attendue — symétrique du segment sorties non-op. */}
+                    {nonopIn(m) > 0 && (
+                      <Seg h={(nonopIn(m) / max) * H} bg="#14532d" fc={m.is_forecast} label={kEur(nonopIn(m))} />
+                    )}
                   </div>
                   {/* Sorties : rouge hachuré — prorata prévisionnel en pâle. */}
                   <div className="flex w-[42%] flex-col justify-end overflow-hidden rounded-t">
