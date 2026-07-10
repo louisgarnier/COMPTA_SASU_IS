@@ -21,6 +21,12 @@ jest.mock('@/api/client', () => ({
     // Seuil d'alerte tréso à 0 → alerte désactivée dans ces tests.
     get: jest.fn().mockResolvedValue({ low_treasury_alert_eur: '0' }),
   },
+  investmentsAPI: {
+    // Un placement → le toggle « + placements » de la courbe s'affiche.
+    list: jest.fn().mockResolvedValue([
+      { id: 1, label: 'Bourse direct', current_value_eur: '77000.00' },
+    ]),
+  },
   dashboardAPI: {
     cashflow: jest.fn().mockResolvedValue({
       year: 2026,

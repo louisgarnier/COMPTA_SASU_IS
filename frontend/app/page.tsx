@@ -229,7 +229,7 @@ export default function DashboardPage() {
       {cashflow && <CashflowChart data={cashflow} />}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        {balance && <BalanceChart data={balance} />}
+        {balance && <BalanceChart data={balance} scope={scope} />}
         {pnl && <PnlWidget data={pnl} />}
         {pnl && <DistributionsCard data={pnl} />}
       </div>
