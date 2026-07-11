@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.base import get_db
 from backend.logging_config import get_logger
+from backend.services import backup as backup_service
 from backend.services import banking as banking_service
 
 logger = get_logger("banking", channel="api")
@@ -156,8 +157,18 @@ def list_connections(db: Session = Depends(get_db)):
 
 @router.post("/sync", response_model=SyncOut)
 def sync(db: Session = Depends(get_db)) -> dict:
-    """Synchronise les transactions de tous les comptes."""
+    """Synchronise les transactions de tous les comptes (sauvegarde d'abord)."""
     logger.info("📥 [Banking] POST /sync")
+    # Fail-closed : une synchro peut altérer les données (dédup, recatégo…) —
+    # sans sauvegarde préalable, on ne synchronise pas.
+    try:
+        backup_service.create_backup(reason="sync")
+    except Exception as exc:
+        logger.error("❌ [Banking] sauvegarde impossible avant sync: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sauvegarde de la base impossible, synchro annulée : {exc}",
+        )
     return banking_service.sync(db)
 
 

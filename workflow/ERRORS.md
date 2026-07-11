@@ -185,6 +185,24 @@ Contribution SIGNÉE : charge (montant < 0) → positif, remboursement → néga
 
 ---
 
+### ERR-006 — Les tests de route écrivaient dans le vrai `data/` (hook backup non isolé)
+
+**Date :** 2026-07-11 · **Découvert par :** revue post-implémentation (fichier `lgc_20260711_062238_sync.db` apparu dans `data/backups/` pendant `pytest`)
+
+#### Root Cause
+Le hook `create_backup()` ajouté à `POST /api/banking/sync` utilise par défaut la vraie base (`engine.url.database`) et le vrai `data/backups/`. Les tests de route existants (`test_banking.py`) exercent `/sync` avec une session DB in-memory **mais le hook, lui, lisait le vrai fichier** → la suite de tests créait des sauvegardes de la base réelle.
+
+#### Fix
+`backend/tests/conftest.py` : fixture autouse `_backups_isolated` qui redirige `_default_db_path` vers une base vide en `tmp_path` (destination dérivée = tmp aussi). Vérifié : `ls data/backups/` identique avant/après la suite complète.
+
+#### Prevention Rule
+**Tout hook de route qui touche le système de fichiers réel doit être neutralisé par une fixture autouse dans `conftest.py` dès sa création** — une session DB de test isolée n'isole PAS les effets de bord fichiers.
+
+#### Test Added
+- [x] Isolation structurelle via `conftest.py` (couvre tous les tests présents et futurs) ; garde vérifiée manuellement par diff de `data/backups/` avant/après suite.
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

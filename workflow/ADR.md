@@ -18,6 +18,7 @@
 | ADR-005 | Catégorisation par règles éditables (pas de LLM en v1) | Accepted | 2026-07-01 | Pre-epic |
 | ADR-006 | Taux FX théorique par devise (Réglages) comme source unique de conversion EUR | Accepted | 2026-07-01 | Epic-4 |
 | ADR-007 | Fusion `forecast_inputs` → `Invoice` (objet unique, cycle forecast→due→paid) | Accepted | 2026-07-03 | Epic-5 |
+| ADR-008 | Sauvegarde SQLite automatique fail-closed avant chaque synchro bancaire | Accepted | 2026-07-11 | Epic-6 |
 
 ### ADR-001 — SQLite local, schéma portable Postgres
 **Context :** outil perso mono-utilisateur, local-first (PRD Constraints §9), migration cloud possible plus tard.
@@ -132,6 +133,24 @@ Most bugs happen at **integration seams** — where two systems meet. Every plan
 
 #### Review Triggers
 - [ ] If [condition]
+
+---
+
+### ADR-008 — Sauvegarde automatique fail-closed avant chaque synchro
+**Context :** toutes les données réelles vivent dans un seul fichier SQLite (`data/lgc.db`) ; une synchro peut altérer les données (dédup, recatégorisation — cf. bug `recategorize_all` du 2026-07-09, rattrapé uniquement grâce à un snapshot fortuit).
+**Décision :** `services/backup.py` — copie cohérente via l'API backup de sqlite3 (jamais un `cp`), vers `data/backups/lgc_YYYYMMDD_HHMMSS_<reason>.db`. Rotation : toutes les sauvegardes du jour + la première de chaque jour passé sur 30 jours. La route `POST /api/banking/sync` sauvegarde AVANT de synchroniser et **refuse la synchro si la sauvegarde échoue** (fail-closed, HTTP 500 explicite).
+**Conséquences :** ~660 Ko/jour ; retour arrière possible à J-30 ; disque plein/permission bloque la synchro (voulu : mieux vaut une synchro refusée qu'une base non protégée).
+**Negative / Trade-offs:**
+- Une synchro ne peut plus tourner sans écriture disque possible.
+- `data/backups/` doit rester gitignored (données réelles).
+
+**What this decision affects:**
+- Files: `backend/services/backup.py`, `backend/api/routes/banking.py`, `backend/tests/conftest.py`
+- Modules: banking (route sync)
+
+#### Review Triggers
+- [ ] Si la base dépasse ~50 Mo (30 jours × taille = poids du dossier backups)
+- [ ] Si d'autres opérations destructrices apparaissent (import CSV, clôture d'exercice) → les faire précéder du même `create_backup(reason=…)`
 
 ---
 

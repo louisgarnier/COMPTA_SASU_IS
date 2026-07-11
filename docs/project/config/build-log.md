@@ -164,3 +164,15 @@ Remarque utilisateur : la vue fiscale retirait les factures 2025 mais gardait le
 - Net mensuel = ce que la barre montre ; ligne de contexte sous le tableau (net tous flux = variation de tréso, le stock 01/01 vit sur courbe/pont — pas d'identité chiffrée ici, écart FX ~22k = rôle du pont) ; libellé « + dividendes / IS / placements » ; limite documentée : charges à date de paiement en vue fiscale.
 - Données 2026 : 166 200 versés = pile le pool 2025 → 0 acompte affiché en fiscal ; placement −70k (juin) et +76,3k (déc) visibles dans les deux vues.
 - **Tests : 229 backend · 26 jest.** Commit 08ef515, poussé main + epic-1-foundation.
+
+## 2026-07-11 — Sauvegarde automatique de la base (backup fail-closed avant synchro)
+
+Priorité n°3 des conseils de dev validée par l'utilisateur (chantiers suivants reconfirmés : import CSV 2025 + onglet État financier, cf. discussion 2026-07-10).
+
+- **`backend/services/backup.py`** (nouveau, TDD) : `create_backup(src, dest_dir, reason)` — copie cohérente via l'API backup de sqlite3 → `data/backups/lgc_YYYYMMDD_HHMMSS_<reason>.db` ; `prune_backups` — rotation : tout le jour courant, la 1re de chaque jour passé, purge > 30 jours ; fichiers étrangers jamais touchés.
+- **`POST /api/banking/sync`** : sauvegarde AVANT la synchro, **fail-closed** (backup impossible → HTTP 500 explicite, synchro annulée). ADR-008.
+- **`backend/tests/conftest.py`** (nouveau) : fixture autouse `_backups_isolated` — les tests de route ne touchent jamais le vrai `data/` (bug attrapé pendant la session : la suite créait des backups de la vraie base → ERR-006).
+
+**Preuves :** 9 tests backup + suite complète **239 backend verts** ; `data/backups/` identique avant/après la suite (diff vide) ; backup réel exécuté sur `data/lgc.db` : `lgc_20260711_062310_manual.db`, 675 840 octets, 334 transactions lisibles dans la copie.
+
+**Non couvert :** la synchro live réelle (Enable Banking) n'a pas été déclenchée — le câblage route→backup est prouvé par tests ; le prochain sync utilisateur créera la première sauvegarde `_sync` réelle.
