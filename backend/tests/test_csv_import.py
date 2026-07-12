@@ -112,6 +112,13 @@ def test_parse_qonto_french_decimals_and_dates():
     assert row.counterparty == "GOCARDLESS"
 
 
+def test_parse_qonto_nbsp_thousands_separator():
+    """Séparateur de milliers en espace insécable (U+00A0) — export FR réel."""
+    text = QONTO_HEADER + "\n" + qonto_line(montant="-1 292,79", txid="qo-44")
+    (row,) = csv_import.parse_csv(text)
+    assert row.amount == Decimal("-1292.79")
+
+
 def test_parse_qonto_credit_positive():
     text = QONTO_HEADER + "\n" + qonto_line(montant="1 500,00", txid="qo-43")
     (row,) = csv_import.parse_csv(text)

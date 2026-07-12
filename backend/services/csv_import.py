@@ -49,8 +49,8 @@ def detect_format(text: str) -> str:
 
 
 def _dec(s: str) -> Decimal:
-    s = (s or "0").replace(" ", "").replace(" ", "").replace(",", ".")
-    return Decimal(s or "0")
+    s = (s or "0").replace(" ", "").replace(" ", "").replace(" ", "")
+    return Decimal((s.replace(",", ".")) or "0")
 
 
 def parse_csv(text: str) -> list[ParsedRow]:
