@@ -260,6 +260,58 @@ export const dashboardAPI = {
     get<any>(`/api/dashboard/treasury-bridge${asOf ? `?as_of=${asOf}` : ''}`),
 };
 
+export type ImportAccountPreview = {
+  csv_name: string;
+  iban_masked: string;
+  currency: string;
+  tx_count: number;
+  matched: boolean;
+  account_id: number | null;
+  account_name: string | null;
+  opening_balance: string | null;
+  closing_balance: string | null;
+};
+
+export type ImportSampleRow = {
+  date: string;
+  description: string;
+  amount: string;
+  currency: string;
+  account: string;
+};
+
+export type ImportPreview = {
+  bank: string;
+  rows_read: number;
+  period: { min: string; max: string };
+  importable: number;
+  out_of_period: number;
+  duplicates: number;
+  skipped_no_account: number;
+  accounts: ImportAccountPreview[];
+  sample: ImportSampleRow[];
+  warnings: string[];
+};
+
+export type ImportReport = {
+  bank: string;
+  inserted: number;
+  duplicates: number;
+  out_of_period: number;
+  skipped_no_account: number;
+  categorized: number;
+  backup_file: string;
+  accounts_touched: number;
+  warnings: string[];
+};
+
+export const importApi = {
+  preview: (content: string, year = 2025) =>
+    post<ImportPreview>('/api/import/preview', { content, year }),
+  execute: (content: string, year = 2025) =>
+    post<ImportReport>('/api/import/execute', { content, year }),
+};
+
 export const bankingAPI = {
   status: () => get<{ live: boolean; message: string }>('/api/banking/status'),
   aspsps: (country = 'FR') => get<any[]>(`/api/banking/aspsps?country=${country}`),

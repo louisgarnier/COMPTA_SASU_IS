@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { bankingAPI } from '@/api/client';
 import { BalanceDocsModal } from '@/components/BalanceDocsModal';
+import ImportCsvCard from '@/components/ImportCsvCard';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { money, dateFR } from '@/lib/format';
 
@@ -410,6 +411,14 @@ export default function BankingPage() {
               </div>
             )}
           </Card>
+
+          {/* Import CSV — historique bancaire */}
+          <div>
+            <div className="mb-3 text-sm font-semibold">
+              Import CSV — historique bancaire
+            </div>
+            <ImportCsvCard />
+          </div>
         </div>
       )}
           {docsOpen && <BalanceDocsModal onClose={() => setDocsOpen(false)} />}
