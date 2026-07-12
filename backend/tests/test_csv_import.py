@@ -262,3 +262,61 @@ def test_analyze_same_day_boundary_uses_file_order(session, accounts):
     (acc,) = result["accounts"]
     assert acc["closing_balance"] == "70.00"   # 1re ligne du fichier = la plus récente
     assert acc["opening_balance"] == "100.00"  # 80.00 − (−20.00)
+
+
+def test_execute_inserts_transactions_and_categorizes(session, accounts, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup",
+        lambda **kw: calls.append(kw) or (tmp_path / "b.db"),
+    )
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r1", completed="2025-06-01", total="-20.00")
+        + "\n"
+        + revolut_line(txid="r2", completed="2026-01-15")  # hors période
+    )
+    report = csv_import.execute(session, text, year=2025)
+    assert calls == [{"reason": "import"}]
+    assert report["inserted"] == 1
+    assert report["out_of_period"] == 1
+    txs = session.query(models.Transaction).all()
+    assert len(txs) == 1
+    assert txs[0].external_id == "r1"
+    assert txs[0].amount == Decimal("-20.00")
+    assert txs[0].account_uid == "uid-rev-eur"
+
+
+def test_execute_is_idempotent(session, accounts, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"
+    )
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1", completed="2025-06-01")
+    csv_import.execute(session, text, year=2025)
+    report2 = csv_import.execute(session, text, year=2025)
+    assert report2["inserted"] == 0
+    assert report2["duplicates"] == 1
+    assert session.query(models.Transaction).count() == 1
+
+
+def test_execute_does_not_touch_account_balance(session, accounts, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"
+    )
+    accounts["eur"].balance = Decimal("48594.25")
+    session.commit()
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1", completed="2025-06-01")
+    csv_import.execute(session, text, year=2025)
+    session.refresh(accounts["eur"])
+    assert accounts["eur"].balance == Decimal("48594.25")
+    assert accounts["eur"].last_synced_at is None
+
+
+def test_execute_backup_failure_aborts(session, accounts, monkeypatch):
+    def _boom(**kw):
+        raise OSError("disque plein")
+    monkeypatch.setattr(csv_import.backup_service, "create_backup", _boom)
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1", completed="2025-06-01")
+    with pytest.raises(OSError):
+        csv_import.execute(session, text, year=2025)
+    assert session.query(models.Transaction).count() == 0

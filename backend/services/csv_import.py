@@ -19,7 +19,9 @@ from sqlalchemy.orm import Session
 
 from backend.db import models
 from backend.logging_config import get_logger
+from backend.services import backup as backup_service
 from backend.services.banking import _mask_iban
+from backend.services.categorize import categorize_transaction
 
 logger = get_logger("CsvImport", "backend")
 
@@ -232,4 +234,74 @@ def analyze(db: Session, text: str, year: int = 2025) -> dict:
         "accounts": list(accounts.values()),
         "sample": sample,
         "warnings": warnings,
+    }
+
+
+def execute(db: Session, text: str, year: int = 2025) -> dict:
+    """Importe les lignes du périmètre. Backup AVANT toute écriture (fail-closed)."""
+    backup_file = backup_service.create_backup(reason="import")
+
+    bank = detect_format(text)
+    rows = parse_csv(text)
+    existing = {
+        (t.account_uid, t.external_id)
+        for t in db.query(models.Transaction.account_uid, models.Transaction.external_id)
+    }
+    match_cache: dict[tuple[str, str], Optional[models.BankAccount]] = {}
+    inserted = duplicates = out_of_period = skipped_no_account = categorized = 0
+    touched: set[str] = set()
+    new_txs: list[models.Transaction] = []
+
+    for row in rows:
+        key = (row.iban, row.currency)
+        if key not in match_cache:
+            match_cache[key] = _match_account(db, row)
+        account = match_cache[key]
+        if account is None:
+            skipped_no_account += 1
+            continue
+        if row.booked_date.year != year:
+            out_of_period += 1
+            continue
+        dedup_key = (account.account_uid, row.external_id)
+        if dedup_key in existing:
+            duplicates += 1
+            continue
+        existing.add(dedup_key)
+        tx = models.Transaction(
+            account_uid=account.account_uid,
+            external_id=row.external_id,
+            booked_date=row.booked_date,
+            value_date=row.value_date,
+            amount=row.amount,
+            currency=row.currency,
+            description=row.description,
+            counterparty=row.counterparty,
+            raw_json="",
+        )
+        db.add(tx)
+        new_txs.append(tx)
+        touched.add(account.account_uid)
+        inserted += 1
+
+    db.flush()
+    for tx in new_txs:
+        if categorize_transaction(db, tx):
+            categorized += 1
+    db.commit()
+
+    logger.info(
+        "📤 [CsvImport] execute(%s, %d): %d insérées, %d doublons, %d hors période ✅",
+        bank, year, inserted, duplicates, out_of_period,
+    )
+    return {
+        "bank": bank,
+        "inserted": inserted,
+        "duplicates": duplicates,
+        "out_of_period": out_of_period,
+        "skipped_no_account": skipped_no_account,
+        "categorized": categorized,
+        "backup_file": backup_file.name,
+        "accounts_touched": len(touched),
+        "warnings": [],
     }
