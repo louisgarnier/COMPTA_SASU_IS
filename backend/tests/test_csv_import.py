@@ -10,7 +10,12 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from backend.db import models
+from backend.db.base import Base
 from backend.services import csv_import
 
 REVOLUT_HEADER = (
@@ -56,6 +61,35 @@ def qonto_line(*, op_date="15-03-2025 10:00:00", montant="-292,79",
         f"{montant};EUR;;{montant};;;;;Compte principal;{iban};{contrepartie};;"
         f"Prélèvement;;;;;\"\";true;false;{txid};{reference};;Qonto;{iban};;"
     )
+
+
+@pytest.fixture()
+def session():
+    engine = create_engine(
+        "sqlite:///:memory:", future=True,
+        connect_args={"check_same_thread": False}, poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    TestSession = sessionmaker(bind=engine, autoflush=False, future=True)
+    s = TestSession()
+    yield s
+    s.close()
+
+
+@pytest.fixture()
+def accounts(session):
+    """Comptes existants : mêmes masques que les comptes live."""
+    a_eur = models.BankAccount(
+        provider="revolut", account_uid="uid-rev-eur", currency="EUR",
+        iban_masked="FR76****27", name="Revolut EUR",
+    )
+    a_qonto = models.BankAccount(
+        provider="qonto", account_uid="uid-qonto", currency="EUR",
+        iban_masked="FR76****53", name="Qonto",
+    )
+    session.add_all([a_eur, a_qonto])
+    session.commit()
+    return {"eur": a_eur, "qonto": a_qonto}
 
 
 def test_detect_format_revolut():
@@ -123,3 +157,79 @@ def test_parse_qonto_credit_positive():
     text = QONTO_HEADER + "\n" + qonto_line(montant="1 500,00", txid="qo-43")
     (row,) = csv_import.parse_csv(text)
     assert row.amount == Decimal("1500.00")
+
+
+def test_analyze_matches_account_by_masked_iban_and_currency(session, accounts):
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1")
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["bank"] == "revolut"
+    (acc,) = result["accounts"]
+    assert acc["matched"] is True
+    assert acc["account_id"] == accounts["eur"].id
+    assert result["importable"] == 1
+
+
+def test_analyze_unmatched_account_is_skipped_with_warning(session, accounts):
+    # IBAN inconnu → aucune création de compte, lignes écartées
+    text = REVOLUT_HEADER + "\n" + revolut_line(
+        txid="r1", iban="GB33BUKB20201555555555"
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["importable"] == 0
+    assert result["skipped_no_account"] == 1
+    assert any("GB33****55" in w for w in result["warnings"])
+
+
+def test_analyze_xrp_account_skipped(session, accounts):
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r1")
+        + "\n"
+        + revolut_line(txid="r2", account="XRP", iban="", currency="XRP",
+                       type_="EXCHANGE", amount="3000.0", total="3000.0",
+                       balance="3000.0")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["importable"] == 1
+    assert result["skipped_no_account"] == 1
+    assert any("XRP" in w for w in result["warnings"])
+
+
+def test_analyze_filters_out_of_period(session, accounts):
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r1", completed="2025-06-01")
+        + "\n"
+        + revolut_line(txid="r2", completed="2026-01-15")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["importable"] == 1
+    assert result["out_of_period"] == 1
+
+
+def test_analyze_detects_existing_duplicates(session, accounts):
+    session.add(models.Transaction(
+        account_uid="uid-rev-eur", external_id="r1",
+        booked_date=date(2025, 3, 10), amount=Decimal("-11.80"),
+        currency="EUR",
+    ))
+    session.commit()
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1")
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["duplicates"] == 1
+    assert result["importable"] == 0
+
+
+def test_analyze_computes_opening_and_closing_balance(session, accounts):
+    # Fichier antichrono (comme l'export réel) : dernier solde en premier.
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r2", completed="2025-06-02", total="-10.00", balance="90.00")
+        + "\n"
+        + revolut_line(txid="r1", completed="2025-06-01", total="-20.00", balance="100.00")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    (acc,) = result["accounts"]
+    # ouverture = solde après la 1re tx chrono − son montant = 100 − (−20) = 120
+    assert acc["opening_balance"] == "120.00"
+    assert acc["closing_balance"] == "90.00"

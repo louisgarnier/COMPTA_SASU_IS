@@ -15,6 +15,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy.orm import Session
+
+from backend.db import models
+from backend.logging_config import get_logger
+from backend.services.banking import _mask_iban
+
+logger = get_logger("CsvImport", "backend")
+
 
 @dataclass
 class ParsedRow:
@@ -27,6 +35,7 @@ class ParsedRow:
     amount: Decimal
     description: str
     counterparty: str
+    balance_after: Optional[Decimal] = None
 
 
 _REVOLUT_COLS = {"Date completed (UTC)", "Total amount", "Account", "ID"}
@@ -79,6 +88,7 @@ def _parse_revolut(text: str) -> list[ParsedRow]:
                 amount=_dec(r["Total amount"]),
                 description=(r.get("Description") or "").strip(),
                 counterparty=(r.get("Beneficiary name") or "").strip(),
+                balance_after=_dec(r.get("Balance", "") or "") or None,
             )
         )
     return rows
@@ -101,6 +111,114 @@ def _parse_qonto(text: str) -> list[ParsedRow]:
                 amount=_dec(r["Montant total (TTC)"]),
                 description=(r.get("Référence") or "").strip(),
                 counterparty=(r.get("Nom de la contrepartie") or "").strip(),
+                balance_after=_dec(r.get("Solde", "") or "") or None,
             )
         )
     return rows
+
+
+def _match_account(db: Session, row: ParsedRow) -> Optional[models.BankAccount]:
+    if not row.iban:
+        return None
+    masked = _mask_iban(row.iban)
+    return (
+        db.query(models.BankAccount)
+        .filter(
+            models.BankAccount.iban_masked == masked,
+            models.BankAccount.currency == row.currency,
+        )
+        .first()
+    )
+
+
+def analyze(db: Session, text: str, year: int = 2025) -> dict:
+    bank = detect_format(text)
+    rows = parse_csv(text)
+
+    existing = {
+        (t.account_uid, t.external_id)
+        for t in db.query(models.Transaction.account_uid, models.Transaction.external_id)
+    }
+
+    accounts: dict[str, dict] = {}
+    match_cache: dict[tuple[str, str], Optional[models.BankAccount]] = {}
+    importable = out_of_period = duplicates = skipped_no_account = 0
+    warnings: list[str] = []
+    sample: list[dict] = []
+
+    for row in rows:
+        key = (row.iban, row.currency)
+        if key not in match_cache:
+            match_cache[key] = _match_account(db, row)
+        account = match_cache[key]
+
+        acc = accounts.setdefault(row.account_name + "|" + row.currency, {
+            "csv_name": row.account_name,
+            "iban_masked": _mask_iban(row.iban),
+            "currency": row.currency,
+            "tx_count": 0,
+            "matched": account is not None,
+            "account_id": account.id if account else None,
+            "account_name": account.name if account else None,
+            "opening_balance": None,
+            "closing_balance": None,
+            "_first": None, "_last": None,  # (date, ext_id, balance_after, amount)
+        })
+        acc["tx_count"] += 1
+
+        # bornes chrono pour les soldes calculés
+        marker = (row.booked_date, row.external_id)
+        if row.balance_after is not None:
+            if acc["_first"] is None or marker < acc["_first"][0]:
+                acc["_first"] = (marker, row.balance_after - row.amount)
+            if acc["_last"] is None or marker > acc["_last"][0]:
+                acc["_last"] = (marker, row.balance_after)
+
+        if account is None:
+            skipped_no_account += 1
+            continue
+        if row.booked_date.year != year:
+            out_of_period += 1
+            continue
+        if (account.account_uid, row.external_id) in existing:
+            duplicates += 1
+            continue
+        importable += 1
+        if len(sample) < 5:
+            sample.append({
+                "date": row.booked_date.isoformat(),
+                "description": row.description or row.counterparty,
+                "amount": str(row.amount),
+                "currency": row.currency,
+                "account": row.account_name,
+            })
+
+    for acc in accounts.values():
+        if acc["_first"]:
+            acc["opening_balance"] = str(acc["_first"][1])
+        if acc["_last"]:
+            acc["closing_balance"] = str(acc["_last"][1])
+        del acc["_first"], acc["_last"]
+        if not acc["matched"]:
+            label = acc["iban_masked"] or acc["csv_name"]
+            warnings.append(
+                f"Compte « {acc['csv_name']} » ({label}, {acc['currency']}) : "
+                f"aucun compte correspondant — {acc['tx_count']} ligne(s) écartée(s)"
+            )
+
+    dates = [r.booked_date for r in rows]
+    return {
+        "bank": bank,
+        "rows_read": len(rows),
+        "period": {
+            "min": min(dates).isoformat() if dates else None,
+            "max": max(dates).isoformat() if dates else None,
+        },
+        "importable": importable,
+        "out_of_period": out_of_period,
+        "duplicates": duplicates,
+        "skipped_no_account": skipped_no_account,
+        "accounts": list(accounts.values()),
+        "sample": sample,
+        "warnings": warnings,
+    }
