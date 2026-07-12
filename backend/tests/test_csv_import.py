@@ -233,3 +233,32 @@ def test_analyze_computes_opening_and_closing_balance(session, accounts):
     # ouverture = solde après la 1re tx chrono − son montant = 100 − (−20) = 120
     assert acc["opening_balance"] == "120.00"
     assert acc["closing_balance"] == "90.00"
+
+
+def test_analyze_balance_zero_is_a_real_balance(session, accounts):
+    """Un solde 0.00 sur la ligne frontière ne doit pas être ignoré (0 est falsy)."""
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r2", completed="2025-06-02", total="-100.00", balance="0.00")
+        + "\n"
+        + revolut_line(txid="r1", completed="2025-06-01", total="-20.00", balance="100.00")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    (acc,) = result["accounts"]
+    assert acc["closing_balance"] == "0.00"
+    assert acc["opening_balance"] == "120.00"
+
+
+def test_analyze_same_day_boundary_uses_file_order(session, accounts):
+    """Deux tx le même jour : l'export est antichrono, la 1re ligne du fichier
+    est la plus récente → closing = son solde ; opening dérivé de la dernière ligne."""
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="aaa", completed="2025-06-01", total="-10.00", balance="70.00")
+        + "\n"
+        + revolut_line(txid="zzz", completed="2025-06-01", total="-20.00", balance="80.00")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    (acc,) = result["accounts"]
+    assert acc["closing_balance"] == "70.00"   # 1re ligne du fichier = la plus récente
+    assert acc["opening_balance"] == "100.00"  # 80.00 − (−20.00)

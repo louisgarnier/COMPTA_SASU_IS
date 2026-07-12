@@ -88,7 +88,9 @@ def _parse_revolut(text: str) -> list[ParsedRow]:
                 amount=_dec(r["Total amount"]),
                 description=(r.get("Description") or "").strip(),
                 counterparty=(r.get("Beneficiary name") or "").strip(),
-                balance_after=_dec(r.get("Balance", "") or "") or None,
+                balance_after=(
+                    _dec(r["Balance"]) if (r.get("Balance") or "").strip() else None
+                ),
             )
         )
     return rows
@@ -111,7 +113,9 @@ def _parse_qonto(text: str) -> list[ParsedRow]:
                 amount=_dec(r["Montant total (TTC)"]),
                 description=(r.get("Référence") or "").strip(),
                 counterparty=(r.get("Nom de la contrepartie") or "").strip(),
-                balance_after=_dec(r.get("Solde", "") or "") or None,
+                balance_after=(
+                    _dec(r["Solde"]) if (r.get("Solde") or "").strip() else None
+                ),
             )
         )
     return rows
@@ -146,7 +150,13 @@ def analyze(db: Session, text: str, year: int = 2025) -> dict:
     warnings: list[str] = []
     sample: list[dict] = []
 
-    for row in rows:
+    # Ordre chronologique intra-fichier : les deux exports réels sont
+    # antichrono (plus récent en premier), mais on détecte plutôt que de
+    # le supposer — sert de tie-break pour les tx du même jour.
+    dated = [r.booked_date for r in rows]
+    antichrono = len(dated) >= 2 and dated[0] >= dated[-1]
+
+    for idx, row in enumerate(rows):
         key = (row.iban, row.currency)
         if key not in match_cache:
             match_cache[key] = _match_account(db, row)
@@ -166,8 +176,9 @@ def analyze(db: Session, text: str, year: int = 2025) -> dict:
         })
         acc["tx_count"] += 1
 
-        # bornes chrono pour les soldes calculés
-        marker = (row.booked_date, row.external_id)
+        # bornes chrono pour les soldes calculés — tie-break par ordre du
+        # fichier (pas external_id, arbitraire) pour les tx du même jour.
+        marker = (row.booked_date, -idx if antichrono else idx)
         if row.balance_after is not None:
             if acc["_first"] is None or marker < acc["_first"][0]:
                 acc["_first"] = (marker, row.balance_after - row.amount)
