@@ -320,3 +320,54 @@ def test_execute_backup_failure_aborts(session, accounts, monkeypatch):
     with pytest.raises(OSError):
         csv_import.execute(session, text, year=2025)
     assert session.query(models.Transaction).count() == 0
+
+
+def test_execute_categorized_counts_only_rule_matches(session, accounts, monkeypatch, tmp_path):
+    """`categorized` ne compte pas le fourre-tout : seules les tx matchées par une règle."""
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"
+    )
+    cat = models.Category(name="Restaurants", type="charge")
+    session.add(cat)
+    session.flush()
+    session.add(models.CategoryRule(
+        match_field="description", pattern="Subway", category_id=cat.id
+    ))
+    session.commit()
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="r1", completed="2025-06-01", desc="Subway")
+        + "\n"
+        + revolut_line(txid="r2", completed="2025-06-02", desc="Mystery Shop XYZ")
+    )
+    report = csv_import.execute(session, text, year=2025)
+    assert report["inserted"] == 2
+    assert report["categorized"] == 1
+
+
+def test_analyze_counts_intra_file_duplicates(session, accounts):
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="dup", completed="2025-06-01")
+        + "\n"
+        + revolut_line(txid="dup", completed="2025-06-01")
+    )
+    result = csv_import.analyze(session, text, year=2025)
+    assert result["importable"] == 1
+    assert result["duplicates"] == 1
+
+
+def test_execute_dedups_intra_file(session, accounts, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"
+    )
+    text = (
+        REVOLUT_HEADER + "\n"
+        + revolut_line(txid="dup", completed="2025-06-01")
+        + "\n"
+        + revolut_line(txid="dup", completed="2025-06-01")
+    )
+    report = csv_import.execute(session, text, year=2025)
+    assert report["inserted"] == 1
+    assert report["duplicates"] == 1
+    assert session.query(models.Transaction).count() == 1

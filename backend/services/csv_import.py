@@ -21,7 +21,7 @@ from backend.db import models
 from backend.logging_config import get_logger
 from backend.services import backup as backup_service
 from backend.services.banking import _mask_iban
-from backend.services.categorize import categorize_transaction
+from backend.services.categorize import categorize_transaction, get_or_create_uncategorized
 
 logger = get_logger("CsvImport", "backend")
 
@@ -193,9 +193,11 @@ def analyze(db: Session, text: str, year: int = 2025) -> dict:
         if row.booked_date.year != year:
             out_of_period += 1
             continue
-        if (account.account_uid, row.external_id) in existing:
+        dedup_key = (account.account_uid, row.external_id)
+        if dedup_key in existing:
             duplicates += 1
             continue
+        existing.add(dedup_key)
         importable += 1
         if len(sample) < 5:
             sample.append({
@@ -285,8 +287,9 @@ def execute(db: Session, text: str, year: int = 2025) -> dict:
         inserted += 1
 
     db.flush()
+    uncategorized_id = get_or_create_uncategorized(db).id
     for tx in new_txs:
-        if categorize_transaction(db, tx):
+        if categorize_transaction(db, tx) != uncategorized_id:
             categorized += 1
     db.commit()
 
