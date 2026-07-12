@@ -81,3 +81,6 @@ secrets/
 
 # Brainstorm/mockup server scratch
 .superpowers/
+
+# Documents comptables réels 2025 (IBAN, relevés, grand livre) — jamais dans git
+docs/docs2025/
