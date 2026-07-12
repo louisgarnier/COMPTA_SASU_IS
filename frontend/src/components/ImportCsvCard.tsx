@@ -13,11 +13,33 @@ type Step = 'idle' | 'loading' | 'preview' | 'importing' | 'done';
 
 const YEAR = 2025;
 
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+// Libellés d'affichage des banques détectées (codes techniques du backend).
+const BANK_LABELS: Record<string, string> = {
+  revolut: 'Revolut Business',
+  qonto: 'Qonto',
+};
+
+function bankLabel(bank: string): string {
+  return BANK_LABELS[bank.toLowerCase()] ?? bank;
+}
+
+function Tile({
+  label,
+  value,
+  sub,
+  testId,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  testId?: string;
+}) {
   return (
     <div className="rounded-lg border border-[var(--border)] p-3">
       <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{label}</div>
-      <div className="tabular mt-1 text-base font-semibold">{value}</div>
+      <div className="tabular mt-1 text-base font-semibold" data-testid={testId}>
+        {value}
+      </div>
       {sub && <div className="mt-1 text-xs text-[var(--muted)]">{sub}</div>}
     </div>
   );
@@ -116,10 +138,20 @@ export default function ImportCsvCard() {
           <Badge>Périmètre : exercice {YEAR}</Badge>
         </div>
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Sélectionner ou déposer un fichier CSV"
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className="cursor-pointer rounded-lg border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)] hover:border-[var(--accent)]"
+          onKeyDown={(e) => {
+            // Accessibilité clavier : Entrée/Espace ouvrent le sélecteur de fichier.
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              inputRef.current?.click();
+            }
+          }}
+          className="cursor-pointer rounded-lg border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)] hover:border-[var(--accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
           {step === 'loading' ? (
             <span>Lecture de {fileName}…</span>
@@ -148,18 +180,16 @@ export default function ImportCsvCard() {
         <Card>
           <div className="mb-3 text-sm font-semibold">2. Prévisualisation</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {/*
-              La banque détectée n'est volontairement pas répétée ici en texte
-              brut : elle apparaît déjà dans le badge « Existant · {nom du
-              compte} » du tableau des comptes ci-dessous. Le nom de compte
-              choisi par l'utilisateur reprend souvent le nom de la banque
-              (ex. « Revolut EUR ») — dupliquer le libellé ici casserait
-              l'unicité attendue par les tests d'accessibilité (getByText).
-            */}
-            <Tile label="Fichier lu" value={`${preview.rows_read} ligne(s)`} />
+            <Tile
+              label="Banque détectée"
+              value={bankLabel(preview.bank)}
+              sub="colonnes reconnues ✓"
+              testId="preview-bank"
+            />
             <Tile
               label="Période du fichier"
               value={`${dateFR(preview.period.min)} → ${dateFR(preview.period.max)}`}
+              sub={`${preview.rows_read} lignes lues`}
             />
             <Tile
               label="À importer"

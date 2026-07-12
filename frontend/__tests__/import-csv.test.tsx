@@ -50,11 +50,40 @@ test('upload → prévisualisation → import → rapport', async () => {
   fireEvent.change(input, { target: { files: [file] } });
 
   await waitFor(() => expect(screen.getByText(/Prévisualisation/)).toBeInTheDocument());
-  expect(screen.getByText(/Revolut/i)).toBeInTheDocument();
+  // Tuile « Banque détectée » : ancrée par testid pour éviter toute ambiguïté
+  // avec le badge « Existant · Revolut EUR » (le nom de compte reprend souvent
+  // le nom de la banque).
+  expect(screen.getByTestId('preview-bank')).toHaveTextContent(/Revolut Business/);
   expect(screen.getByText(/Existant · Revolut EUR/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: /Importer 2 transactions/ }));
   await waitFor(() => expect(screen.getByText(/Rapport d'import/)).toBeInTheDocument());
   expect(screen.getByText('2')).toBeInTheDocument(); // insérées
   expect(screen.getByText(/lgc_20260712_101502_import\.db/)).toBeInTheDocument();
+});
+
+test('erreur API en prévisualisation → message affiché, retour à la zone de dépôt', async () => {
+  // Le helper `post` de client.ts lit le corps JSON de la réponse !ok et jette
+  // une Error(extractErrorMessage) portant le `detail` — on mocke ce cas.
+  global.fetch = jest.fn(() =>
+    Promise.resolve({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ detail: 'Format CSV non reconnu' }),
+    })
+  ) as jest.Mock;
+
+  render(<ImportCsvCard />);
+
+  const file = new File(['n importe quoi'], 'inconnu.csv', { type: 'text/csv' });
+  const input = screen.getByTestId('import-file-input') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
+
+  // Le detail de l'API remonte dans la carte, non avalé.
+  await waitFor(() =>
+    expect(screen.getByText(/Format CSV non reconnu/)).toBeInTheDocument()
+  );
+  // Retour à l'état idle : zone de dépôt réaffichée, pas de prévisualisation.
+  expect(screen.getByText(/Glissez-déposez/)).toBeInTheDocument();
+  expect(screen.queryByText(/Prévisualisation/)).not.toBeInTheDocument();
 });
