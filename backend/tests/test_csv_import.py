@@ -10,12 +10,14 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.db import models
-from backend.db.base import Base
+from backend.db.base import Base, get_db
 from backend.services import csv_import
 
 REVOLUT_HEADER = (
@@ -371,3 +373,42 @@ def test_execute_dedups_intra_file(session, accounts, monkeypatch, tmp_path):
     assert report["inserted"] == 1
     assert report["duplicates"] == 1
     assert session.query(models.Transaction).count() == 1
+
+
+# --- Tests routes -----------------------------------------------------------
+
+
+@pytest.fixture()
+def client(session, accounts):
+    from backend.api.routes.imports import router
+
+    app = FastAPI()
+    app.include_router(router)
+
+    def _get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = _get_db
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_preview_route(client):
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1")
+    resp = client.post("/api/import/preview", json={"content": text, "year": 2025})
+    assert resp.status_code == 200
+    assert resp.json()["importable"] == 1
+
+
+def test_preview_route_unknown_format_400(client):
+    resp = client.post("/api/import/preview", json={"content": "a,b\n1,2", "year": 2025})
+    assert resp.status_code == 400
+
+
+def test_execute_route(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"
+    )
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1", completed="2025-06-01")
+    resp = client.post("/api/import/execute", json={"content": text, "year": 2025})
+    assert resp.status_code == 200
+    assert resp.json()["inserted"] == 1

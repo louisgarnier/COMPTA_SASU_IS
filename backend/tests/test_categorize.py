@@ -87,14 +87,14 @@ def _category_id(session, name):
 # --------------------------------------------------------------------------- #
 def test_seed_creates_categories_and_rules(db_session):
     seed_default_categories_and_rules(db_session)
-    assert db_session.query(models.Category).count() == 13
+    assert db_session.query(models.Category).count() == 14
     assert db_session.query(models.CategoryRule).count() == 5
 
 
 def test_seed_is_idempotent(db_session):
     seed_default_categories_and_rules(db_session)
     seed_default_categories_and_rules(db_session)
-    assert db_session.query(models.Category).count() == 13
+    assert db_session.query(models.Category).count() == 14
     assert db_session.query(models.CategoryRule).count() == 5
 
 

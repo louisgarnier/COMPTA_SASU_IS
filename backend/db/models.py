@@ -176,7 +176,7 @@ class Category(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True)
-    # 'revenue' | 'charge' | 'conversion' | 'transfer' | 'internal' | 'uncategorized'
+    # 'revenue' | 'charge' | 'conversion' | 'transfer' | 'internal' | 'immobilisation' | 'uncategorized'
     type: Mapped[str] = mapped_column(String)
     parent_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("categories.id"), nullable=True

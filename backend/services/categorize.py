@@ -62,6 +62,7 @@ DEFAULT_CATEGORIES: list[tuple[str, str]] = [
     ("Conversion FX", "conversion"),
     ("Virement interne", "transfer"),
     ("Investissement", "internal"),
+    ("Immobilisation", "immobilisation"),
     (UNCATEGORIZED_NAME, UNCATEGORIZED_TYPE),
 ]
 

@@ -27,6 +27,7 @@ from backend.api.routes import dashboard_invoices as dashboard_invoices_routes
 from backend.api.routes import dashboard_pnl as dashboard_pnl_routes
 from backend.api.routes import forecast as forecast_routes
 from backend.api.routes import fx as fx_routes
+from backend.api.routes import imports as imports_routes
 from backend.api.routes import investments as investments_routes
 from backend.api.routes import invoices as invoices_routes
 from backend.api.routes import opening_balances as opening_balances_routes
@@ -83,6 +84,7 @@ app.include_router(treasury_routes.router)
 app.include_router(forecast_routes.router)
 app.include_router(invoices_routes.router)
 app.include_router(banking_routes.router)
+app.include_router(imports_routes.router)
 app.include_router(balance_docs_routes.router)
 app.include_router(fx_routes.router)
 app.include_router(dashboard_pnl_routes.router)

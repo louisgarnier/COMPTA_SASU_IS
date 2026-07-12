@@ -206,6 +206,27 @@ def test_monthly_pnl_totals(session):
     assert result["totals"]["result_eur"] == Decimal("1900.00")
 
 
+def test_pnl_excludes_immobilisation_category(session):
+    """Un achat catégorisé « Immobilisation » (>500 €, règle utilisateur)
+    ne doit PAS apparaître dans les charges du P&L (année 2025, hors seed
+    2026 de ce fichier — s'assure que la catégorie 'immobilisation' n'est
+    comptée ni en charge, ni en produit)."""
+    cat = models.Category(name="Immobilisation", type="immobilisation", is_system=True)
+    account = models.BankAccount(
+        provider="revolut", account_uid="uid-t", currency="EUR", iban_masked="FR76****00"
+    )
+    session.add_all([cat, account])
+    session.flush()
+    session.add(models.Transaction(
+        account_uid="uid-t", external_id="immo-1",
+        booked_date=date(2025, 4, 30), amount=Decimal("-1313.00"),
+        currency="EUR", description="MacBook Pro", category_id=cat.id,
+    ))
+    session.commit()
+    result = monthly_pnl(session, 2025)
+    assert all(m["charges_eur"] == Decimal("0") for m in result["months"])
+
+
 # --- Tests P&L accrual (revenu = mois travaillé, pas mois payé) ------------
 
 
