@@ -78,10 +78,13 @@ def _real_month_flows(db: Session, year: int) -> dict[int, dict]:
         for m in range(1, 13)
     }
 
-    # Sorties NON opérationnelles (dividendes, IS payé, investissements) : de
-    # vraies sorties de cash, exposées à part pour affichage optionnel — les
-    # virements internes et conversions restent exclus (flux internes).
-    _NONOP_TYPES = {"distribution", "internal", "investment", "is_payment"}
+    # Sorties NON opérationnelles (dividendes, IS payé, investissements,
+    # immobilisations) : de vraies sorties de cash, exposées à part pour
+    # affichage optionnel — les virements internes et conversions restent
+    # exclus (flux internes). `immobilisation` reste `kind="other"` côté
+    # categorize.py (pas de sémantique placement) : ici c'est une simple
+    # sortie non-op, comme un investissement.
+    _NONOP_TYPES = {"distribution", "internal", "investment", "is_payment", "immobilisation"}
 
     for tx in db.query(models.Transaction).all():
         if tx.booked_date is None or tx.booked_date.year != year:

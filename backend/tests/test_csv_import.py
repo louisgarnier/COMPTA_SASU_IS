@@ -404,6 +404,14 @@ def test_preview_route_unknown_format_400(client):
     assert resp.status_code == 400
 
 
+def test_preview_route_malformed_amount_400(client):
+    """Montant illisible (decimal.InvalidOperation) → 400 propre, pas un 500."""
+    text = REVOLUT_HEADER + "\n" + revolut_line(txid="r1", total="garbage")
+    resp = client.post("/api/import/preview", json={"content": text, "year": 2025})
+    assert resp.status_code == 400
+    assert "CSV invalide" in resp.json()["detail"]
+
+
 def test_execute_route(client, monkeypatch, tmp_path):
     monkeypatch.setattr(
         csv_import.backup_service, "create_backup", lambda **kw: tmp_path / "b.db"

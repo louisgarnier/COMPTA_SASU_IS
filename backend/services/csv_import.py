@@ -174,7 +174,7 @@ def analyze(db: Session, text: str, year: int = 2025) -> dict:
             "account_name": account.name if account else None,
             "opening_balance": None,
             "closing_balance": None,
-            "_first": None, "_last": None,  # (date, ext_id, balance_after, amount)
+            "_first": None, "_last": None,  # (marker, balance) ; marker = (booked_date, ±idx)
         })
         acc["tx_count"] += 1
 

@@ -538,6 +538,29 @@ def test_fiscal_nonop_attribution(db_session):
     assert total_dist_fiscal == Decimal("30000.00")
 
 
+def test_immobilisation_outflow_visible_in_nonop_bucket(db_session):
+    """
+    Un achat catégorisé « Immobilisation » (type de catégorie 'immobilisation')
+    est une VRAIE sortie de cash non opérationnelle : doit apparaître dans
+    `outgoing_nonop_by_ccy` (mois réel), jamais dans les charges opérationnelles
+    (`outgoing_by_ccy`) — sinon le net cashflow ne tient plus le delta banque.
+    """
+    rev, chg = _base(db_session)
+    immo = models.Category(name="Immobilisation", type="immobilisation")
+    db_session.add(immo)
+    db_session.commit()
+    _tx(db_session, immo.id, date(2026, 4, 30), "-1313.00", "EUR", "other", "immo-1")
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY))
+    avr = by["2026-04"]
+    # Visible en non-op…
+    assert avr["outgoing_nonop_by_ccy"] == {"EUR": Decimal("1313.00")}
+    assert avr["outgoing_nonop_eur"] == Decimal("1313.00")
+    # …absent des charges opérationnelles.
+    assert avr["outgoing_by_ccy"] == {}
+    assert avr["outgoing_eur"] == Decimal("0.00")
+
+
 def test_fiscal_nonop_includes_expected_redemption(db_session):
     """Le remboursement de placement attendu apparaît aussi en vue fiscale."""
     _base(db_session)

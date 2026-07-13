@@ -283,7 +283,7 @@ export type ImportSampleRow = {
 export type ImportPreview = {
   bank: string;
   rows_read: number;
-  period: { min: string; max: string };
+  period: { min: string | null; max: string | null };
   importable: number;
   out_of_period: number;
   duplicates: number;

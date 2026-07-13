@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/import", tags=["import"])
 
 
 class ImportIn(BaseModel):
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=20_000_000)
     year: int = 2025
 
 
@@ -30,8 +30,8 @@ def preview(body: ImportIn, db: Session = Depends(get_db)) -> dict:
     logger.info("📥 [Import] POST /preview (%d caractères)", len(body.content))
     try:
         return csv_import.analyze(db, body.content, year=body.year)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except (ValueError, KeyError, AttributeError, ArithmeticError) as exc:
+        raise HTTPException(status_code=400, detail=f"CSV invalide : {exc}")
 
 
 @router.post("/execute")
@@ -39,5 +39,5 @@ def execute(body: ImportIn, db: Session = Depends(get_db)) -> dict:
     logger.info("📥 [Import] POST /execute (%d caractères)", len(body.content))
     try:
         return csv_import.execute(db, body.content, year=body.year)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except (ValueError, KeyError, AttributeError, ArithmeticError) as exc:
+        raise HTTPException(status_code=400, detail=f"CSV invalide : {exc}")

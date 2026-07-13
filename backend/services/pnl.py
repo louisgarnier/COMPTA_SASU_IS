@@ -43,7 +43,9 @@ _ZERO = Decimal("0")
 
 # Flux exclus du résultat d'exploitation.
 _EXCLUDED_KINDS = {"investment", "conversion", "transfer", "internal"}
-_EXCLUDED_CATEGORY_TYPES = {"conversion", "transfer", "internal", "distribution", "is_payment"}
+_EXCLUDED_CATEGORY_TYPES = {
+    "conversion", "transfer", "internal", "distribution", "is_payment", "immobilisation",
+}
 
 
 def invoice_revenue_eur(inv: models.Invoice, rates: dict) -> Decimal:

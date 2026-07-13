@@ -211,7 +211,7 @@ export default function ImportCsvCard() {
               </thead>
               <tbody>
                 {preview.accounts.map((a) => (
-                  <tr key={a.csv_name} className="border-b border-[var(--border)] last:border-0">
+                  <tr key={`${a.csv_name}|${a.currency}`} className="border-b border-[var(--border)] last:border-0">
                     <td className="py-2 pr-4">{a.csv_name}</td>
                     <td className="tabular py-2 pr-4">{a.iban_masked}</td>
                     <td className="py-2 pr-4">{a.currency}</td>
