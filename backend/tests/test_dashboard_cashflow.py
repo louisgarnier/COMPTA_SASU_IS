@@ -573,3 +573,31 @@ def test_fiscal_nonop_includes_expected_redemption(db_session):
     db_session.commit()
     by = _by_month(cashflow_service.monthly_cashflow(db_session, 2026, today=_TODAY, scope="forecast"))
     assert by["2026-12"]["incoming_nonop_fiscal_eur"] == Decimal("76300.00")
+
+
+def test_fiscal_view_pre_is_year_absorbs_all_distributions(db_session):
+    """
+    Exercice PRÉ-IS (ère IR) : les prélèvements du dirigeant consomment le
+    stock IR antérieur — AUCUN ne doit apparaître comme « acompte sur
+    l'exercice » dans la vue fiscale (le pool FIFO ne s'applique qu'à l'ère IS).
+    Régression vue le 13/07 après catégorisation des prélèvements 2025 réels.
+    """
+    rev, chg = _base(db_session)
+    dist = models.Category(name="Dividendes", type="distribution")
+    db_session.add(dist)
+    db_session.add(models.Settings(id=1, retained_earnings_eur=Decimal("100000"),
+                                   is_start_year=2026))
+    db_session.commit()
+
+    # Prélèvements 2025 (ère IR) dépassant la poche : 165 000 > 100 000.
+    _tx(db_session, dist.id, date(2025, 1, 30), "-20000", "EUR", "transfer", "ir1")
+    _tx(db_session, dist.id, date(2025, 3, 24), "-145000", "EUR", "transfer", "ir2")
+
+    by = _by_month(cashflow_service.monthly_cashflow(db_session, 2025, today=_TODAY))
+
+    # Caisse : visibles aux mois réels.
+    assert by["2025-01"]["outgoing_nonop_by_ccy"].get("EUR") == Decimal("20000.00")
+    assert by["2025-03"]["outgoing_nonop_by_ccy"].get("EUR") == Decimal("145000.00")
+    # Fiscal : rien — l'ère IR n'a pas d'« acomptes sur dividendes ».
+    assert "EUR" not in by["2025-01"]["outgoing_nonop_fiscal_by_ccy"]
+    assert "EUR" not in by["2025-03"]["outgoing_nonop_fiscal_by_ccy"]

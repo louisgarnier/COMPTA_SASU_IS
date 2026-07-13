@@ -296,10 +296,17 @@ def _fiscal_nonop_flows(
                 key = f"{year:04d}-{tx.booked_date.month:02d}"
                 _add(flows[key]["out"], tx, excess)
 
-    pool_dist = max(
-        _ZERO, Decimal(pnl_service.retained_earnings(db, year, today=today, scope=scope))
-    )
-    _fifo_excess("distribution", pool_dist)
+    # Exercice PRÉ-IS (ère IR) : les prélèvements consomment le stock IR
+    # antérieur — pas d'« acompte sur l'exercice » (le FIFO ne vaut qu'en ère IS,
+    # la poche Réglages étant déjà nette des prélèvements IR).
+    settings = db.get(models.Settings, 1)
+    is_start = (settings.is_start_year if settings else 0) or 0
+    if year >= is_start:
+        pool_dist = max(
+            _ZERO,
+            Decimal(pnl_service.retained_earnings(db, year, today=today, scope=scope)),
+        )
+        _fifo_excess("distribution", pool_dist)
 
     # Pool IS : dû au titre de N-1 (0 si pré-IS), net de ce qui a déjà été payé.
     is_due_prev = Decimal(

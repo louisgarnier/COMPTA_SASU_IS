@@ -221,6 +221,24 @@ Le type `immobilisation` ajouté pour le P&L était exclu des charges par **fall
 
 ---
 
+### ERR-008 — RAN : les prélèvements de l'ère IR re-déduits du chaînage (double comptage)
+
+**Date :** 2026-07-13 · **Découvert par :** vérification post-catégorisation (RAN 2026 : 166 200 → −12 035,40 dès que les prélèvements 2025 réels ont été catégorisés en 'distribution')
+
+#### Root Cause
+`pnl._distributions_before` sommait TOUTES les transactions de type distribution antérieures à l'exercice, y compris celles de l'ère IR (< `is_start_year`). Or la poche initiale (`Settings.retained_earnings_eur` = delta tréso ère IR) est par construction DÉJÀ nette de ces prélèvements → double comptage. Cousin dans `cashflow._fiscal_nonop_flows` : le FIFO « acomptes au-delà du pool » s'appliquait aussi aux exercices pré-IS.
+
+#### Fix
+`_distributions_before(..., is_start)` exclut les versements d'exercices < `is_start_year` ; la vue fiscale du cashflow n'applique le FIFO distributions qu'aux exercices ≥ `is_start_year` (ère IR : tout est consommation du stock antérieur). Vérifié live : RAN 2026 = 166 200,00 / distribuable 302 473,80 restaurés à l'identique.
+
+#### Prevention Rule
+**Toute agrégation trans-exercices (RAN, pools FIFO, cumuls) doit expliciter son comportement à la frontière `is_start_year`** — les données pré-IS existent désormais en base (import CSV) : « avant N » ne veut plus dire « ère IS ». Tester chaque agrégat avec une donnée datée AVANT la frontière.
+
+#### Test Added
+- [x] `test_pre_is_distributions_do_not_reduce_retained_earnings` (invariants) · `test_fiscal_view_pre_is_year_absorbs_all_distributions` (cashflow).
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

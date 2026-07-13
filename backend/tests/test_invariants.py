@@ -422,3 +422,33 @@ def test_pnl_summary_scopes(db):
     # Mode forecast : IS aligné sur la page Heures & jours (projection).
     from backend.services.forecast import estimate_is
     assert s_fc["is_estimate_eur"] == Decimal(str(estimate_is(db, 2026, today=_TODAY)["is_total_eur"]))
+
+
+def test_pre_is_distributions_do_not_reduce_retained_earnings(db):
+    """
+    Frontière IR→IS : les prélèvements de l'ère IR (exercices < is_start_year)
+    sont déjà nets dans la poche initiale (`Settings.retained_earnings_eur`) —
+    les re-déduire du RAN serait un double comptage (régression vue le 13/07
+    en catégorisant les prélèvements 2025 réels en 'distribution').
+    """
+    settings = db.get(models.Settings, 1)
+    settings.is_start_year = 2026
+    settings.retained_earnings_eur = Decimal("1000")
+    db.add(models.Category(id=6, name="Dividendes", type="distribution"))
+    db.commit()
+    # Prélèvement ère IR (2025) : déjà dans la poche, NE doit PAS compter.
+    db.add(models.Transaction(
+        account_uid="ACC", external_id="ir1", booked_date=date(2025, 3, 24),
+        amount=Decimal("-800"), currency="EUR", kind="transfer", category_id=6,
+    ))
+    # Distribution ère IS (2026) : compte pour le RAN 2027.
+    db.add(models.Transaction(
+        account_uid="ACC", external_id="is1", booked_date=date(2026, 5, 2),
+        amount=Decimal("-100"), currency="EUR", kind="transfer", category_id=6,
+    ))
+    db.commit()
+
+    from backend.services.pnl import retained_earnings
+
+    assert retained_earnings(db, 2026) == Decimal("1000.00")
+    assert retained_earnings(db, 2027) == Decimal("900.00")

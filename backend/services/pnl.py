@@ -286,12 +286,18 @@ def _activity_years(db: Session) -> set[int]:
     return years
 
 
-def _distributions_before(db: Session, year: int, rates: dict) -> Decimal:
+def _distributions_before(
+    db: Session, year: int, rates: dict, is_start: int = 0
+) -> Decimal:
     """
     Σ des distributions (dividendes/salaire dirigeant) versées AVANT `year`,
     en magnitude positive. Une distribution = transaction sortante dont la
     catégorie est de type 'distribution' (marquage par l'utilisateur dans
     Catégories — aucun nom en dur).
+
+    Les versements de l'ère IR (exercice < `is_start`) sont exclus : la poche
+    initiale (`Settings.retained_earnings_eur`) est déjà nette de ces
+    prélèvements — les re-déduire serait un double comptage.
     """
     dist_ids = {
         c.id for c in db.query(models.Category).all() if c.type == "distribution"
@@ -302,7 +308,7 @@ def _distributions_before(db: Session, year: int, rates: dict) -> Decimal:
     for tx in db.query(models.Transaction).all():
         if tx.category_id not in dist_ids or tx.booked_date is None:
             continue
-        if tx.booked_date.year >= year:
+        if tx.booked_date.year >= year or tx.booked_date.year < is_start:
             continue
         amt = (
             Decimal(tx.amount_eur)
@@ -395,7 +401,7 @@ def retained_earnings(
     for y in sorted(y for y in _activity_years(db) if is_start <= y < year):
         chained += _scope_result(db, y, scope, today=today)["net_result_eur"]
 
-    return q2(base + chained - _distributions_before(db, year, rates))
+    return q2(base + chained - _distributions_before(db, year, rates, is_start))
 
 
 def summary(db: Session, year: int, today=None, scope: str = "engaged") -> dict:

@@ -196,3 +196,13 @@ Objectif : charger l'historique 2025 (Qonto + Revolut) pour calibrer l'app contr
 - Tests : **268 backend · 12 suites/28 front · tsc clean.**
 
 **Reste (phase suivante — État financier) :** catégoriser les ~758 tx 2025 au fourre-tout (P&L brut : revenus 243 995 vs CA comptable 218 010, charges 14 527 vs 36 453 — attendu tant que non catégorisé), saisir les factures 2025 (dont la CAD JPSB), placement XRP manuel, catégoriser iPhone 16 + MacBook Pro en Immobilisation, vue de rapprochement app↔comptable. Suivi : soldes preview Qonto = bornes du fichier (2021→2026), pas de l'année — cosmétique.
+
+## 2026-07-13 (suite) — Catégorisation complète 2025 + fix frontière IR→IS (ERR-008)
+
+**Données (en base, pas en git)** : 758 tx 2025 catégorisées via croisement grand livre (535 matches montant+date ±7j) — 21 règles description créées (marchands ≥3 tx, les paiements carte importés ont une contrepartie vide), recategorize (537), affectations directes pour le reste. Corrections itératives par face-à-face avec le comptable : jambe de virement sortie de Repas, 24 frais de change → Frais bancaires (= le résiduel −498 du pont), formation 3 000 → Formations (CCA), achat XRP → Investissement.
+
+**Régression attrapée par la vérification** : catégoriser les prélèvements 2025 (165 000 € + 15 040 USD → type distribution) a fait plonger le RAN 2026 (166 200 → −12 035,40) — double comptage des versements ère IR, déjà nets dans la poche pré-IS. Fix TDD ×2 (pnl `_distributions_before(is_start)` + garde FIFO fiscal cashflow), ERR-008. RAN/distribuable 2026 restaurés à l'identique (166 200,00 / 302 473,80).
+
+**État 2025 après la passe** : 0 tx non catégorisée · pont 31/12/2025 : résiduel **+807,37 € sans warning** (pur écart FX théorique sur ~100 k€ de conversions) · charges 33 636,17 vs comptable 35 045,44 (écarts par poste : FX théorique sur tx USD, salaires appoint absents des flux bancaires en clair, dotations hors banque) · revenus 243 995,11 vs CA 218 010,52 (cash vs accrual — se résorbera à l'étape factures 2025). **Tests : 272 backend verts.**
+
+**Reste (étape 2 du plan)** : factures 2025 + rapprochements (l'utilisateur fournit les factures), ajustement placement xrp (9 000 → 8 971,21) + rapprochement tx#475, puis face-à-face final.
