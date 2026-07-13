@@ -203,6 +203,24 @@ Le hook `create_backup()` ajouté à `POST /api/banking/sync` utilise par défau
 
 ---
 
+### ERR-007 — Nouveau type de catégorie invisible dans une des vues (fallthrough elif)
+
+**Date :** 2026-07-13 · **Découvert par :** revue finale de branche (import-csv-2025), avant merge
+
+#### Root Cause
+Le type `immobilisation` ajouté pour le P&L était exclu des charges par **fallthrough** (chaîne `elif` sans `else` dans pnl.py) et tombait dans **aucun** bucket du cashflow (`_NONOP_TYPES` non mis à jour) : la dépense réelle (MacBook −1 313 €) disparaissait de la vue cashflow, cassant l'identité net = variation de trésorerie.
+
+#### Fix
+`immobilisation` ajouté explicitement à `pnl._EXCLUDED_CATEGORY_TYPES` ET `cashflow._NONOP_TYPES` (ordre des checks vérifié : bucket non-op puis continue, même schéma que internal/distribution/is_payment). Tests de régression dans les deux vues.
+
+#### Prevention Rule
+**Tout nouveau type de catégorie doit être passé en revue chez TOUS les consommateurs de `Category.type`** (pnl, cashflow, forecast, categorize `_TYPE_TO_KIND`) — une exclusion par fallthrough n'est pas une exclusion : elle casse silencieusement à la vue suivante. Grepper `Category.type`/`cat.type`/`ctype` avant de merger.
+
+#### Test Added
+- [x] `test_pnl_excludes_immobilisation_category` + `test_immobilisation_outflow_visible_in_nonop_bucket`.
+
+---
+
 ## 🔒 Prevention Rules Summary
 | Rule ID | Applies To | Rule |
 |---|---|---|

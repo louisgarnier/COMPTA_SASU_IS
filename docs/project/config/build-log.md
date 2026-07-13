@@ -176,3 +176,23 @@ Priorité n°3 des conseils de dev validée par l'utilisateur (chantiers suivant
 **Preuves :** 9 tests backup + suite complète **239 backend verts** ; `data/backups/` identique avant/après la suite (diff vide) ; backup réel exécuté sur `data/lgc.db` : `lgc_20260711_062310_manual.db`, 675 840 octets, 334 transactions lisibles dans la copie.
 
 **Non couvert :** la synchro live réelle (Enable Banking) n'a pas été déclenchée — le câblage route→backup est prouvé par tests ; le prochain sync utilisateur créera la première sauvegarde `_sync` réelle.
+
+## 2026-07-13 — Import CSV bancaire 2025 (EPIC-7, branche `import-csv-2025`)
+
+Objectif : charger l'historique 2025 (Qonto + Revolut) pour calibrer l'app contre les comptes validés du comptable (bilan + CdR + grand livre charges dans `docs/docs2025/`, gitignoré). Maquette v2 approuvée, plan `docs/superpowers/plans/2026-07-12-import-csv-2025.md`, exécution subagent-driven (5 tâches + revue finale de branche, chaque tâche revue et corrigée).
+
+**Backend :**
+- `services/csv_import.py` : détection de format par en-têtes, parseurs Qonto (`;`, virgule décimale, espaces insécables U+00A0/U+202F) et Revolut (**« Total amount » frais inclus** — seule colonne qui chaîne avec « Balance », vérifié 861/861 sur l'export réel), `analyze()` (preview sans écriture : rattachement `(iban_masked, devise)`, dédup y compris intra-fichier, périmètre année, soldes d'ouverture/clôture calculés par ordre du fichier avec direction auto-détectée), `execute()` (backup fail-closed AVANT écriture, insertion, catégorisation — `categorized` = matches de règles seulement, soldes live intouchés).
+- Routes `POST /api/import/{preview,execute}` (body JSON `{content, year}`, max 20 Mo, CSV malformé → 400).
+- Catégorie système « Immobilisation » (`type='immobilisation'`, règle utilisateur : achat > 500 €) : exclue des charges P&L (explicite dans `_EXCLUDED_CATEGORY_TYPES` + test) et **visible en sorties non-op du cashflow** (`_NONOP_TYPES`, trouvaille de la revue finale : sans ça la dépense disparaissait des deux vues).
+
+**Frontend :** `ImportCsvCard` sur la page Banques (upload FileReader → prévisualisation avec tuiles banque/période/compteurs, tableau des comptes avec badge Existant/Non rattaché, aperçu, warnings → rapport avec backup). A11y dropzone clavier, erreurs API affichées.
+
+**Preuves (validation live sur les vrais fichiers) :**
+- Preview Revolut : 866 lues → 865 importables, 1 XRP écartée (warning), 4 comptes rattachés aux comptes live ; clôtures calculées = bilan au centime : EUR 11 626,90 · USD Main 80 381,99 · USD 40 320,00 · CAD 5 580,00.
+- Import : 865 + 63 Qonto (334 hors période 2021-2024/2026 écartées) = **928 tx 2025**, 2 backups `lgc_20260713_*_import.db` créés avant écriture.
+- Idempotence réelle : re-preview → 0 importable, 865/63 doublons.
+- **Identité Qonto au centime** : 315,48 (bilan 31/12/2024) − 288,70 (net 2025 importé) = **26,78** (bilan 31/12/2025) ✓. Revolut EUR : ouverture CSV 121 406,31 − 109 779,41 = 11 626,90 = bilan ✓ ; écart 48,80 entre ouverture bancaire et 31/12/2024 comptable (≈ « Taxes sur CA sur factures non parvenues 48,80 » du bilan) → à éclaircir au rapprochement.
+- Tests : **268 backend · 12 suites/28 front · tsc clean.**
+
+**Reste (phase suivante — État financier) :** catégoriser les ~758 tx 2025 au fourre-tout (P&L brut : revenus 243 995 vs CA comptable 218 010, charges 14 527 vs 36 453 — attendu tant que non catégorisé), saisir les factures 2025 (dont la CAD JPSB), placement XRP manuel, catégoriser iPhone 16 + MacBook Pro en Immobilisation, vue de rapprochement app↔comptable. Suivi : soldes preview Qonto = bornes du fichier (2021→2026), pas de l'année — cosmétique.
