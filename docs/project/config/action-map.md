@@ -169,3 +169,32 @@ Verif finale : backend **156 passed**, frontend **17 passed**, `tsc` clean.
 - **Banque (sync) → Transactions → Catégories → Factures (rapprochement)** : chaîne d'import. ⚠️ pas de gestion d'erreur.
 - **Placements → base IS** : plus-values latentes positives → base imposable. ⚠️ branché mais aucune UI pour saisir.
 - **Réglages → génération facture** (compteur), **→ IS/distribuable** (barème, report à nouveau). ✅
+
+---
+
+# Audit 2026-07-13 — features livrées depuis le 6/07 (6 agents, lecture seule, sondes GET live)
+
+> Périmètre : tout ce qui a été livré entre le 7/07 et le 13/07 (Lots A/B/C, placements, régime IR→IS, cross-year, facturation, backup, import CSV 2025). Base auditée : branche `import-csv-2025` avec les 928 tx 2025 importées. **Les 4 bloquants trouvés ont été corrigés le jour même** (voir « Corrigé le 2026-07-13 »).
+
+## ✅ Corrigé le 2026-07-13 (suite à l'audit)
+- 🔴 **Catégorie « Immobilisation » absente de la base réelle** — le seed ne tournait que sur table vide ; désormais backfill idempotent par nom à chaque démarrage (catégories système manquantes recréées, lignes existantes jamais touchées). Catégorie id 30 présente en base live.
+- 🔴 **Courbe / soldes à date / pont 2025 plats** (les 928 tx 2025 ignorées) — double cause : (a) aucune `OpeningBalance` 2025 → **ouvertures 2025 saisies** (dérivées par identité : ouverture 2026 − net 2025 par compte, cohérentes bilan + chaînage CSV 861/861), pont 2025 : résiduel −498 € (au lieu d'un faux +139 844 €) ; (b) plancher legacy `opening_balance_date` dans `_bank_movements_eur` → fix `since=after` (le rebours depuis le solde actuel ne masque plus les mouvements pré-ancre), courbe 2025 = 12 valeurs réelles distinctes, écart rebours↔ancre = 22,17 € (résidu Revolut connu).
+- 🟠 **Réglages : ouvertures d'exercice impossibles pour une année passée** (bouton = max+1 seulement) → champ année libre.
+- 🟠 **Courbe « + placements » : saut potentiel à l'échéance** si valeur actuelle ≠ remboursement attendu → `expected_value_eur ?? current_value_eur` au mois de bascule (aligné sur le cash injecté côté banque).
+- 🟡 Invoice Timeline : mention « 6 derniers mois glissants (indépendant de l'année sélectionnée) » ajoutée (le widget ignore le sélecteur d'année par design).
+
+## État par module (nouvelles features depuis le 6/07)
+- **Dashboard** : sélecteur d'année (N-1 accessible, badge IR pré-IS) ✅ · sélecteur Réalisé/Engagé/Prévisionnel (RAN suit le cran) ✅ · widget P&L (équation exacte au centime live, produits financiers attendus/réalisés) ✅ · widget Cashflow (année civile vs fiscale, toggle non-op, overflow N+1) ✅ · courbe tréso (toggle + placements, cross-year) ✅ · pont de trésorerie + clic → Vue tréso ✅ · Distributions & IS ✅ · factures ouvertes ≈ EUR + timeline EUR réel ✅ · alertes tréso basse / factures exercice antérieur ✅ (inactives sur les données actuelles, logique vérifiée)
+- **Transactions** : banque d'origine ✅ · export CSV par exercice ✅ (2025 : 928 lignes, 2026 : 334) · filtres kind/à-catégoriser/recherche/vue-tréso ✅ · non-régression recatégorisation manuelle ✅ (test dédié) · lien FX manuel 🔗 ✅ (câblage, 16 crédits candidats)
+- **Factures/Facturation** : Heures & jours (année 2025, facture dans le passé, n° éditable) ✅ · PDF WeasyPrint V1.1 + anglais + nom de fichier ✅ (503 propre sans pango) · bloc bancaire/adresse/mention légale par client ✅ · aging ✅ · sent_date ✅ · machine à états verrouillée ✅ · suppression + compteur rendu ✅
+- **Banques/Réglages** : backup fail-closed avant sync ✅ · import CSV 3 étapes ✅ (865+63 réelles importées, idempotence prouvée) · sélection de comptes + anti-CSRF state ✅ · BalanceDocsModal ✅ · ouvertures par exercice (année libre depuis ce jour) ✅ · is_start_year/RAN/alerte tréso/FX tous consommés en aval ✅
+- **Placements/Forecast** : latent non taxé, gains attendus (+6 700 exactement dans la base IS forecast) et réalisés ✅ · remboursement = entrée non-op ✅ · charges projetées signées (ERR-005) ✅ · vider/note/TJM-THM ✅ · P&L annuel imprimable (2025 et 2026 sans crash) ✅
+- **Transversal** : IR→IS tient avec les vraies données 2025 (IS=0, RAN 2026 inchangé : 166 200 → distribuable 302 473,80 exact) ✅ · allocation FX contrainte par date ✅ · sweep santé : toutes les routes GET 200, < 1 s (balance-timeline 0,24 s à 1 262 tx) ✅ · logs du jour : zéro vraie erreur ✅
+
+## ⚠️ Restes connus (non bloquants, par sévérité)
+1. 🟠 Pas de pagination sur GET /api/transactions + N+1 sur catégorie (41-81 ms à 1 262 tx — dette d'échelle, pas d'impact actuel)
+2. 🟡 `?year=` ignoré silencieusement sur GET /api/transactions et /api/invoices (filtres année = client-side ; seul /export a year)
+3. 🟡 `kind='other'` partagé immobilisation/non-catégorisé (filtrer par catégorie, pas par kind) ; immobilisation absente de l'overlay fiscal cashflow (`_fiscal_nonop_flows`)
+4. 🟡 2 branches 409 non testées (re-reconcile paid, unreconcile non-paid — code correct lu) ; POST /api/invoices (orphelin UI) ne calcule pas amount_eur_forecast
+5. 🟡 `invoice_filename_suffix` absent du formulaire Réglages ; tranches aging 30/60 j en dur (front) ; seuil résiduel pont 2 % en dur ; logging manquant sur le catch large des routes import ; écart ~213 € entre CA forecast.project et pnl.summary(forecast) (2 chemins de calcul, à verrouiller par test croisé)
+6. ℹ️ Données (pas du code) : 758/928 tx 2025 « À catégoriser » (≈ −193 k€ hors P&L tant que non catégorisé) · placement #2 « xrp » saisi à la main (9 000 USD) ≠ tx réelle importée (8 971,21 USD, id 475) — à rapprocher · features placements non exerçables visuellement tant qu'aucun placement actif (câblage vérifié par code)
