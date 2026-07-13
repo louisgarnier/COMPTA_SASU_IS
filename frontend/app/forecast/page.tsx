@@ -1,17 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { forecastAPI, clientsAPI, fxAPI, treasuryAPI } from '@/api/client';
+import { forecastAPI, clientsAPI, fxAPI, treasuryAPI, invoicesAPI } from '@/api/client';
 import { PageTitle, Card, StatCard, Empty } from '@/components/ui';
 import { FacturationTabs } from '@/components/FacturationTabs';
 import { eur, pct, MONTH_LABELS } from '@/lib/format';
+import { facturationYears } from '@/lib/years';
 
 // Aujourd'hui (date réelle) — pilote les mois écoulés vs à venir.
 const TODAY = new Date();
 const CUR_YEAR = TODAY.getFullYear();
 const CUR_MONTH = TODAY.getMonth() + 1; // 1..12
-// Année précédente incluse : saisie de factures passées (payées cette année).
-const YEARS = [CUR_YEAR - 1, CUR_YEAR, CUR_YEAR + 1, CUR_YEAR + 2];
+// Exercices proposés : borne basse DÉRIVÉE des factures existantes (un exercice
+// sous la plus ancienne — cas des factures d'exercice antérieur payées ensuite),
+// borne haute : année courante + 2. Voir src/lib/years.ts.
+const DEFAULT_YEARS = facturationYears([], CUR_YEAR);
 
 type Client = {
   id: number;
@@ -86,6 +89,17 @@ function monthsForYear(year: number, allowPast: boolean): { key: string; label: 
 export default function ForecastPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [year, setYear] = useState(CUR_YEAR);
+  const [years, setYears] = useState<number[]>(DEFAULT_YEARS);
+
+  // Borne basse du sélecteur dérivée des factures existantes.
+  useEffect(() => {
+    invoicesAPI
+      .list()
+      .then((invs: any[]) =>
+        setYears(facturationYears(invs.map((i) => i.month || ''), CUR_YEAR))
+      )
+      .catch(() => {}); // repli : DEFAULT_YEARS déjà en place
+  }, []);
   const [data, setData] = useState<ForecastData | null>(null);
   const [grid, setGrid] = useState<Record<string, Cell>>({});
   const [fx, setFx] = useState<Record<string, number>>({});
@@ -303,7 +317,7 @@ export default function ForecastPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-[var(--muted)]">Année</span>
         <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
-          {YEARS.map((y) => (
+          {years.map((y) => (
             <button
               key={y}
               onClick={() => setYear(y)}

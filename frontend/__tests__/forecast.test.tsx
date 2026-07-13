@@ -48,6 +48,9 @@ jest.mock('@/api/client', () => ({
   treasuryAPI: {
     get: jest.fn().mockResolvedValue({ total_eur: '0' }),
   },
+  invoicesAPI: {
+    list: jest.fn().mockResolvedValue([{ month: '2024-12' }, { month: '2026-01' }]),
+  },
 }));
 
 describe('ForecastPage', () => {
