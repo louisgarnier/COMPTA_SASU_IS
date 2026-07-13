@@ -207,3 +207,20 @@ def test_route_balance_timeline(session, monkeypatch):
     oct_m = next(m for m in body["months"] if m["month"] == "2026-10")
     assert oct_m["is_forecast"] is True
     assert oct_m["balance_eur"] == "3000.00"
+
+
+def test_past_year_before_anchor_reflects_its_movements(session):
+    """Année antérieure à l'ancre legacy (cas import CSV 2025) : la courbe doit
+    refléter les mouvements 2025, pas rester plate au niveau de l'ouverture 2026."""
+    session.add(models.Transaction(
+        account_uid="eur-1", external_id="y2025", booked_date=date(2025, 3, 10),
+        amount=Decimal("200.00"), currency="EUR", kind="revenue", category_id=1,
+    ))
+    session.commit()
+
+    result = balance_timeline(session, 2025, today=TODAY)
+    by_month = {m["month"]: Decimal(m["balance_eur"]) for m in result["months"]}
+
+    assert by_month["2025-02"] == Decimal("800.00")   # avant la tx 2025 (+200)
+    assert by_month["2025-12"] == Decimal("1000.00")  # = ouverture au 01/01/2026
+    assert all(not m["is_forecast"] for m in result["months"])

@@ -189,7 +189,10 @@ def _bank_movements_eur(
     total = _ZERO
     for acc in accounts:
         cur = (acc.currency or "EUR").upper()
-        for t in _account_transactions(db, acc, as_of=upto):
+        # `since=after` : le rebours part du solde réel actuel, qui embarque déjà
+        # toute l'histoire — le plancher legacy `opening_balance_date` ne doit pas
+        # masquer les mouvements antérieurs (ex. historique 2025 importé en CSV).
+        for t in _account_transactions(db, acc, as_of=upto, since=after):
             if t.booked_date and t.booked_date > after:
                 total += to_eur(Decimal(t.amount or 0), cur, rates)
     return total

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { OpeningBalancesCard } from '../src/components/OpeningBalancesCard';
 
 jest.mock('@/api/client', () => ({
@@ -35,5 +35,24 @@ describe('OpeningBalancesCard', () => {
     // La saisie est pré-remplie dans l'input dédié
     const input = (await screen.findByLabelText('Solde Revolut Main')) as HTMLInputElement;
     expect(input.value).toBe('11626.90');
+  });
+
+  it('permet d’ajouter un exercice PASSÉ (pré-rempli à min − 1, éditable)', async () => {
+    render(<OpeningBalancesCard />);
+    await screen.findByText("Soldes d'ouverture d'exercice");
+
+    // Attend que les exercices existants soient chargés (2025, 2026) avant
+    // de vérifier le pré-remplissage du champ « nouvel exercice ».
+    await screen.findByRole('button', { name: '2026' });
+    const newYearInput = (await screen.findByLabelText(
+      'Nouvel exercice à ajouter',
+    )) as HTMLInputElement;
+    // Pré-rempli avec l'année passée manquante (min(2025, 2026) − 1 = 2024).
+    expect(newYearInput.value).toBe('2024');
+
+    fireEvent.click(screen.getByText('+ ajouter'));
+
+    // Le nouvel exercice 2024 apparaît comme onglet sélectionnable.
+    expect(await screen.findByRole('button', { name: '2024' })).toBeInTheDocument();
   });
 });

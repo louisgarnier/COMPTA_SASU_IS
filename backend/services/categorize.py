@@ -184,18 +184,35 @@ def recategorize_all(db: Session) -> int:
 
 def seed_default_categories_and_rules(db: Session) -> None:
     """
-    Amorce catégories + règles système si les tables sont vides.
+    Amorce catégories + règles système, en rétro-appliquant les catégories
+    manquantes sur les bases déjà peuplées.
 
-    Idempotent au sens « ne fait rien si déjà peuplé » : on ne réinsère pas si
-    au moins une catégorie (resp. règle) existe déjà.
+    Catégories : backfill idempotent PAR NOM — pour chaque entrée de
+    DEFAULT_CATEGORIES sans Category existante du même nom, on la crée
+    (is_system=True). Les catégories déjà présentes ne sont JAMAIS modifiées
+    (l'utilisateur a pu personnaliser leur type à la main : ne pas écraser).
+    Ceci répare les bases historiques où une catégorie système ajoutée après
+    coup (ex. « Immobilisation », EPIC-7) n'a jamais été créée car l'ancien
+    seed ne s'exécutait que si la table était entièrement vide.
+
+    Règles : comportement inchangé — on ne réinsère pas si au moins une règle
+    existe déjà (pas de backfill, pour ne pas polluer les règles utilisateur).
     """
-    has_categories = db.execute(select(models.Category.id).limit(1)).first() is not None
-    if not has_categories:
-        for name, ctype in DEFAULT_CATEGORIES:
+    existing_names = {
+        name
+        for (name,) in db.execute(select(models.Category.name)).all()
+    }
+    missing = [
+        (name, ctype) for name, ctype in DEFAULT_CATEGORIES if name not in existing_names
+    ]
+    if missing:
+        for name, ctype in missing:
             db.add(models.Category(name=name, type=ctype, is_system=True))
         db.commit()
         logger.info(
-            "🗄️ [Categorize] seed: %d catégories système créées", len(DEFAULT_CATEGORIES)
+            "🗄️ [Categorize] seed: %d catégorie(s) système créée(s) (backfill: %s)",
+            len(missing),
+            ", ".join(name for name, _ in missing),
         )
 
     # Index nom → id pour rattacher les règles.

@@ -20,6 +20,7 @@ export function OpeningBalancesCard() {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
+  const [newYearInput, setNewYearInput] = useState('');
 
   // Charge la liste des exercices puis sélectionne l'exercice courant (max).
   useEffect(() => {
@@ -31,6 +32,13 @@ export function OpeningBalancesCard() {
       })
       .catch((e) => setStatus(`❌ ${(e as Error).message}`));
   }, []);
+
+  // Pré-remplit le champ « nouvel exercice » avec l'année passée manquante la
+  // plus récente (min − 1) dès que la liste des exercices est connue — ex.
+  // import d'un historique 2025 alors que seul 2026 existe déjà.
+  useEffect(() => {
+    if (years.length) setNewYearInput(String(Math.min(...years) - 1));
+  }, [years]);
 
   useEffect(() => {
     if (year == null) return;
@@ -49,10 +57,17 @@ export function OpeningBalancesCard() {
       .finally(() => setLoading(false));
   }, [year]);
 
+  // Ajoute n'importe quel exercice (passé OU futur) saisi dans le champ dédié
+  // — nécessaire pour renseigner l'ouverture d'un historique importé
+  // après coup (ex. import CSV 2025 alors que 2026 est déjà en place).
   const addYear = () => {
-    const next = years.length ? Math.max(...years) + 1 : new Date().getFullYear();
-    if (!years.includes(next)) setYears([...years, next]);
-    setYear(next);
+    const y = parseInt(newYearInput, 10);
+    if (!Number.isFinite(y) || y < 1000 || y > 9999) {
+      setStatus('❌ Année invalide');
+      return;
+    }
+    if (!years.includes(y)) setYears([...years, y].sort((a, b) => a - b));
+    setYear(y);
     setStatus('');
   };
 
@@ -95,9 +110,16 @@ export function OpeningBalancesCard() {
                 {y}
               </button>
             ))}
+            <input
+              type="number"
+              aria-label="Nouvel exercice à ajouter"
+              value={newYearInput}
+              onChange={(e) => setNewYearInput(e.target.value)}
+              className="w-16 border-l border-[var(--border)] px-1.5 py-1 text-center text-xs tabular outline-none focus:border-[var(--accent)]"
+            />
             <button
               onClick={addYear}
-              className="px-2.5 py-1 text-xs font-medium text-[var(--accent)] hover:bg-gray-50"
+              className="border-l border-[var(--border)] px-2.5 py-1 text-xs font-medium text-[var(--accent)] hover:bg-gray-50"
             >
               + ajouter
             </button>

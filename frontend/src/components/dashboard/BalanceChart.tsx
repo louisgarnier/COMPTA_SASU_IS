@@ -16,6 +16,7 @@ export type BalanceData = {
 
 type Investment = {
   current_value_eur: string | number;
+  expected_value_eur?: string | number | null;
   expected_month?: string | null;
   closed_date?: string | null;
 };
@@ -44,12 +45,18 @@ export function BalanceChart({ data, scope }: { data: BalanceData; scope?: strin
       .catch(() => setPlacements([]));
   }, []);
 
-  // Valeur des placements encore détenus au mois m ('YYYY-MM').
+  // Valeur des placements encore détenus au mois m ('YYYY-MM'). On valorise
+  // au remboursement attendu (expected_value_eur, celui injecté dans la
+  // courbe banque par le cashflow prévisionnel) plutôt qu'à la valorisation
+  // actuelle : sinon, si l'utilisateur met à jour current_value_eur sans
+  // mettre à jour l'échéance attendue, la courbe combinée saute au mois
+  // d'échéance (le montant qui sort des placements ≠ celui qui entre en
+  // banque).
   const heldAt = (monthKey: string) =>
     placements.reduce((sum, p) => {
       if (p.closed_date && p.closed_date.slice(0, 7) <= monthKey) return sum;
       if (scope === 'forecast' && p.expected_month && p.expected_month <= monthKey) return sum;
-      return sum + num(p.current_value_eur);
+      return sum + num(p.expected_value_eur ?? p.current_value_eur);
     }, 0);
 
   const placTotal = placements.reduce((s, p) => s + num(p.current_value_eur), 0);

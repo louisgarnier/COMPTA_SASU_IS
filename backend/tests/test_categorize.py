@@ -98,6 +98,60 @@ def test_seed_is_idempotent(db_session):
     assert db_session.query(models.CategoryRule).count() == 5
 
 
+def test_seed_backfills_missing_system_categories(db_session):
+    """
+    Base ancienne : une catégorie système (ex. « Immobilisation », ajoutée
+    ultérieurement à DEFAULT_CATEGORIES) manque. Le seed doit la recréer par
+    nom, sans toucher aux catégories existantes (même personnalisées).
+    """
+    seed_default_categories_and_rules(db_session)
+
+    # Simule une base ancienne où « Immobilisation » n'a jamais été créée.
+    immo = (
+        db_session.query(models.Category)
+        .filter(models.Category.name == "Immobilisation")
+        .one()
+    )
+    db_session.delete(immo)
+    db_session.commit()
+    assert db_session.query(models.Category).count() == 13
+
+    # Simule une personnalisation manuelle d'une catégorie existante (le
+    # backfill ne doit jamais l'écraser).
+    dgfip = (
+        db_session.query(models.Category)
+        .filter(models.Category.name == "Impôts DGFIP")
+        .one()
+    )
+    dgfip.type = "is_payment"
+    db_session.commit()
+
+    seed_default_categories_and_rules(db_session)
+
+    # La catégorie manquante est recréée avec le bon type.
+    recreated = (
+        db_session.query(models.Category)
+        .filter(models.Category.name == "Immobilisation")
+        .one()
+    )
+    assert recreated.type == "immobilisation"
+    assert recreated.is_system is True
+
+    # Pas de doublon.
+    assert db_session.query(models.Category).count() == 14
+
+    # La personnalisation utilisateur est préservée.
+    dgfip_after = (
+        db_session.query(models.Category)
+        .filter(models.Category.name == "Impôts DGFIP")
+        .one()
+    )
+    assert dgfip_after.type == "is_payment"
+
+    # Les règles ne sont pas rejouées (seul le backfill de catégories est fait).
+    assert db_session.query(models.CategoryRule).count() == 5
+
+
 def test_apply_rules_counterparty_match(db_session):
     seed_default_categories_and_rules(db_session)
     _account(db_session)

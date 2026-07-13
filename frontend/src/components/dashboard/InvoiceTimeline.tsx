@@ -61,13 +61,16 @@ export function InvoiceTimeline({ data }: { data: InvoiceTimelineData }) {
   );
   return (
     <Card>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm font-semibold">Invoice Timeline</div>
         <div className="flex items-center gap-3 text-[11px] text-[var(--muted)]">
           <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: PAID }} />Payé</span>
           <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: DUE }} />Dû</span>
           <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: OVER }} />En retard</span>
         </div>
+      </div>
+      <div className="mb-2 text-[11px] text-[var(--muted)]">
+        6 derniers mois glissants (indépendant de l'année sélectionnée)
       </div>
 
       {data.months.length === 0 ? (
