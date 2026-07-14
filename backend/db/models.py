@@ -331,6 +331,11 @@ class Investment(Base):
 
     # Clôture réelle : rapprochement à l'encaissement bancaire du remboursement.
     closed_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Achat : rapprochement à la transaction SORTANTE qui a financé le placement
+    # (fige l'investi sur la vraie sortie bancaire). NULL = investi saisi à la main.
+    opening_transaction_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("transactions.id"), nullable=True
+    )
     closed_transaction_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("transactions.id"), nullable=True
     )
@@ -347,6 +352,31 @@ class FxRate(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class AccountantStatement(Base):
+    """
+    Compte de résultat VALIDÉ par l'expert-comptable, saisi une fois par
+    exercice (jamais en dur). Sert de référence à l'onglet État financier :
+    l'app compare son propre CdR calculé à ces chiffres et explique les écarts.
+    """
+
+    __tablename__ = "accountant_statements"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True)
+    production_vendue: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    charges_exploitation: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    resultat_exploitation: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    produits_financiers: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    charges_financieres: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    resultat_financier: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    # Postes du pont de réconciliation (non-cash absents des flux bancaires).
+    dotations_amortissements: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    provision_change: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    is_amount: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    resultat_net: Mapped[Decimal] = mapped_column(MONEY, default=Decimal("0"))
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class BalanceDocument(Base):

@@ -395,3 +395,112 @@ def test_investment_reconcile_realizes_gain_and_unreconcile(client: TestClient):
     data = resp.json()
     assert data["closed_date"] is None and data["realized_gain_eur"] is None
     db.close()
+
+
+def test_investment_link_purchase_derives_opening_from_outflow(client: TestClient):
+    """
+    Rapprochement côté ACHAT : lier le placement à la transaction SORTANTE qui
+    l'a financé fige l'investi natif exact (montant réellement sorti) et bascule
+    la tx en flux interne. Gardes : crédit 422, déjà lié 409, tx déjà liée 409,
+    tx absente 404 ; unlink restaure.
+    """
+    from datetime import date
+
+    db = _db_of(client)
+    cat = models.Category(name="Investissement", type="internal", is_system=True)
+    db.add(cat)
+    db.add(models.BankAccount(provider="revolut", account_uid="USD", currency="USD"))
+    db.commit()
+    out = models.Transaction(
+        account_uid="USD", external_id="p1", booked_date=date(2025, 10, 1),
+        amount=Decimal("-9060.02"), currency="USD",
+        description="Main · USD → XRP", counterparty="", kind="investment",
+    )
+    credit = models.Transaction(
+        account_uid="USD", external_id="p2", booked_date=date(2025, 10, 2),
+        amount=Decimal("500.00"), currency="USD", description="in", counterparty="", kind="other",
+    )
+    db.add_all([out, credit])
+    db.commit()
+    out_id, credit_id = out.id, credit.id
+
+    inv = client.post("/api/manual-assets", json={
+        "label": "xrp", "type": "crypto", "currency": "USD",
+        "opening_value": "8971.21", "opening_value_eur": "7894.66",
+        "current_value": "3129", "current_value_eur": "3129",
+    }).json()
+
+    # Candidats ACHAT : la sortie est proposée, le crédit non.
+    pc = client.get(f"/api/manual-assets/{inv['id']}/purchase-candidates").json()
+    assert any(c["id"] == out_id for c in pc)
+    assert not any(c["id"] == credit_id for c in pc)
+
+    # Un crédit ne peut pas être un achat → 422.
+    assert client.post(
+        f"/api/manual-assets/{inv['id']}/link-purchase", json={"transaction_id": credit_id}
+    ).status_code == 422
+
+    # Liaison : investi natif recalé sur la sortie réelle (9060.02), tx interne.
+    resp = client.post(
+        f"/api/manual-assets/{inv['id']}/link-purchase", json={"transaction_id": out_id}
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["opening_transaction_id"] == out_id
+    assert Decimal(data["opening_value"]) == Decimal("9060.02")
+    db.expire_all()
+    txx = db.get(models.Transaction, out_id)
+    assert txx.kind == "investment" and txx.category_id == cat.id
+
+    # Déjà lié → 409 ; même tx sur un autre placement → 409.
+    assert client.post(
+        f"/api/manual-assets/{inv['id']}/link-purchase", json={"transaction_id": out_id}
+    ).status_code == 409
+    inv2 = client.post("/api/manual-assets", json={"label": "a2", "type": "crypto"}).json()
+    assert client.post(
+        f"/api/manual-assets/{inv2['id']}/link-purchase", json={"transaction_id": out_id}
+    ).status_code == 409
+    # tx absente → 404 (placement non lié).
+    assert client.post(
+        f"/api/manual-assets/{inv2['id']}/link-purchase", json={"transaction_id": 99999}
+    ).status_code == 404
+
+    # Unlink : lien effacé, 409 si non lié.
+    resp = client.post(f"/api/manual-assets/{inv['id']}/unlink-purchase")
+    assert resp.status_code == 200 and resp.json()["opening_transaction_id"] is None
+    assert client.post(f"/api/manual-assets/{inv['id']}/unlink-purchase").status_code == 409
+    db.close()
+
+
+def test_redemption_candidates_exclude_fx_conversions(client: TestClient):
+    """
+    Les conversions FX « Exchanged to EUR · Main » (kind='conversion') ne
+    polluent plus les candidats de remboursement ; un vrai encaissement reste.
+    """
+    from datetime import date
+
+    db = _db_of(client)
+    db.add(models.BankAccount(provider="revolut", account_uid="EUR", currency="EUR"))
+    db.commit()
+    conv = models.Transaction(
+        account_uid="EUR", external_id="c1", booked_date=date(2026, 1, 14),
+        amount=Decimal("3447.86"), currency="EUR",
+        description="Exchanged to EUR Main", counterparty="", kind="conversion",
+    )
+    real = models.Transaction(
+        account_uid="EUR", external_id="c2", booked_date=date(2026, 2, 1),
+        amount=Decimal("76300.00"), currency="EUR",
+        description="Remboursement", counterparty="", kind="other",
+    )
+    db.add_all([conv, real])
+    db.commit()
+    conv_id, real_id = conv.id, real.id
+
+    inv = client.post("/api/manual-assets", json={
+        "label": "K", "type": "bourse", "currency": "EUR",
+        "opening_value": "69600", "opening_value_eur": "69600",
+    }).json()
+    cands = client.get(f"/api/manual-assets/{inv['id']}/candidates").json()
+    assert not any(c["id"] == conv_id for c in cands)
+    assert any(c["id"] == real_id for c in cands)
+    db.close()

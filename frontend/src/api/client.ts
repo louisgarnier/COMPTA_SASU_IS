@@ -212,6 +212,20 @@ export const investmentsAPI = {
   reconcile: (id: number, transaction_id: number) =>
     post<any>(`/api/manual-assets/${id}/reconcile`, { transaction_id }),
   unreconcile: (id: number) => post<any>(`/api/manual-assets/${id}/unreconcile`),
+  // Achat : rapprochement à la transaction SORTANTE qui a financé le placement.
+  purchaseCandidates: (id: number) =>
+    get<any[]>(`/api/manual-assets/${id}/purchase-candidates`),
+  linkPurchase: (id: number, transaction_id: number) =>
+    post<any>(`/api/manual-assets/${id}/link-purchase`, { transaction_id }),
+  unlinkPurchase: (id: number) => post<any>(`/api/manual-assets/${id}/unlink-purchase`),
+};
+
+export const financialAPI = {
+  // État financier : CdR app vs comptable + pont de réconciliation.
+  statement: (year: number) => get<any>(`/api/financial-statement?year=${year}`),
+  getAccountant: (year: number) => get<any>(`/api/accountant-statement/${year}`),
+  saveAccountant: (year: number, b: Record<string, unknown>) =>
+    put<any>(`/api/accountant-statement/${year}`, b),
 };
 
 export const forecastAPI = {

@@ -19,6 +19,7 @@ type Investment = {
   expected_value: string | number | null;
   expected_value_eur: string | number | null;
   expected_month: string | null;
+  opening_transaction_id: number | null;
   closed_date: string | null;
   closed_transaction_id: number | null;
   realized_gain_eur: string | number | null;
@@ -196,6 +197,43 @@ export default function PlacementsPage() {
     }
   }
 
+  // Rapprochement de l'ACHAT : placement + transactions sortantes candidates.
+  const [linkingBuy, setLinkingBuy] = useState<Investment | null>(null);
+  const [buyCandidates, setBuyCandidates] = useState<Candidate[]>([]);
+  const [buyMsg, setBuyMsg] = useState('');
+
+  async function openLinkPurchase(inv: Investment) {
+    setBuyMsg('');
+    try {
+      setBuyCandidates((await investmentsAPI.purchaseCandidates(inv.id)) as Candidate[]);
+      setLinkingBuy(inv);
+    } catch (e) {
+      setStatus(`❌ ${(e as Error).message}`);
+    }
+  }
+
+  async function doLinkPurchase(txId: number) {
+    if (!linkingBuy) return;
+    setBuyMsg('…');
+    try {
+      await investmentsAPI.linkPurchase(linkingBuy.id, txId);
+      setLinkingBuy(null);
+      load();
+    } catch (e) {
+      setBuyMsg(`❌ ${(e as Error).message}`);
+    }
+  }
+
+  async function unlinkPurchase(inv: Investment) {
+    if (!confirm(`Délier l'achat de « ${inv.label} » ?`)) return;
+    try {
+      await investmentsAPI.unlinkPurchase(inv.id);
+      load();
+    } catch (e) {
+      setStatus(`❌ ${(e as Error).message}`);
+    }
+  }
+
   const gain = Number(summary?.gain_eur ?? 0);
 
   return (
@@ -230,7 +268,7 @@ export default function PlacementsPage() {
                     <th className="py-2 pr-2 text-left font-semibold">Placement</th>
                     <th className="px-2 py-2 text-left font-semibold">Type</th>
                     <th className="px-2 py-2 text-right font-semibold">Devise</th>
-                    <th className="px-2 py-2 text-right font-semibold">Ouverture</th>
+                    <th className="px-2 py-2 text-right font-semibold">Investi (achat) 🔗</th>
                     <th className="px-2 py-2 text-right font-semibold">Actuelle</th>
                     <th className="px-2 py-2 text-right font-semibold">+/- (€)</th>
                     <th className="px-2 py-2 text-right font-semibold">Remb. attendu</th>
@@ -249,7 +287,26 @@ export default function PlacementsPage() {
                           <Badge tone={typeTone[inv.type] ?? 'neutral'}>{inv.type}</Badge>
                         </td>
                         <td className="px-2 py-2 text-right text-[var(--muted)]">{inv.currency}</td>
-                        <td className="px-2 py-2 text-right">{money(inv.opening_value, inv.currency)}</td>
+                        <td className="px-2 py-2 text-right">
+                          {money(inv.opening_value, inv.currency)}
+                          <div className="mt-1">
+                            {inv.opening_transaction_id ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full border border-[var(--accent)] bg-blue-50 px-2 py-0.5 text-[10px] text-[var(--accent)]"
+                                title="Investi ancré sur la sortie bancaire réelle"
+                              >
+                                🔗 tx#{inv.opening_transaction_id}
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700"
+                                title="Montant saisi manuellement — non rapproché à une transaction"
+                              >
+                                ⚠ saisie manuelle
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-2 py-2 text-right">{money(inv.current_value, inv.currency)}</td>
                         <td className={`px-2 py-2 text-right font-semibold ${g >= 0 ? 'text-[var(--pos)]' : 'text-[var(--neg)]'}`}>
                           {inv.closed_date ? (
@@ -281,6 +338,23 @@ export default function PlacementsPage() {
                               title="Rapprocher le remboursement à un encaissement réel (gain réalisé → P&L + IS)"
                             >
                               Rapprocher
+                            </button>
+                          )}{' '}
+                          {inv.opening_transaction_id ? (
+                            <button
+                              onClick={() => unlinkPurchase(inv)}
+                              className="rounded-lg border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)] hover:bg-gray-50"
+                              title={`Achat lié à tx#${inv.opening_transaction_id} — délier`}
+                            >
+                              Délier achat
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => openLinkPurchase(inv)}
+                              className="rounded-lg border border-[var(--accent)] px-2 py-0.5 text-xs text-[var(--accent)] hover:bg-blue-50"
+                              title="Rapprocher l'achat à la sortie bancaire qui l'a financé (fige l'investi réel)"
+                            >
+                              🔗 Rapprocher l&apos;achat
                             </button>
                           )}{' '}
                           <button onClick={() => editInvestment(inv)} className="text-[var(--muted)] hover:text-[var(--accent)]" title="Éditer">✏️</button>{' '}
@@ -433,6 +507,54 @@ export default function PlacementsPage() {
             <div className="mt-3 text-right">
               <button
                 onClick={() => setReconciling(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:border-[var(--accent)]"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rapprochement de l'ACHAT : choisir la sortie bancaire qui a financé le placement. */}
+      {linkingBuy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-[var(--panel)] p-5 shadow-xl">
+            <div className="mb-1 text-sm font-semibold">
+              Rapprocher l&apos;achat de « {linkingBuy.label} »
+            </div>
+            <p className="mb-3 text-xs text-[var(--muted)]">
+              Investi actuel : <b>{money(linkingBuy.opening_value, linkingBuy.currency)}</b>. Choisis
+              la transaction <b>sortante</b> qui l&apos;a financé — l&apos;investi sera recalé sur le
+              montant réellement sorti (natif exact), et la ligne passe en flux interne (jamais comptée
+              en charge).
+            </p>
+            {buyCandidates.length === 0 ? (
+              <Empty>Aucune sortie candidate (transactions négatives non déjà liées à un placement).</Empty>
+            ) : (
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-[var(--border)]">
+                {buyCandidates.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => doLinkPurchase(c.id)}
+                    className="flex w-full items-center justify-between border-b border-[var(--border)] px-3 py-2 text-left text-sm last:border-b-0 hover:bg-blue-50"
+                  >
+                    <span className="truncate">
+                      <span className="text-[var(--muted)]">{c.booked_date ? dateFR(c.booked_date) : '—'}</span>{' '}
+                      {c.description || c.counterparty}
+                    </span>
+                    <span className="ml-2 shrink-0 tabular-nums text-[var(--neg)]">
+                      {money(c.amount, c.currency)}
+                      <span className="ml-1.5 text-xs text-[var(--muted)]">≈ {eur(c.amount_eur)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {buyMsg && <p className="mt-2 text-xs">{buyMsg}</p>}
+            <div className="mt-3 text-right">
+              <button
+                onClick={() => setLinkingBuy(null)}
                 className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:border-[var(--accent)]"
               >
                 Annuler

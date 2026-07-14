@@ -22,6 +22,7 @@ const ITEMS: Item[] = [
   },
   { href: '/fx', label: 'FX / Conversions', icon: '💱' },
   { href: '/pnl', label: 'P&L annuel', icon: '📑' },
+  { href: '/etat-financier', label: 'État financier', icon: '📋' },
   { href: '/clients', label: 'Clients', icon: '🧑‍💼' },
   { href: '/placements', label: 'Placements', icon: '💼' },
   { href: '/banking', label: 'Banques', icon: '🏦' },

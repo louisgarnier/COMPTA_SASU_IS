@@ -48,6 +48,7 @@ class InvestmentOut(BaseModel):
     expected_value: Optional[Decimal] = None
     expected_value_eur: Optional[Decimal] = None
     expected_month: Optional[str] = None
+    opening_transaction_id: Optional[int] = None
     closed_date: Optional[date] = None
     closed_transaction_id: Optional[int] = None
     realized_gain_eur: Optional[Decimal] = None
@@ -210,6 +211,9 @@ def redemption_candidates(investment_id: int, db: Session = Depends(get_db)) -> 
         and t.amount > 0
         and t.invoice_id is None
         and t.id not in used
+        # Un remboursement est un encaissement EXTERNE : on écarte les conversions
+        # FX internes (« Exchanged to EUR · Main ») et les flux internes/placement.
+        and (t.kind or "") not in ("conversion", "investment", "internal")
     ]
     rows.sort(key=lambda t: abs(_tx_eur(db, t) - target))
     out = [
@@ -295,4 +299,122 @@ def unreconcile_investment(
     db.commit()
     db.refresh(inv)
     logger.info("📤 [Investments] unreconcile: id=%d ✅", investment_id)
+    return inv
+
+
+def _linked_tx_ids(db: Session) -> set[int]:
+    """Transactions déjà liées à un placement (achat OU remboursement)."""
+    ids: set[int] = set()
+    for i in db.query(models.Investment).all():
+        if i.opening_transaction_id is not None:
+            ids.add(i.opening_transaction_id)
+        if i.closed_transaction_id is not None:
+            ids.add(i.closed_transaction_id)
+    return ids
+
+
+@router.get("/{investment_id}/purchase-candidates")
+def purchase_candidates(investment_id: int, db: Session = Depends(get_db)) -> list[dict]:
+    """
+    Sorties bancaires candidates au rapprochement de l'ACHAT : transactions
+    négatives, sans facture liée, non déjà liées à un placement — triées par
+    proximité au montant investi (natif si même devise, sinon EUR), 20 max.
+    """
+    inv = _get_or_404(db, investment_id)
+    target_native = abs(Decimal(inv.opening_value or 0))
+    target_eur = abs(Decimal(inv.opening_value_eur or 0))
+    used = _linked_tx_ids(db)
+    rows = [
+        t
+        for t in db.query(models.Transaction).all()
+        if t.amount is not None
+        and t.amount < 0
+        and t.invoice_id is None
+        and t.id not in used
+    ]
+
+    def _key(t: models.Transaction):
+        if (t.currency or "") == inv.currency and target_native:
+            return abs(abs(Decimal(t.amount)) - target_native)
+        return abs(_tx_eur(db, t).copy_abs() - target_eur)
+
+    rows.sort(key=_key)
+    out = [
+        {
+            "id": t.id,
+            "booked_date": t.booked_date.isoformat() if t.booked_date else None,
+            "description": t.description,
+            "counterparty": t.counterparty,
+            "amount": str(t.amount),
+            "currency": t.currency,
+            "amount_eur": str(_tx_eur(db, t).copy_abs()),
+        }
+        for t in rows[:20]
+    ]
+    logger.info("📤 [Investments] purchase-candidates: id=%d, %d candidat(s)", investment_id, len(out))
+    return out
+
+
+@router.post("/{investment_id}/link-purchase", response_model=InvestmentOut)
+def link_purchase(
+    investment_id: int, payload: ReconcileIn, db: Session = Depends(get_db)
+) -> models.Investment:
+    """
+    Rapproche l'ACHAT sur la sortie bancaire réelle : fige l'investi natif exact
+    (montant sorti) + EUR canonique, et bascule la transaction en flux interne
+    (jamais comptée en charge). Recalcule le gain réalisé si déjà clôturé.
+    """
+    inv = _get_or_404(db, investment_id)
+    if inv.opening_transaction_id is not None:
+        raise HTTPException(status_code=409, detail="Achat déjà rapproché — délier d'abord")
+    tx = db.get(models.Transaction, payload.transaction_id)
+    if tx is None:
+        raise HTTPException(status_code=404, detail="Transaction introuvable")
+    if tx.amount is None or tx.amount >= 0:
+        raise HTTPException(status_code=422, detail="L'achat doit être une sortie (montant < 0)")
+    if tx.invoice_id is not None:
+        raise HTTPException(status_code=409, detail="Transaction déjà rapprochée d'une facture")
+    if tx.id in _linked_tx_ids(db):
+        raise HTTPException(status_code=409, detail="Transaction déjà liée à un placement")
+
+    inv.opening_transaction_id = tx.id
+    inv.opening_value = Decimal(tx.amount).copy_abs()
+    inv.currency = tx.currency or inv.currency
+    inv.opening_value_eur = _tx_eur(db, tx).copy_abs()
+    # Flux interne : la sortie du capital ne doit jamais compter en charge.
+    internal_cat = (
+        db.query(models.Category)
+        .filter(models.Category.type == "internal")
+        .order_by(models.Category.id)
+        .first()
+    )
+    if internal_cat is not None:
+        tx.category_id = internal_cat.id
+    tx.kind = "investment"
+    # Si déjà clôturé, le gain réalisé dépend de l'investi → recalcul.
+    if inv.closed_transaction_id is not None:
+        closing = db.get(models.Transaction, inv.closed_transaction_id)
+        if closing is not None:
+            inv.realized_gain_eur = _tx_eur(db, closing) - Decimal(inv.opening_value_eur or 0)
+    db.commit()
+    db.refresh(inv)
+    logger.info(
+        "📤 [Investments] link-purchase: id=%d ← tx#%d, investi=%s %s ✅",
+        investment_id, tx.id, inv.opening_value, inv.currency,
+    )
+    return inv
+
+
+@router.post("/{investment_id}/unlink-purchase", response_model=InvestmentOut)
+def unlink_purchase(
+    investment_id: int, db: Session = Depends(get_db)
+) -> models.Investment:
+    """Délie l'achat (la transaction garde sa catégorie interne). N'efface pas l'investi déjà dérivé."""
+    inv = _get_or_404(db, investment_id)
+    if inv.opening_transaction_id is None:
+        raise HTTPException(status_code=409, detail="Achat non rapproché")
+    inv.opening_transaction_id = None
+    db.commit()
+    db.refresh(inv)
+    logger.info("📤 [Investments] unlink-purchase: id=%d ✅", investment_id)
     return inv
