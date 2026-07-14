@@ -121,6 +121,32 @@ def test_recent_income_gets_recent_rate_leftover_excluded(session):
     assert res["by_currency"]["USD"]["leftover_foreign"] == Decimal("3000.00")
 
 
+def test_older_income_served_first_fifo(session):
+    """
+    FIFO : quand une conversion peut servir deux encaissements (tous deux
+    antérieurs à sa date), c'est le PLUS ANCIEN qui est servi d'abord — l'USD le
+    plus vieux se convertit en premier. Sans ça (LIFO), une vieille facture se
+    retrouvait affamée au taux théorique pendant qu'une récente raflait tout
+    (bug #46 : 91 % de théorique sur avril alors que ses voisines étaient à 0 %).
+    """
+    from backend.services.fx_realized import _allocate_currency
+
+    incomes = [
+        {"id": 1, "foreign": Decimal("1000"), "date": date(2026, 1, 10)},  # ancien
+        {"id": 2, "foreign": Decimal("1000"), "date": date(2026, 6, 10)},  # récent
+    ]
+    # Une seule conversion, postérieure aux deux → peut servir n'importe lequel.
+    convs = [{"foreign": Decimal("1000"), "rate": Decimal("0.90"), "date": date(2026, 7, 1)}]
+    out = _allocate_currency(incomes, convs, Decimal("0.80"))
+
+    # FIFO : l'ANCIEN (id=1) prend la vraie conversion (0.90) ; le récent (id=2)
+    # retombe sur le théorique (0.80) — c'est lui dont l'USD dort encore.
+    assert out["realized"][1]["eur"] == Decimal("900.00")
+    assert out["realized"][1]["parts"][0]["date"] is not None  # conversion réelle
+    assert out["realized"][2]["parts"][-1]["date"] is None      # théorique
+    assert out["realized"][2]["eur"] == Decimal("800.00")
+
+
 def test_propagates_to_paid_invoice(session):
     _acc(session)
     inv = models.Invoice(
@@ -164,16 +190,17 @@ def test_report_flags_real_vs_composite(session):
 
     rep = fx_realized.fx_report(session)
     by_num = {r["invoice_number"]: r for r in rep["invoices"]}
-    # inv25 (la plus récente) : 25k absorbés entièrement par la conversion 40k @0.88 → RÉEL.
-    assert by_num["2"]["composite"] is False
-    assert by_num["2"]["rate"] == Decimal("0.880000")
-    # inv20 : 15k restants @0.88 + 5k NON couverts (la conv du 1er juin lui est
-    # antérieure → interdite) → COMPOSÉ (2 tranches dont 1 théorique @0.92).
-    assert by_num["1"]["composite"] is True
-    assert len(by_num["1"]["parts"]) == 2
-    assert by_num["1"]["parts"][-1]["date"] is None  # tranche théorique
-    # pondéré = (15000×0.88 + 5000×0.92)/20000 = 0.89
-    assert by_num["1"]["rate"] == Decimal("0.890000")
+    # FIFO : inv20 (la plus ANCIENNE) est servie d'abord — 20k absorbés par la
+    # conversion 40k @0.88 → RÉEL.
+    assert by_num["1"]["composite"] is False
+    assert by_num["1"]["rate"] == Decimal("0.880000")
+    # inv25 (récente) : 20k restants @0.88 + 5k NON couverts (la conv du 1er juin
+    # lui est antérieure → interdite) → COMPOSÉ (2 tranches dont 1 théorique @0.92).
+    assert by_num["2"]["composite"] is True
+    assert len(by_num["2"]["parts"]) == 2
+    assert by_num["2"]["parts"][-1]["date"] is None  # tranche théorique
+    # pondéré = (20000×0.88 + 5000×0.92)/25000 = 0.888
+    assert by_num["2"]["rate"] == Decimal("0.888000")
     # Sections attendues présentes ; la conv du 1er juin part en reliquat.
     assert len(rep["conversions"]) == 2
     assert rep["leftover"]["USD"] == Decimal("5000.00")

@@ -92,21 +92,27 @@ def pair_conversions(db: Session) -> list[dict]:
 
 def _allocate_currency(incomes: list[dict], convs: list[dict], theo_rate: Decimal) -> dict:
     """
-    Alloue **à rebours** les encaissements d'une devise aux conversions.
+    Alloue **chronologiquement (FIFO)** les encaissements d'une devise aux conversions.
 
     `incomes` : [{id, foreign, date}] ; `convs` : [{foreign, rate, date}].
     Renvoie {realized: {income_id: {eur, rate}}, leftover_foreign, uncovered_foreign}.
 
-    Du plus récent au plus ancien : chaque encaissement consomme la devise des
-    conversions les plus récentes disponibles. Ce qui reste de conversions après
-    épuisement des encaissements = reliquat (exercice antérieur). Un encaissement
-    qui n'a plus de conversion disponible retombe sur le taux théorique (non encore
-    converti) et est compté en `uncovered_foreign`.
-    """
-    inc = sorted(incomes, key=lambda x: (x["date"], x["id"]), reverse=True)
-    cv = sorted(convs, key=lambda x: (x["date"], x.get("foreign_tx_id", 0)), reverse=True)
+    Du plus ANCIEN au plus récent : l'USD reçu le plus tôt se convertit en premier
+    (inventaire FIFO). Chaque encaissement consomme les conversions disponibles les
+    plus anciennes, sous la contrainte de causalité (une conversion ne peut écouler
+    qu'un encaissement de date ≤ la sienne). Le théorique tombe ainsi naturellement
+    sur les encaissements les plus RÉCENTS (USD encore détenu), pas sur les anciens.
+    Ce qui reste de conversions = reliquat ; un encaissement sans conversion
+    disponible retombe sur le taux théorique et est compté en `uncovered_foreign`.
 
-    # File de « tranches » de conversion, la plus récente d'abord.
+    NB : le FIFO + la contrainte de causalité restent stables en synchro courante
+    (une nouvelle conversion est toujours postérieure → elle ne déplace pas les
+    tranches déjà attribuées aux factures antérieures).
+    """
+    inc = sorted(incomes, key=lambda x: (x["date"], x["id"]))
+    cv = sorted(convs, key=lambda x: (x["date"], x.get("foreign_tx_id", 0)))
+
+    # File de « tranches » de conversion, la plus ANCIENNE d'abord (FIFO).
     slices = [[Decimal(c["foreign"]), Decimal(c["rate"]), c["date"]] for c in cv]
     realized: dict = {}
     uncovered = _ZERO
