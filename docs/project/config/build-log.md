@@ -206,3 +206,15 @@ Objectif : charger l'historique 2025 (Qonto + Revolut) pour calibrer l'app contr
 **État 2025 après la passe** : 0 tx non catégorisée · pont 31/12/2025 : résiduel **+807,37 € sans warning** (pur écart FX théorique sur ~100 k€ de conversions) · charges 33 636,17 vs comptable 35 045,44 (écarts par poste : FX théorique sur tx USD, salaires appoint absents des flux bancaires en clair, dotations hors banque) · revenus 243 995,11 vs CA 218 010,52 (cash vs accrual — se résorbera à l'étape factures 2025). **Tests : 272 backend verts.**
 
 **Reste (étape 2 du plan)** : factures 2025 + rapprochements (l'utilisateur fournit les factures), ajustement placement xrp (9 000 → 8 971,21) + rapprochement tx#475, puis face-à-face final.
+
+## 2026-07-13 — Factures 2025/2024 + rapprochement placements côté ACHAT
+
+**Factures** : 12 factures 2025 (#45→#55 + note de frais #48E) + 2 factures 2024 (#43 nov, #44 déc) créées et rapprochées aux encaissements JPSB (au centime). Effet : revenu 2025 accrual = **212 461,73 €** (vs cash 244 k avant) ; 2024 accrual 31 951,92 € (pré-IS/IR) ; **0 encaissement orphelin** ; toggle « Année fiscale » 2025 opérationnel (janv/fév = paiements factures 2024 exclus, fiscal 2025 = 168 492,08 €). Pont vs comptable : CA app 212 462 vs **Production vendue 218 011** (compte de résultat lu) → écart = **FX** (le PCG comptabilise le CA au taux facture, met les différences de change en résultat financier : −5 423 / +651 + provision 3 004 vues au CdR). Reste charges/provisions à réconcilier dans l'onglet État financier.
+
+**Placements — rapprochement côté ACHAT** (feature) : `Investment.opening_transaction_id` + endpoints `purchase-candidates`/`link-purchase`/`unlink-purchase` (sur les SORTIES `amount<0`), UI colonne « Investi (achat) 🔗 » + modale, `redemption_candidates` exclut les conversions FX. Investi dérivé de la vraie sortie (natif exact ; EUR au taux de réf.). XRP lié à tx#475 → investi 9 060,02 USD. **Tests : 274 backend + 32 front verts.** Maquette approuvée avant code. Plan : `docs/superpowers/plans/2026-07-13-placement-rappro-achat.md`.
+
+**Note** : une synchro bancaire (2026-07-13 ~18:18) a ajouté 3 charges 2026 réelles (272,20 €) → invariants 2026 à jour : charges 22 520,06 · distribuable **302 269,66** (RAN 166 200, revenue 198 279,60 inchangés).
+
+## 2026-07-13 (suite) — Onglet État financier V1
+
+**Feature** : table `accountant_statements` (CdR comptable stocké par exercice, jamais en dur), route `financial.py` (`GET/PUT /api/accountant-statement/{year}`, `GET /api/financial-statement?year=`), page `/etat-financier` + nav 📋. CdR app via `pnl.summary`, pont de réconciliation auto-fermant (résidu = app − dotations − provision − comptable). Chiffres comptable 2025 saisis (données). **Pont live : app 179 323,56 − dotations 1 408 − provision change 3 004 − résidu 1 131,56 = comptable 173 780,00 ✅.** Résidu non décomposé (V2 = mapping catégories→PCG) ; pas de bilan (V2). **278 backend + 32 front verts.** Plan : `docs/superpowers/plans/2026-07-13-etat-financier.md`.

@@ -25,7 +25,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `seed.py` | Données démo 2026 + `make seed` / `make seed-reset`. |
 | `templates/invoice.html` | Gabarit facture (Jinja2, mentions art. 293 B). |
 
-**Endpoints (27) :** `/api/{settings,clients,manual-assets,transactions,categories,category-rules,treasury,pnl,forecast,invoices,banking/*}` + `/health`, `/`.
+**Endpoints (30+) :** `/api/{settings,clients,manual-assets,transactions,categories,category-rules,treasury,pnl,forecast,invoices,banking/*,accountant-statement/{year},financial-statement}` + `/health`, `/`. Placements : `manual-assets/{id}/{purchase-candidates,link-purchase,unlink-purchase}` (rapprochement achat). Pages front : + `/etat-financier`.
 
 ## Frontend (`frontend/`)
 | Élément | Rôle |
