@@ -244,7 +244,7 @@ export default function InvoicesPage() {
     return [...filteredInvoices].sort(
       (a, b) => rank[effStatus(a)] - rank[effStatus(b)] || a.month.localeCompare(b.month),
     );
-  }, [invoices]);
+  }, [filteredInvoices]);
 
   return (
     <div>

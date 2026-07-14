@@ -26,6 +26,13 @@ jest.mock('@/api/client', () => ({
         issue_date: null, due_date: null, status: 'forecast',
         paid_date: null, variance_eur: null,
       },
+      {
+        id: 3, number: '45', client_name: 'JPSB', month: '2025-03',
+        period_label: 'Mars 2025', days: 0, hours: 168, rate: 120, rate_unit: 'hour',
+        currency: 'USD', amount: 20160, amount_eur_forecast: 17740.8,
+        issue_date: '2025-03-31', due_date: '2025-05-15', status: 'paid',
+        paid_date: '2025-05-14', amount_eur_received: 17548.98, variance_eur: -191.82,
+      },
     ]),
     update: jest.fn(),
     generate: jest.fn(),
@@ -44,6 +51,18 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Ouvrir la facture')).toBeInTheDocument();
     // Facture 'forecast' → bouton "Générer"
     expect(await screen.findByText('Générer')).toBeInTheDocument();
+  });
+
+  it('le filtre par année met à jour la LISTE, pas seulement les cartes (régression)', async () => {
+    render(<InvoicesPage />);
+    // Défaut = année courante (2026) : la facture 2026 est visible, la 2025 non.
+    expect(await screen.findByLabelText('N° facture 68')).toBeInTheDocument();
+    expect(screen.queryByLabelText('N° facture 45')).not.toBeInTheDocument();
+
+    // Clic sur 2025 → la LISTE doit basculer (bug : seule les cartes changeaient).
+    fireEvent.click(screen.getByRole('button', { name: '2025' }));
+    expect(await screen.findByLabelText('N° facture 45')).toBeInTheDocument();
+    expect(screen.queryByLabelText('N° facture 68')).not.toBeInTheDocument();
   });
 
   it('supprime une facture après confirmation', async () => {
