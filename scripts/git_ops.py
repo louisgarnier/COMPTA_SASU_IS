@@ -32,9 +32,12 @@ def status() -> None:
     run(["git", "status", "--short"])
 
 
-def commit(message: str) -> None:
-    """Stage all and commit with message."""
-    run(["git", "add", "."])
+def commit(message: str, *paths: str) -> None:
+    """Commit with message. Stage all by default, or only the given paths."""
+    if paths:
+        run(["git", "add", "--", *paths])
+    else:
+        run(["git", "add", "."])
     run(["git", "commit", "-m", message])
 
 
@@ -95,7 +98,11 @@ def main() -> None:
         print(f"Error: '{cmd_name}' requires {expected_args} argument(s)")
         sys.exit(1)
 
-    func(*args[:expected_args])
+    # commit accepts extra path arguments beyond the message; others are fixed-arity.
+    if cmd_name == "commit":
+        func(*args)
+    else:
+        func(*args[:expected_args])
 
 
 if __name__ == "__main__":
