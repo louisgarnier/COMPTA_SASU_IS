@@ -101,3 +101,45 @@ def test_qonto_month_end_takes_last_solde_of_month():
 
 def test_qonto_month_end_empty_when_no_op():
     assert se.extract_qonto_month_end(QONTO_CSV, 2025, 1) == []
+
+
+# Export réel Qonto/Revolut : antichrono (plus récent en premier). Le jour de
+# clôture (28/02, dernier jour du mois cible) a DEUX lignes avec des soldes
+# différents : la 1re ligne du fichier est la plus récente (bon solde), la 2e
+# ligne du fichier est une opération plus ancienne du même jour (mauvais solde
+# si on se contente d'un tie-break "dernière ligne vue gagne").
+QONTO_CSV_ANTICHRONO_SAME_DAY_TIE = (
+    "Statut;Date de la valeur (local);Montant total (TTC);Débit;Crédit;Solde;Devise;"
+    "Nom du compte;IBAN du compte\n"
+    "Exécuté;28-02-2025;-100,00;100,00;;4700,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;28-02-2025;1000,00;;1000,00;4800,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;15-02-2025;1000,00;;1000,00;5000,00;EUR;Compte principal;FR7616958000011078824351453\n"
+)
+
+
+def test_qonto_month_end_antichrono_same_day_tie_keeps_most_recent():
+    out = se.extract_qonto_month_end(QONTO_CSV_ANTICHRONO_SAME_DAY_TIE, 2025, 2)
+    assert len(out) == 1
+    # La ligne la plus récente est la 1re du fichier (antichrono) : solde 4700,00.
+    # Un tie-break naïf "d >= prev" écraserait avec 4800,00 (2e ligne, même jour,
+    # mais opération plus ancienne).
+    assert out[0]["amount"] == Decimal("4700.00")
+
+
+# Même cas, mais fichier chrono (plus ancien en premier) — doit continuer à
+# fonctionner : la dernière ligne du fichier pour le jour de clôture est la
+# plus récente.
+QONTO_CSV_CHRONO_SAME_DAY_TIE = (
+    "Statut;Date de la valeur (local);Montant total (TTC);Débit;Crédit;Solde;Devise;"
+    "Nom du compte;IBAN du compte\n"
+    "Exécuté;15-02-2025;1000,00;;1000,00;5000,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;28-02-2025;1000,00;;1000,00;4800,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;28-02-2025;-100,00;100,00;;4700,00;EUR;Compte principal;FR7616958000011078824351453\n"
+)
+
+
+def test_qonto_month_end_chrono_same_day_tie_keeps_most_recent():
+    out = se.extract_qonto_month_end(QONTO_CSV_CHRONO_SAME_DAY_TIE, 2025, 2)
+    assert len(out) == 1
+    # Fichier chrono : la dernière ligne (3e) est la plus récente → 4700,00.
+    assert out[0]["amount"] == Decimal("4700.00")

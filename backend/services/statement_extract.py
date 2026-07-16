@@ -116,28 +116,42 @@ def extract_revolut_balances(text: str) -> dict:
 
 
 def extract_qonto_month_end(csv_text: str, year: int, month: int) -> list[dict]:
-    """Solde de fin de mois par compte = `Solde` de la dernière opération du mois."""
-    reader = csv.DictReader(io.StringIO(csv_text), delimiter=";")
-    last_by_account: dict[str, dict] = {}
-    for row in reader:
+    """Solde de fin de mois par compte = `Solde` de la dernière opération du mois.
+
+    L'ordre chronologique intra-fichier est détecté (pas supposé) : les exports
+    réels sont antichrono (plus récent en premier), mais on ne peut pas s'y fier
+    aveuglément. Sur une date de clôture partagée par plusieurs lignes (date-only,
+    pas d'heure), l'ordre du fichier sert de tie-break — même technique que
+    `csv_import.analyze` (voir `antichrono` / `marker` là-bas) : en antichrono la
+    1re ligne vue pour un jour donné est la plus récente, en chrono c'est la dernière.
+    """
+    rows = list(csv.DictReader(io.StringIO(csv_text), delimiter=";"))
+    parsed: list[tuple[Optional[date], dict]] = []
+    for row in rows:
         raw_date = (row.get("Date de la valeur (local)") or "").strip()
         m = re.match(r"^(\d{2})-(\d{2})-(\d{4})", raw_date)
-        if not m:
-            continue
-        d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-        if d.year != year or d.month != month:
+        d = date(int(m.group(3)), int(m.group(2)), int(m.group(1))) if m else None
+        parsed.append((d, row))
+
+    dated = [d for d, _ in parsed if d is not None]
+    antichrono = len(dated) >= 2 and dated[0] >= dated[-1]
+
+    last_by_account: dict[str, dict] = {}
+    for idx, (d, row) in enumerate(parsed):
+        if d is None or d.year != year or d.month != month:
             continue
         iban = (row.get("IBAN du compte") or "").strip()
         key = iban or (row.get("Nom du compte") or "").strip()
-        # dernière opération du mois = on écrase, l'ordre du fichier est chronologique décroissant
-        # ou croissant selon l'export → on garde la date max.
+        # tie-break du même jour par ordre du fichier (pas par date seule, qui
+        # ne distingue pas les opérations du jour de clôture).
+        marker = (d, -idx if antichrono else idx)
         prev = last_by_account.get(key)
-        if prev is None or d >= prev["_date"]:
+        if prev is None or marker > prev["_marker"]:
             last_by_account[key] = {
                 "account_name": (row.get("Nom du compte") or "").strip(),
                 "iban_last4": iban[-4:] if len(iban) >= 4 else (iban or None),
                 "currency": (row.get("Devise") or "EUR").strip().upper(),
                 "amount": _to_decimal((row.get("Solde") or "0").replace(",", ".")),
-                "_date": d,
+                "_marker": marker,
             }
-    return [{k: v for k, v in item.items() if k != "_date"} for item in last_by_account.values()]
+    return [{k: v for k, v in item.items() if k != "_marker"} for item in last_by_account.values()]
