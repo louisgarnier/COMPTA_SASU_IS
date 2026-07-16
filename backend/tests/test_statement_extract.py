@@ -2,6 +2,12 @@ from decimal import Decimal
 from datetime import date
 from backend.services import statement_extract as se
 
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.orm import sessionmaker
+from backend.db.base import Base
+from backend.db import models
+
 # Texte linéarisé représentatif d'un « Relevé des soldes » Revolut (extrait réel anonymisé).
 REVOLUT_TEXT = """Relevé des soldes
 Relevé généré le 23 mars 2026
@@ -143,3 +149,41 @@ def test_qonto_month_end_chrono_same_day_tie_keeps_most_recent():
     assert len(out) == 1
     # Fichier chrono : la dernière ligne (3e) est la plus récente → 4700,00.
     assert out[0]["amount"] == Decimal("4700.00")
+
+
+def _db():
+    engine = create_engine("sqlite:///:memory:", future=True,
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, future=True)()
+    db.add_all([
+        models.BankAccount(provider="revolut", account_uid="u-eur", currency="EUR",
+                           iban_masked="FR76****527", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="u-usd-main", currency="USD",
+                           iban_masked="FR76****527", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="u-usd-2", currency="USD",
+                           iban_masked="FR76****484", name="LGC"),
+    ])
+    db.commit()
+    return db
+
+
+def test_map_by_currency_and_iban_last4():
+    db = _db()
+    extracted = [
+        {"name": "Main", "currency": "USD", "iban_last4": "3527", "amount": Decimal("80381.99")},
+        {"name": "USD", "currency": "USD", "iban_last4": "7484", "amount": Decimal("40320.00")},
+    ]
+    out = {r["account_uid"]: r for r in se.map_to_accounts(db, extracted)}
+    # iban_masked se termine par 527 → last4 "3527" doit matcher "…527"
+    assert out["u-usd-main"]["amount"] == Decimal("80381.99")
+    assert out["u-usd-2"]["amount"] == Decimal("40320.00")
+    assert all(r["matched"] for r in out.values())
+
+
+def test_map_unmatched_currency_flagged():
+    db = _db()
+    extracted = [{"name": "XRP", "currency": "XRP", "iban_last4": None, "amount": Decimal("3000")}]
+    out = se.map_to_accounts(db, extracted)
+    assert out[0]["matched"] is False
+    assert out[0]["account_uid"] is None

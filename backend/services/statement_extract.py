@@ -17,7 +17,12 @@ import io
 import re
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from typing import Optional
+
+from sqlalchemy.orm import Session
+
+from backend.db import models
 
 _MONTHS_FR = {
     "janvier": 1,
@@ -155,3 +160,52 @@ def extract_qonto_month_end(csv_text: str, year: int, month: int) -> list[dict]:
                 "_marker": marker,
             }
     return [{k: v for k, v in item.items() if k != "_marker"} for item in last_by_account.values()]
+
+
+def pdf_to_text(data: bytes) -> str:
+    """Extrait le texte d'un PDF (pypdf). Chaîne vide si illisible."""
+    from pypdf import PdfReader
+
+    try:
+        reader = PdfReader(BytesIO(data))
+        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    except Exception:  # PDF corrompu / chiffré → proposition vide en amont
+        return ""
+
+
+def _iban_tail(iban_masked: Optional[str]) -> Optional[str]:
+    """4 derniers chiffres d'un IBAN masqué type « FR76****527 » (ou None)."""
+    if not iban_masked:
+        return None
+    digits = re.sub(r"\D", "", iban_masked)
+    return digits[-3:] if digits else None  # masqué → souvent 3 chiffres visibles
+
+
+def map_to_accounts(db: Session, extracted: list[dict]) -> list[dict]:
+    """Associe chaque solde extrait à un compte par (devise, fin d'IBAN) puis (devise, nom)."""
+    accounts = db.query(models.BankAccount).all()
+    results: list[dict] = []
+    for item in extracted:
+        cur = (item.get("currency") or "").upper()
+        last4 = item.get("iban_last4")
+        match = None
+        # 1) devise + fin d'IBAN (le masqué ne montre que quelques chiffres → suffixe)
+        if last4:
+            for acc in accounts:
+                tail = _iban_tail(acc.iban_masked)
+                if (acc.currency or "").upper() == cur and tail and last4.endswith(tail):
+                    match = acc
+                    break
+        # 2) repli : unique compte de cette devise
+        if match is None:
+            same = [a for a in accounts if (a.currency or "").upper() == cur]
+            if len(same) == 1:
+                match = same[0]
+        results.append({
+            "account_uid": match.account_uid if match else None,
+            "currency": cur,
+            "amount": item.get("amount"),
+            "matched": match is not None,
+            "hint": item.get("name") or "",
+        })
+    return results
