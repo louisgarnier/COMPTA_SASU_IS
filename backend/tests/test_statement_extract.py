@@ -50,3 +50,33 @@ def test_revolut_balances_by_account():
     xrp = [b for b in out["balances"] if b["currency"] == "XRP"][0]
     assert xrp["amount"] == Decimal("3000.000000")
     assert xrp["iban_last4"] is None
+
+
+# Deux comptes consécutifs, SANS ligne « titre » entre eux : la ligne de montant du
+# premier compte (« €100.00 ») est immédiatement suivie de la ligne « Devise » du
+# second compte. Le détecteur de « ligne titre » ne doit pas confondre le montant
+# avec un nom de compte.
+REVOLUT_TEXT_NO_TITLE_BETWEEN = """Relevé des soldes
+Relevé généré le 23 mars 2026
+Informations en date du 31 décembre 2025 (UTC)
+Main
+Devise EUR
+IBAN FR76 2823 3000 0145 5029 8993 527
+Solde réglé
+€100.00
+Devise USD
+IBAN FR76 2823 3000 0112 7112 9737 484
+Solde réglé
+$200.00
+"""
+
+
+def test_revolut_amount_line_not_mistaken_for_account_name():
+    out = se.extract_revolut_balances(REVOLUT_TEXT_NO_TITLE_BETWEEN)
+    balances = out["balances"]
+    assert len(balances) == 2
+    second = balances[1]
+    # Le nom du second compte ne doit JAMAIS être une chaîne de montant qui a fuité
+    # depuis le solde du compte précédent.
+    assert second["name"] != "€100.00"
+    assert not str(second["name"]).lstrip().startswith(("€", "$", "£"))

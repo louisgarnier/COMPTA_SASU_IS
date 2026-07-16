@@ -83,8 +83,11 @@ def extract_revolut_balances(text: str) -> dict:
             )
             is None
             and stripped
+            and re.search(_AMOUNT, stripped) is None
         ):
             # ligne « titre de compte » (Main, USD, Louis CAD, XRP, Hedging…)
+            # — jamais une ligne de montant (ex. « €11 626.90 »), qui peut suivre
+            # directement le solde d'un compte sans ligne titre intermédiaire.
             name = stripped
         if dev:
             currency = dev.group(1)
