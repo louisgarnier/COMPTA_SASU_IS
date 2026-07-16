@@ -393,6 +393,29 @@ class BalanceDocument(Base):
     content_type: Mapped[str] = mapped_column(String, default="")
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    period_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    period_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class MonthlyBalance(Base):
+    """Solde officiel de fin de mois d'un compte, repris d'un relevé et validé."""
+
+    __tablename__ = "monthly_balances"
+    __table_args__ = (UniqueConstraint("account_uid", "year", "month", name="uq_monthly_balance"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    account_uid: Mapped[str] = mapped_column(String, index=True)
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    balance: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
+    currency: Mapped[str] = mapped_column(String, default="EUR")
+    source_doc_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("balance_documents.id"), nullable=True
+    )
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 # Note : l'ancien modèle `ForecastInput` (table `forecast_inputs`) a été fusionné

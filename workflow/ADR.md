@@ -19,6 +19,7 @@
 | ADR-006 | Taux FX théorique par devise (Réglages) comme source unique de conversion EUR | Accepted | 2026-07-01 | Epic-4 |
 | ADR-007 | Fusion `forecast_inputs` → `Invoice` (objet unique, cycle forecast→due→paid) | Accepted | 2026-07-03 | Epic-5 |
 | ADR-008 | Sauvegarde SQLite automatique fail-closed avant chaque synchro bancaire | Accepted | 2026-07-11 | Epic-6 |
+| ADR-009 | pypdf pour lire les relevés de soldes PDF | Accepted | 2026-07-16 | Epic-8 |
 
 ### ADR-001 — SQLite local, schéma portable Postgres
 **Context :** outil perso mono-utilisateur, local-first (PRD Constraints §9), migration cloud possible plus tard.
@@ -151,6 +152,13 @@ Most bugs happen at **integration seams** — where two systems meet. Every plan
 #### Review Triggers
 - [ ] Si la base dépasse ~50 Mo (30 jours × taille = poids du dossier backups)
 - [ ] Si d'autres opérations destructrices apparaissent (import CSV, clôture d'exercice) → les faire précéder du même `create_backup(reason=…)`
+
+---
+
+### ADR-009 — pypdf pour lire les relevés de soldes PDF (2026-07-16)
+**Décision :** ajouter `pypdf` (MIT, pur Python, aucune dépendance système) pour extraire
+le texte des « Relevés des soldes » Revolut (auto-extraction des soldes mensuels).
+Approuvé par l'utilisateur. Alternative écartée : saisie manuelle des soldes Revolut.
 
 ---
 
