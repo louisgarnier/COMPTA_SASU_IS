@@ -85,3 +85,4 @@ secrets/
 # Documents comptables réels (IBAN, relevés, grand livre) — jamais dans git
 docs/docs2025/
 docs/20232024/
+docs/Doc_comptable/
