@@ -33,3 +33,19 @@ test('affiche les 12 mois, la couverture, et déplie le détail par compte', asy
   const ecarts = await screen.findAllByText(/−50,00|−50\.00|-50/);
   expect(ecarts.length).toBeGreaterThan(0);
 });
+
+test('dépôt d’un relevé → propose des soldes → confirmation les enregistre', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  monthlyBalancesAPI.extract = jest.fn().mockResolvedValue({
+    proposal: [{ account_uid: 'acc', currency: 'EUR', amount: '11626.90', matched: true, hint: 'Main' }],
+  });
+  monthlyBalancesAPI.confirm = jest.fn().mockResolvedValue({ year: 2025, coverage: '2/12', months: [] });
+
+  render(<MonthlyReconcileCard year={2025} />);
+  const drop = await screen.findByLabelText(/Déposer un relevé/i);
+  fireEvent.change(drop, { target: { files: [new File(['x'], 'r.pdf', { type: 'application/pdf' })] } });
+  // la proposition apparaît, on valide
+  expect(await screen.findByText(/11 626,90|11626.90/)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Valider/i }));
+  expect(monthlyBalancesAPI.confirm).toHaveBeenCalled();
+});
