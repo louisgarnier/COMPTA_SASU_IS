@@ -66,6 +66,12 @@ def checkout(name: str) -> None:
     run(["git", "checkout", name])
 
 
+def merge(name: str) -> None:
+    """Fast-forward-only merge of <name> into the current branch (no merge commit,
+    refuses if not a clean fast-forward)."""
+    run(["git", "merge", "--ff-only", name])
+
+
 def diff() -> None:
     """Show unstaged changes."""
     run(["git", "diff", "--stat"])
@@ -79,6 +85,7 @@ COMMANDS = {
     "log": (log, 0),
     "branch": (branch, 1),
     "checkout": (checkout, 1),
+    "merge": (merge, 1),
     "diff": (diff, 0),
 }
 
