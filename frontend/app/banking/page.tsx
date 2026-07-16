@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { bankingAPI } from '@/api/client';
 import { BalanceDocsModal } from '@/components/BalanceDocsModal';
 import ImportCsvCard from '@/components/ImportCsvCard';
+import { MonthlyReconcileCard } from '@/components/MonthlyReconcileCard';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { money, dateFR } from '@/lib/format';
 
@@ -411,6 +412,9 @@ export default function BankingPage() {
               </div>
             )}
           </Card>
+
+          {/* Rapprochement mensuel officiel */}
+          <MonthlyReconcileCard year={new Date().getFullYear()} />
 
           {/* Import CSV — historique bancaire */}
           <div>

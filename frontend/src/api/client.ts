@@ -200,6 +200,42 @@ export const balanceDocsAPI = {
   remove: (id: number) => del(`/api/balance-docs/${id}`),
 };
 
+export type MonthlyAccountRow = {
+  account_uid: string; currency: string;
+  official: string | null; reconstructed: string; diff: string | null; status: string;
+};
+export type MonthlyMonth = {
+  month: number; status: 'ok' | 'warn' | 'missing';
+  total_eur_official: string; total_eur_diff: string; per_account: MonthlyAccountRow[];
+};
+export type MonthlyReconView = { year: number; coverage: string; months: MonthlyMonth[] };
+
+export const monthlyBalancesAPI = {
+  reconciliation: (year: number) =>
+    get<MonthlyReconView>(`/api/monthly-balances/reconciliation?year=${year}`),
+  extract: async (form: FormData) => {
+    const res = await fetch(`${API_BASE_URL}/api/monthly-balances/extract`, {
+      method: 'POST',
+      body: form, // pas de Content-Type manuel → boundary multipart auto
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      throw new Error(e.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+  confirm: (
+    year: number,
+    month: number,
+    items: { account_uid: string; balance: string }[],
+    docId?: number,
+  ) =>
+    put<any>(`/api/monthly-balances?year=${year}&month=${month}`, {
+      items,
+      doc_id: docId ?? null,
+    }),
+};
+
 export const investmentsAPI = {
   list: () => get<any[]>('/api/manual-assets'),
   create: (b: Record<string, unknown>) => post<any>('/api/manual-assets', b),

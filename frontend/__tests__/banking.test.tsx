@@ -23,6 +23,15 @@ jest.mock('@/api/client', () => ({
       transactions_skipped: 0,
     }),
   },
+  // BankingPage rend aussi MonthlyReconcileCard (EPIC-8) — mock requis sinon
+  // l'effet de ce composant échoue (monthlyBalancesAPI undefined).
+  monthlyBalancesAPI: {
+    reconciliation: jest.fn().mockResolvedValue({
+      year: new Date().getFullYear(),
+      coverage: '0/12',
+      months: [],
+    }),
+  },
 }));
 
 describe('BankingPage', () => {
