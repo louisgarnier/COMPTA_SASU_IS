@@ -97,6 +97,11 @@ def _sum_tx_from(
     return total
 
 
+def sum_movements(db: Session, account_uid: str, start: date_type, upto: date_type) -> Decimal:
+    """Σ des mouvements natifs d'un compte sur [start, upto] (wrap public)."""
+    return _sum_tx_from(db, account_uid, start, upto)
+
+
 def get_openings(db: Session, year: int, today: Optional[date_type] = None) -> dict:
     """
     Vue « Soldes d'ouverture » pour l'exercice `year`.
