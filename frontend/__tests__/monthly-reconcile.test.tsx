@@ -11,8 +11,12 @@ jest.mock('@/api/client', () => ({
       year: 2025, coverage: '1/12',
       months: [
         { month: 1, status: 'warn', total_eur_official: '1450.00', total_eur_diff: '-50.00',
-          per_account: [{ account_uid: 'acc', currency: 'EUR', official: '1450.00',
-                          reconstructed: '1500.00', diff: '-50.00', status: 'warn' }] },
+          per_account: [
+            { account_uid: 'acc', currency: 'EUR', official: '1450.00',
+              reconstructed: '1500.00', diff: '-50.00', status: 'warn' },
+            { account_uid: 'acc-usd', currency: 'USD', official: '80381.99',
+              reconstructed: '80400.00', diff: '-18.01', status: 'warn' },
+          ] },
         ...Array.from({ length: 11 }, (_, i) => ({
           month: i + 2, status: 'missing', total_eur_official: '0.00', total_eur_diff: '0.00',
           per_account: [],
@@ -35,6 +39,19 @@ test('affiche les 12 mois, la couverture, et déplie le détail par compte', asy
   // d'où `findAllByText` plutôt que `findByText` (qui exigerait un match unique).
   const ecarts = await screen.findAllByText(/−50,00|−50\.00|-50/);
   expect(ecarts.length).toBeGreaterThan(0);
+  // Le compte USD doit être formaté en devise native ($US), pas en euros.
+  expect(await screen.findByText(/80 381,99\s*\$US/)).toBeInTheDocument();
+  expect(screen.queryByText(/80 381,99\s*€/)).not.toBeInTheDocument();
+});
+
+test('un sélecteur d’année permet de changer l’exercice affiché', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  render(<MonthlyReconcileCard year={2026} />);
+  await screen.findByText('1/12');
+  expect(monthlyBalancesAPI.reconciliation).toHaveBeenCalledWith(2026);
+
+  fireEvent.click(await screen.findByRole('button', { name: '2025' }));
+  await waitFor(() => expect(monthlyBalancesAPI.reconciliation).toHaveBeenCalledWith(2025));
 });
 
 test('dépôt d’un relevé → propose des soldes → confirmation les enregistre', async () => {

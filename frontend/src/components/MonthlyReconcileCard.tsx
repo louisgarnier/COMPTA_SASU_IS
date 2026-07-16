@@ -14,7 +14,10 @@ const badgeFor = (s: string) =>
   : s === 'warn' ? <Badge tone="warn">⚠ écart</Badge>
   : <Badge tone="neutral">manquant</Badge>;
 
-export function MonthlyReconcileCard({ year }: { year: number }) {
+export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
+  const [year, setYear] = useState(initialYear);
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [currentYear - 2, currentYear - 1, currentYear];
   const [view, setView] = useState<MonthlyReconView | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [proposal, setProposal] = useState<ExtractedRow[] | null>(null);
@@ -87,11 +90,27 @@ export function MonthlyReconcileCard({ year }: { year: number }) {
 
   return (
     <Card>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Rapprochement mensuel officiel</h3>
-        <span className="text-sm text-[var(--muted)]">
-          Couverture <strong>{view.coverage}</strong> mois
-        </span>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
+            {yearOptions.map((y) => (
+              <button
+                key={y}
+                type="button"
+                onClick={() => setYear(y)}
+                className={`border-r border-[var(--border)] px-3 py-1.5 text-sm font-semibold last:border-r-0 ${
+                  y === year ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--text)] hover:bg-gray-50'
+                }`}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+          <span className="text-sm text-[var(--muted)]">
+            Couverture <strong>{view.coverage}</strong> mois
+          </span>
+        </div>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-[var(--border)] bg-black/[0.015] p-3 text-sm">
         <span className="font-medium">Déposer un relevé</span>
@@ -213,11 +232,11 @@ export function MonthlyReconcileCard({ year }: { year: number }) {
                             <tr key={a.account_uid} className="border-t border-[var(--border)]">
                               <td className="py-1 pr-2">{a.currency}</td>
                               <td className="tabular py-1 pr-2 text-right">
-                                {a.official == null ? '—' : eur(a.official)}
+                                {a.official == null ? '—' : money(a.official, a.currency)}
                               </td>
-                              <td className="tabular py-1 pr-2 text-right">{eur(a.reconstructed)}</td>
+                              <td className="tabular py-1 pr-2 text-right">{money(a.reconstructed, a.currency)}</td>
                               <td className="tabular py-1 pr-2 text-right">
-                                {a.diff == null ? '—' : eur(a.diff)}
+                                {a.diff == null ? '—' : money(a.diff, a.currency)}
                               </td>
                               <td className="py-1">{badgeFor(a.status)}</td>
                             </tr>
