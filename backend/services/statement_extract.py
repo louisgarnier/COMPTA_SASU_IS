@@ -12,6 +12,8 @@ et l'écriture sont à la charge de l'appelant (route).
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from datetime import date
 from decimal import Decimal
@@ -111,3 +113,31 @@ def extract_revolut_balances(text: str) -> dict:
                     )
                     break
     return {"as_of": as_of, "balances": balances}
+
+
+def extract_qonto_month_end(csv_text: str, year: int, month: int) -> list[dict]:
+    """Solde de fin de mois par compte = `Solde` de la dernière opération du mois."""
+    reader = csv.DictReader(io.StringIO(csv_text), delimiter=";")
+    last_by_account: dict[str, dict] = {}
+    for row in reader:
+        raw_date = (row.get("Date de la valeur (local)") or "").strip()
+        m = re.match(r"^(\d{2})-(\d{2})-(\d{4})", raw_date)
+        if not m:
+            continue
+        d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        if d.year != year or d.month != month:
+            continue
+        iban = (row.get("IBAN du compte") or "").strip()
+        key = iban or (row.get("Nom du compte") or "").strip()
+        # dernière opération du mois = on écrase, l'ordre du fichier est chronologique décroissant
+        # ou croissant selon l'export → on garde la date max.
+        prev = last_by_account.get(key)
+        if prev is None or d >= prev["_date"]:
+            last_by_account[key] = {
+                "account_name": (row.get("Nom du compte") or "").strip(),
+                "iban_last4": iban[-4:] if len(iban) >= 4 else (iban or None),
+                "currency": (row.get("Devise") or "EUR").strip().upper(),
+                "amount": _to_decimal((row.get("Solde") or "0").replace(",", ".")),
+                "_date": d,
+            }
+    return [{k: v for k, v in item.items() if k != "_date"} for item in last_by_account.values()]

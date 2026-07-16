@@ -80,3 +80,24 @@ def test_revolut_amount_line_not_mistaken_for_account_name():
     # depuis le solde du compte précédent.
     assert second["name"] != "€100.00"
     assert not str(second["name"]).lstrip().startswith(("€", "$", "£"))
+
+
+QONTO_CSV = (
+    "Statut;Date de la valeur (local);Montant total (TTC);Débit;Crédit;Solde;Devise;"
+    "Nom du compte;IBAN du compte\n"
+    "Exécuté;15-02-2025;1000,00;;1000,00;5000,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;27-02-2025;-200,00;200,00;;4800,00;EUR;Compte principal;FR7616958000011078824351453\n"
+    "Exécuté;03-03-2025;-50,00;50,00;;4750,00;EUR;Compte principal;FR7616958000011078824351453\n"
+)
+
+
+def test_qonto_month_end_takes_last_solde_of_month():
+    out = se.extract_qonto_month_end(QONTO_CSV, 2025, 2)
+    assert len(out) == 1
+    assert out[0]["currency"] == "EUR"
+    assert out[0]["iban_last4"] == "1453"
+    assert out[0]["amount"] == Decimal("4800.00")  # solde du 27/02, dernière op de févr
+
+
+def test_qonto_month_end_empty_when_no_op():
+    assert se.extract_qonto_month_end(QONTO_CSV, 2025, 1) == []
