@@ -179,13 +179,21 @@ export const balanceDocsAPI = {
     get<any[]>(`/api/balance-docs${accountUid ? `?account_uid=${accountUid}` : ''}`),
   upload: async (
     file: File,
-    meta?: { account_uid?: string; label?: string; doc_date?: string },
+    meta?: {
+      account_uid?: string;
+      label?: string;
+      doc_date?: string;
+      period_year?: number;
+      period_month?: number;
+    },
   ) => {
     const fd = new FormData();
     fd.append('file', file);
     if (meta?.account_uid) fd.append('account_uid', meta.account_uid);
     if (meta?.label) fd.append('label', meta.label);
     if (meta?.doc_date) fd.append('doc_date', meta.doc_date);
+    if (meta?.period_year !== undefined) fd.append('period_year', String(meta.period_year));
+    if (meta?.period_month !== undefined) fd.append('period_month', String(meta.period_month));
     const res = await fetch(`${API_BASE_URL}/api/balance-docs`, {
       method: 'POST',
       body: fd, // pas de Content-Type manuel → boundary multipart auto

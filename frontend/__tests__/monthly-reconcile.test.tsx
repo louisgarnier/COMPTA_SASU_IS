@@ -1,8 +1,11 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MonthlyReconcileCard } from '@/components/MonthlyReconcileCard';
 
 jest.mock('next/navigation', () => ({ usePathname: () => '/banking' }));
 jest.mock('@/api/client', () => ({
+  balanceDocsAPI: {
+    upload: jest.fn(),
+  },
   monthlyBalancesAPI: {
     reconciliation: jest.fn().mockResolvedValue({
       year: 2025, coverage: '1/12',
@@ -47,5 +50,28 @@ test('dépôt d’un relevé → propose des soldes → confirmation les enregis
   // la proposition apparaît, on valide
   expect(await screen.findByText(/11 626,90|11626.90/)).toBeInTheDocument();
   fireEvent.click(await screen.findByRole('button', { name: /Valider/i }));
-  expect(monthlyBalancesAPI.confirm).toHaveBeenCalled();
+  await waitFor(() => expect(monthlyBalancesAPI.confirm).toHaveBeenCalled());
+});
+
+test('dépôt d’un relevé → validation archive le PDF et lie son doc_id à la confirmation', async () => {
+  const { monthlyBalancesAPI, balanceDocsAPI } = require('@/api/client');
+  monthlyBalancesAPI.extract = jest.fn().mockResolvedValue({
+    proposal: [{ account_uid: 'acc', currency: 'EUR', amount: '11626.90', matched: true, hint: 'Main' }],
+  });
+  monthlyBalancesAPI.confirm = jest.fn().mockResolvedValue({ year: 2025, coverage: '2/12', months: [] });
+  balanceDocsAPI.upload = jest.fn().mockResolvedValue({ id: 42 });
+
+  render(<MonthlyReconcileCard year={2025} />);
+  const drop = await screen.findByLabelText(/Déposer un relevé/i);
+  const file = new File(['x'], 'r.pdf', { type: 'application/pdf' });
+  fireEvent.change(drop, { target: { files: [file] } });
+  expect(await screen.findByText(/11 626,90|11626.90/)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole('button', { name: /Valider/i }));
+
+  await waitFor(() => expect(monthlyBalancesAPI.confirm).toHaveBeenCalled());
+  expect(balanceDocsAPI.upload).toHaveBeenCalledWith(
+    file,
+    expect.objectContaining({ period_year: 2025, period_month: 12 }),
+  );
+  expect(monthlyBalancesAPI.confirm.mock.calls[0][3]).toBe(42);
 });

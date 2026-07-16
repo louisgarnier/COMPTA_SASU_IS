@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { monthlyBalancesAPI, type MonthlyReconView } from '@/api/client';
+import { balanceDocsAPI, monthlyBalancesAPI, type MonthlyReconView } from '@/api/client';
 import { Card, Badge } from '@/components/ui';
 import { eur, money } from '@/lib/format';
 
@@ -18,6 +18,7 @@ export function MonthlyReconcileCard({ year }: { year: number }) {
   const [view, setView] = useState<MonthlyReconView | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [proposal, setProposal] = useState<ExtractedRow[] | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [month, setMonth] = useState(12);
   const [provider, setProvider] = useState<'revolut' | 'qonto'>('revolut');
   const [busy, setBusy] = useState(false);
@@ -39,6 +40,7 @@ export function MonthlyReconcileCard({ year }: { year: number }) {
       fd.append('month', String(month));
       const res = await monthlyBalancesAPI.extract(fd);
       setProposal((res.proposal ?? []).filter((p: ExtractedRow) => p.account_uid));
+      setPendingFile(files[0]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de l’extraction');
     } finally {
@@ -54,10 +56,25 @@ export function MonthlyReconcileCard({ year }: { year: number }) {
     if (!proposal) return;
     setBusy(true);
     setError(null);
+    let docId: number | undefined;
+    if (pendingFile) {
+      try {
+        const doc = await balanceDocsAPI.upload(pendingFile, {
+          period_year: year,
+          period_month: month,
+          label: `${provider} ${year}-${String(month).padStart(2, '0')}`,
+        });
+        docId = doc?.id;
+      } catch {
+        // archivage best-effort : on continue sans docId, les soldes doivent
+        // quand même s'enregistrer.
+      }
+    }
     try {
       const items = proposal.map((p) => ({ account_uid: p.account_uid, balance: p.amount }));
-      const updated = await monthlyBalancesAPI.confirm(year, month, items);
+      const updated = await monthlyBalancesAPI.confirm(year, month, items, docId);
       setProposal(null);
+      setPendingFile(null);
       setView(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Échec de la confirmation');
