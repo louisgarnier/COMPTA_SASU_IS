@@ -31,6 +31,7 @@ from backend.api.routes import fx as fx_routes
 from backend.api.routes import imports as imports_routes
 from backend.api.routes import investments as investments_routes
 from backend.api.routes import invoices as invoices_routes
+from backend.api.routes import monthly_balances as monthly_balances_routes
 from backend.api.routes import opening_balances as opening_balances_routes
 from backend.api.routes import settings as settings_routes
 from backend.api.routes import transactions as transactions_routes
@@ -88,6 +89,7 @@ app.include_router(banking_routes.router)
 app.include_router(imports_routes.router)
 app.include_router(financial_routes.router)
 app.include_router(balance_docs_routes.router)
+app.include_router(monthly_balances_routes.router)
 app.include_router(fx_routes.router)
 app.include_router(dashboard_pnl_routes.router)
 app.include_router(dashboard_cashflow_routes.router)

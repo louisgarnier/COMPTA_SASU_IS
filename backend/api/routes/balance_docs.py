@@ -78,6 +78,8 @@ async def upload_doc(
     account_uid: Optional[str] = Form(default=None),
     label: str = Form(default=""),
     doc_date: Optional[str] = Form(default=None),
+    period_year: Optional[int] = Form(default=None),
+    period_month: Optional[int] = Form(default=None),
     db: Session = Depends(get_db),
 ) -> models.BalanceDocument:
     """Téléverse un justificatif (PDF/image) et le stocke localement."""
@@ -107,6 +109,8 @@ async def upload_doc(
         file_path="",
         content_type=content_type,
         size_bytes=len(data),
+        period_year=period_year,
+        period_month=period_month,
     )
     db.add(doc)
     db.flush()  # obtient l'id
