@@ -218,3 +218,17 @@ Objectif : charger l'historique 2025 (Qonto + Revolut) pour calibrer l'app contr
 ## 2026-07-13 (suite) — Onglet État financier V1
 
 **Feature** : table `accountant_statements` (CdR comptable stocké par exercice, jamais en dur), route `financial.py` (`GET/PUT /api/accountant-statement/{year}`, `GET /api/financial-statement?year=`), page `/etat-financier` + nav 📋. CdR app via `pnl.summary`, pont de réconciliation auto-fermant (résidu = app − dotations − provision − comptable). Chiffres comptable 2025 saisis (données). **Pont live : app 179 323,56 − dotations 1 408 − provision change 3 004 − résidu 1 131,56 = comptable 173 780,00 ✅.** Résidu non décomposé (V2 = mapping catégories→PCG) ; pas de bilan (V2). **278 backend + 32 front verts.** Plan : `docs/superpowers/plans/2026-07-13-etat-financier.md`.
+
+## 2026-07-16 — EPIC-8 étape 1 : rapprochement mensuel officiel (branche `epic-8-rappro-mensuel-officiel`)
+
+**Objectif** : ancrer chaque mois sur un solde bancaire **officiel** (relevé PDF/CSV) plutôt que sur le solde reconstruit uniquement à partir des mouvements, pour détecter les écarts (frais FX manquants, etc.) exercice par exercice.
+
+- **Modèle** : table `monthly_balances` (solde officiel de fin de mois par compte, unique `account_uid`+`year`+`month`) + colonnes `period_year`/`period_month` sur `balance_documents`. ALTER live (auto-migration). Dépendance `pypdf>=4.0.0` ajoutée (ADR consigné).
+- **Extraction** `services/statement_extract.py` : `extract_revolut_balances(text)` (parse le « Relevé des soldes » Revolut), `extract_qonto_month_end(csv, year, month)` (robuste à l'ordre du fichier et au jour de clôture réel), `pdf_to_text(bytes)` (pypdf, ne lève jamais), `map_to_accounts(db, extracted)` (mapping par devise + 4 derniers d'IBAN, repli devise unique).
+- **Tie-out** `services/monthly_reconcile.py` : `reconstruct_balance` (ancre les ouvertures + Σ mouvements jusqu'à fin de mois, helper public `sum_movements`) et `monthly_reconciliation(db, year)` (vue 12 mois, statut ok/warn/missing, totaux €, couverture X/12).
+- **Routes** `api/routes/monthly_balances.py` : `POST /api/monthly-balances/extract` (proposition, n'écrit rien), `PUT /api/monthly-balances?year=&month=` (upsert + `confirmed_at`), `GET /api/monthly-balances/reconciliation?year=`. `POST /api/balance-docs` enrichi `period_year`/`period_month`.
+- **Frontend** : carte `MonthlyReconcileCard.tsx` sur la page Banques (tableau 12 mois, dépliage détail par compte, badges pos/warn/neutral), client `monthlyBalancesAPI`, ingestion hybride (dépôt du relevé → extraction auto → confirmation éditable → archivage PDF lié via `source_doc_id`).
+- **Tests : 293 backend + 14 suites/36 front verts, tsc clean.**
+- **Validation réelle (contrôleur)** : extraction du vrai « Relevé des soldes » Revolut au 31/12/2025 sort les soldes au centime (Main EUR 11 626,90 · Main USD 80 381,99 · USD 40 320,00 · CAD 5 580,00 · XRP 3 000). Réserve connue : le champ name/hint peut être pollué par une ligne de pied de page Revolut (cosmétique, mapping devise+IBAN non affecté).
+
+**Reste (étape 2, hors périmètre v1, conditionnelle)** : chasse aux frais FX manquants sur les mois en écart signalés par le tie-out.
