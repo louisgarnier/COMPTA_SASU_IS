@@ -22,7 +22,7 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | `services/csv_import.py` | Import CSV bancaire (Qonto/Revolut) : détection de format, parseurs (Revolut = « Total amount » frais inclus), `analyze` (preview : rattachement `(iban_masked, devise)`, dédup, périmètre année, soldes calculés), `execute` (backup fail-closed → insertion → catégorisation). Routes `POST /api/import/{preview,execute}`. |
 | `services/backup.py` | Sauvegarde SQLite (API backup, copie cohérente) → `data/backups/`, rotation 30 j (tout le jour courant, 1/jour passé). Appelé **fail-closed** avant chaque `POST /api/banking/sync` (ADR-008). |
 | `services/statement_extract.py` | Extraction de soldes officiels depuis relevé : `extract_revolut_balances` (parse « Relevé des soldes » PDF), `extract_qonto_month_end` (CSV, robuste à l'ordre du fichier/jour de clôture), `pdf_to_text` (pypdf, ne lève jamais), `map_to_accounts` (mapping devise + 4 derniers IBAN, repli devise unique). |
-| `services/monthly_reconcile.py` | Tie-out mensuel (EPIC-8) : `reconstruct_balance` (ouvertures + Σ mouvements jusqu'à fin de mois, helper public `sum_movements`), `monthly_reconciliation(db, year)` (vue 12 mois, statut ok/warn/missing, couverture X/12). |
+| `services/monthly_reconcile.py` | Tie-out mensuel (EPIC-8) : `reconstruct_balance` (ouvertures + Σ mouvements comptés à la **date de règlement** `max(booked_date, value_date)` = convention du relevé bancaire ; `openings.sum_movements` reste en date comptable pour tréso/P&L), `monthly_reconciliation(db, year)` (vue 12 mois, statuts ok/warn/**partial**/missing/**empty**, relevés liés au mois, couverture X/12). |
 | `api/routes/*.py` | settings, clients, investments, transactions, categories (+rules), treasury (+pnl), forecast, invoices, banking, `monthly_balances` (extraction/upsert/vue de réconciliation mensuelle). |
 | `seed.py` | Données démo 2026 + `make seed` / `make seed-reset`. |
 | `templates/invoice.html` | Gabarit facture (Jinja2, mentions art. 293 B). |
@@ -33,14 +33,18 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 | Élément | Rôle |
 |---|---|
 | `app/layout.tsx` | Layout + nav latérale (`Nav`). |
-| `app/page.tsx` | **Dashboard** : StatCards (tréso, P&L, IS), graphe P&L mensuel (barres CSS), prévision tréso, comptes. |
+| `app/page.tsx` | **Dashboard** : sélecteur d'année global (pilote les widgets), StatCards, cashflow, courbe de solde, P&L, distributions, pont de tréso, `BankBalancesCard` (soldes / rappro), timeline factures. |
 | `app/transactions/page.tsx` | Liste filtrable, catégorisation inline, bouton Synchroniser. |
 | `app/categories/page.tsx` | Catégories + éditeur de règles. |
 | `app/forecast/page.tsx` | Grille prévisionnelle éditable + déroulé tréso + estimation IS. |
 | `app/invoices/page.tsx` | Factures : cycle prévision→à encaisser→payée, Générer, Ouvrir (page imprimable), rapprochement manuel tx↔facture + colonne écart forecast/réel. |
-| `app/banking/page.tsx` | Statut Enable Banking (mock/live), connexion, synchro, comptes, + `MonthlyReconcileCard`. |
+| `app/banking/page.tsx` | Statut Enable Banking (mock/live), connexion, synchro, comptes, + `MonthlyReconcileCard` sous l'ancre `#rappro-mensuel`. Scrolle vers le hash une fois `loading` retombé (Next ne le fait pas : la cible n'existe pas encore au moment de la navigation client-side). |
 | `app/settings/page.tsx` | Paramètres société / IS / facturation / change. |
-| `src/components/MonthlyReconcileCard.tsx` | Carte de rapprochement mensuel officiel (EPIC-8) : tableau 12 mois, dépliage détail par compte, badges pos/warn/neutral ; ingestion hybride dépôt de relevé → extraction auto → confirmation éditable → archivage PDF lié (`source_doc_id`). |
+| `src/components/MonthlyReconcileTable.tsx` | **Tableau 12 mois partagé** (EPIC-8) — présentationnel, aucun fetch. Dépliage du détail par compte (montants en **devise native**, totaux mensuels en €), badges `ok/warn/partial/missing/empty`, liens de téléchargement des relevés du mois. `selectable` → il possède sa sélection : cases à cocher + barre « N mois sélectionnés » (⬇ Télécharger le ZIP · ✉ Envoyer par mail, stub). Consommé par la carte Banques ET l'onglet du dashboard. |
+| `src/components/MonthlyReconcileCard.tsx` | Carte de rapprochement mensuel officiel, **page Banques** (EPIC-8) : ingestion hybride dépôt de relevé → extraction auto → confirmation éditable → archivage PDF lié (`source_doc_id`), + sélecteur d'année, + `MonthlyReconcileTable selectable`. Cible de l'ancre `#rappro-mensuel`. |
+| `src/components/dashboard/BankBalancesCard.tsx` | Carte « Soldes bancaires » du dashboard : `<Card>` + **pilule 2 onglets** (motif ARIA tabs : `tablist` nommé, `aria-selected`, `aria-controls`, roving `tabIndex`, flèches ←/→). Rendu **conditionnel réel** — l'onglet rappro n'est monté qu'à son ouverture (pas d'appel réseau avant clic). |
+| `src/components/dashboard/BalancesAtDate.tsx` | Onglet 1 : soldes reconstruits à la date choisie (ouverture d'exercice + mouvements). Sans `<Card>` ni titre depuis la fusion — la coquille les porte. |
+| `src/components/dashboard/MonthlyReconcileView.tsx` | Onglet 2 : rappro mensuel **sans ingestion** (pas de dropzone ni de proposition — aucune écriture depuis le dashboard). Suit la prop `year` du **sélecteur global** du dashboard (pas de sélecteur local, cf. build-log 2026-07-17), couverture X/12, garde anti-race, état d'erreur, lien « Déposer un relevé → » vers `/banking#rappro-mensuel`. |
 | `src/api/client.ts` | Client fetch typé (une API par domaine), dont `monthlyBalancesAPI` (extract/upsert/reconciliation). |
 | `src/components/{Nav,ui}.tsx` | Nav + primitives (PageTitle, Card, StatCard, Badge, Empty). |
 | `src/lib/format.ts` | Formatage FR (eur, money, pct, dateFR). |
@@ -48,7 +52,8 @@ App locale LGC = backend **FastAPI** (:8000) + frontend **Next.js App Router** (
 
 ## Lancement & tests
 `make dev` · `make seed` · `make back` · `make front` · `make test` · `make install`.
-- Back : **293 tests** (pytest). Front : **14 suites / 36 tests** (jest) + `next build` OK + `tsc` clean.
+- Back : **303 tests** (pytest). Front : **16 suites / 58 tests** (jest) + `next build` OK + `tsc` clean.
+- ⚠️ **eslint non configurable** dans `frontend/` : aucun `eslint.config.*` (config flat manquante) — `npm run lint` échoue. Préexistant.
 
 ## Dette technique / points ouverts
 - **WeasyPrint** : nécessite `brew install pango` pour générer les PDF (sinon 503).
