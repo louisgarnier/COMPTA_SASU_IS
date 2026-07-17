@@ -232,3 +232,19 @@ Objectif : charger l'historique 2025 (Qonto + Revolut) pour calibrer l'app contr
 - **Validation réelle (contrôleur)** : extraction du vrai « Relevé des soldes » Revolut au 31/12/2025 sort les soldes au centime (Main EUR 11 626,90 · Main USD 80 381,99 · USD 40 320,00 · CAD 5 580,00 · XRP 3 000). Réserve connue : le champ name/hint peut être pollué par une ligne de pied de page Revolut (cosmétique, mapping devise+IBAN non affecté).
 
 **Reste (étape 2, hors périmètre v1, conditionnelle)** : chasse aux frais FX manquants sur les mois en écart signalés par le tie-out.
+
+## 2026-07-17 — EPIC-8 Task 4 : ancre `#rappro-mensuel` sur `/banking`
+
+**Objectif** : le lien « Déposer un relevé → » du dashboard (branche EPIC-8 Task 2) pointe vers `/banking#rappro-mensuel`, mais l'ancre n'existait pas : le scroll atterrissait en haut de page. Task 4 ferme la boucle.
+
+**Changements** :
+- `frontend/app/banking/page.tsx` lignes 416–417 : enveloppement de `<MonthlyReconcileCard />` dans un `<div id="rappro-mensuel" className="scroll-mt-20">` pour poser l'ancre et déplier l'espace pour la nav fixe mobile (Nav.tsx en position fixe).
+- `frontend/__tests__/banking.test.tsx` : ajout du test qui valide la présence de l'ancre et la classe `scroll-mt-20`.
+
+**TDD strict** : test échoue → implémentation → test passe → suite complète + tsc + build verts.
+
+**Preuves** :
+- 16 suites de tests front passent (dont les 3 de banking.test.tsx), 53 tests au total.
+- `tsc --noEmit` : silence (0 erreur TypeScript).
+- `next build` : OK, 14 routes pré-rendues.
+- Commit : `d56d114` – `[EPIC-8] feat: ancre #rappro-mensuel — le lien du dashboard atterrit sur la carte`.
