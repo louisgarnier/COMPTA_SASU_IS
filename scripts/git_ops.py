@@ -42,8 +42,19 @@ def commit(message: str, *paths: str) -> None:
 
 
 def push() -> None:
-    """Push to current branch."""
-    run(["git", "push"])
+    """Push the current branch, setting the upstream on its first push."""
+    tracking = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        capture_output=True,
+        text=True,
+    )
+    if tracking.returncode == 0:
+        run(["git", "push"])
+        return
+    current = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True
+    )
+    run(["git", "push", "--set-upstream", "origin", current.stdout.strip()])
 
 
 def pull() -> None:
