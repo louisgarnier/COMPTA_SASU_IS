@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { treasuryAPI } from '@/api/client';
-import { Card, Badge } from '@/components/ui';
+import { Badge } from '@/components/ui';
 import { eur, money, dateFR } from '@/lib/format';
 import { isoDate, dateShortcuts } from '@/lib/dates';
 
@@ -43,8 +43,7 @@ export function BalancesAtDate({ year }: { year?: number }) {
   const chips = dateShortcuts(today, selYear);
 
   return (
-    <Card>
-      <div className="mb-1 text-sm font-semibold">Soldes bancaires à une date</div>
+    <div>
       <p className="mb-3 text-[11px] text-[var(--muted)]">
         Reconstruction : ouverture d&apos;exercice + mouvements jusqu&apos;à la date choisie.
       </p>
@@ -104,6 +103,6 @@ export function BalancesAtDate({ year }: { year?: number }) {
           </tfoot>
         </table>
       )}
-    </Card>
+    </div>
   );
 }

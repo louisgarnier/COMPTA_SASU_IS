@@ -13,6 +13,12 @@ jest.mock('@/api/client', () => ({
       ],
     }),
   },
+  balanceDocsAPI: { downloadUrl: (id: number) => `/api/balance-docs/${id}/download` },
+  monthlyBalancesAPI: {
+    reconciliation: jest.fn().mockResolvedValue({
+      year: 2026, coverage: '0/12', months: [],
+    }),
+  },
   transactionsAPI: {
     // 2 transactions non catégorisées → la bannière « à catégoriser » s'affiche.
     list: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]),
@@ -114,8 +120,9 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/D'où vient ma trésorerie/)).toBeInTheDocument();
     expect(screen.getByText(/Dividendes \/ distribution dirigeant/)).toBeInTheDocument();
     expect(screen.getByText(/Frais & écarts FX \(résiduel\)/)).toBeInTheDocument();
-    // Widget soldes à une date : titre + total.
-    expect(screen.getByText('Soldes bancaires à une date')).toBeInTheDocument();
+    // Carte soldes bancaires : la pilule et le total de l'onglet par défaut.
+    expect(screen.getByRole('button', { name: /Soldes à une date/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Rapprochement mensuel/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Date des soldes')).toBeInTheDocument();
     expect(await screen.findByText('Invoice Timeline')).toBeInTheDocument();
     // Factures ouvertes : équivalent EUR approx. affiché à côté du natif.

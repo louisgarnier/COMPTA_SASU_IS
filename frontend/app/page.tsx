@@ -14,7 +14,7 @@ import {
   InvoiceTimelineData,
 } from '@/components/dashboard/InvoiceTimeline';
 import { TreasuryBridge } from '@/components/dashboard/TreasuryBridge';
-import { BalancesAtDate } from '@/components/dashboard/BalancesAtDate';
+import { BankBalancesCard } from '@/components/dashboard/BankBalancesCard';
 import { DistributionsCard } from '@/components/dashboard/DistributionsCard';
 
 const CUR_YEAR = new Date().getFullYear();
@@ -236,7 +236,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <TreasuryBridge year={year} />
-        <BalancesAtDate year={year} />
+        <BankBalancesCard year={year} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
