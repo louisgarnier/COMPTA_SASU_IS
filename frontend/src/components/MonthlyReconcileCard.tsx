@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { balanceDocsAPI, monthlyBalancesAPI, type MonthlyReconView } from '@/api/client';
+import { balanceDocsAPI, monthlyBalancesAPI, openingsAPI, type MonthlyReconView } from '@/api/client';
 import { Card, Badge } from '@/components/ui';
 import { money } from '@/lib/format';
 import { MOIS, MonthlyReconcileTable } from '@/components/MonthlyReconcileTable';
@@ -19,10 +19,22 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
   const [provider, setProvider] = useState<'revolut' | 'qonto'>('revolut');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [carryToOpening, setCarryToOpening] = useState(true);
+  const [openingExists, setOpeningExists] = useState(false);
+  const isDecember = month === 12;
 
   useEffect(() => {
     monthlyBalancesAPI.reconciliation(year).then(setView).catch(() => setView(null));
   }, [year]);
+
+  useEffect(() => {
+    if (!proposal || !isDecember) { setOpeningExists(false); return; }
+    let cancelled = false;
+    openingsAPI.get(year + 1)
+      .then((v) => { if (!cancelled) setOpeningExists((v.accounts ?? []).some((a) => a.balance != null)); })
+      .catch(() => { if (!cancelled) setOpeningExists(false); });
+    return () => { cancelled = true; };
+  }, [proposal, isDecember, year]);
 
   const onDrop = async (files: FileList | null) => {
     if (!files?.[0]) return;
@@ -68,7 +80,9 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
     }
     try {
       const items = proposal.map((p) => ({ account_uid: p.account_uid, balance: p.amount }));
-      const updated = await monthlyBalancesAPI.confirm(year, month, items, docId);
+      const updated = await monthlyBalancesAPI.confirm(
+        year, month, items, docId, isDecember && carryToOpening,
+      );
       setProposal(null);
       setPendingFile(null);
       setView(updated);
@@ -170,6 +184,29 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
               ))}
             </tbody>
           </table>
+          {isDecember && (
+            <label className="mt-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={carryToOpening}
+                onChange={(e) => setCarryToOpening(e.target.checked)}
+                className="mt-0.5"
+                aria-label={`Reporter comme ouverture ${year + 1}`}
+              />
+              <span>
+                <strong>Reporter ces soldes comme ouverture de l&apos;exercice {year + 1}</strong>
+                <span className="block text-xs text-[var(--muted)]">
+                  Ton solde au 31/12/{year} = ton ouverture au 01/01/{year + 1}. Coché, l&apos;app
+                  remplit l&apos;ouverture {year + 1} en même temps.
+                </span>
+                {carryToOpening && openingExists && (
+                  <span className="mt-1 block rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                    ⚠ Une ouverture {year + 1} existe déjà — la valider ici l&apos;écrasera.
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
           <div className="mt-3 flex items-center gap-2">
             <button
               type="button"
@@ -177,7 +214,9 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
               disabled={busy}
               className="rounded bg-black px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
-              Valider les {proposal.length} soldes
+              {isDecember && carryToOpening
+                ? `Valider les ${proposal.length} soldes + ouverture ${year + 1}`
+                : `Valider les ${proposal.length} soldes`}
             </button>
             <button
               type="button"

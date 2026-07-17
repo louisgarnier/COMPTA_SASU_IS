@@ -27,6 +27,9 @@ jest.mock('@/api/client', () => ({
       ],
     }),
   },
+  openingsAPI: {
+    get: jest.fn().mockResolvedValue({ year: 2026, accounts: [], tie_out: {} }),
+  },
 }));
 
 test('affiche les 12 mois, la couverture, et déplie le détail par compte', async () => {
@@ -110,4 +113,41 @@ test('dépôt d’un relevé → validation archive le PDF et lie son doc_id à 
     expect.objectContaining({ period_year: 2025, period_month: 12 }),
   );
   expect(monthlyBalancesAPI.confirm.mock.calls[0][3]).toBe(42);
+});
+
+test('décembre : la case « reporter en ouverture » apparaît et le report est transmis', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  monthlyBalancesAPI.extract = jest.fn().mockResolvedValue({
+    proposal: [{ account_uid: 'acc', currency: 'EUR', amount: '11626.90', matched: true, hint: 'Main' }],
+  });
+  monthlyBalancesAPI.confirm = jest.fn().mockResolvedValue({ year: 2025, coverage: '12/12', months: [] });
+
+  render(<MonthlyReconcileCard year={2025} />);
+  // le mois par défaut de la carte est décembre (12)
+  const drop = await screen.findByLabelText(/Déposer un relevé/i);
+  fireEvent.change(drop, { target: { files: [new File(['x'], 'r.pdf', { type: 'application/pdf' })] } });
+  await screen.findByText(/11 626,90|11626.90/);
+
+  // la case de report est présente et cochée par défaut
+  const carry = await screen.findByLabelText(/ouverture 2026/i);
+  expect(carry).toBeChecked();
+
+  fireEvent.click(await screen.findByRole('button', { name: /Valider/i }));
+  await waitFor(() => expect(monthlyBalancesAPI.confirm).toHaveBeenCalled());
+  // 5ᵉ argument = carryToOpening = true
+  expect(monthlyBalancesAPI.confirm.mock.calls[0][4]).toBe(true);
+});
+
+test('novembre : pas de case de report', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  monthlyBalancesAPI.extract = jest.fn().mockResolvedValue({
+    proposal: [{ account_uid: 'acc', currency: 'EUR', amount: '100.00', matched: true, hint: 'Main' }],
+  });
+  render(<MonthlyReconcileCard year={2025} />);
+  // basculer le sélecteur de mois sur novembre
+  fireEvent.change(await screen.findByLabelText(/Mois du relevé/i), { target: { value: '11' } });
+  const drop = await screen.findByLabelText(/Déposer un relevé/i);
+  fireEvent.change(drop, { target: { files: [new File(['x'], 'r.pdf', { type: 'application/pdf' })] } });
+  await screen.findByText(/100,00|100.00/);
+  expect(screen.queryByLabelText(/ouverture/i)).not.toBeInTheDocument();
 });

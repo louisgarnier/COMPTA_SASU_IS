@@ -79,6 +79,7 @@ export type OpeningRow = {
   current_balance: string;
   rate: string;
   control: OpeningControl | null;
+  note: string;
 };
 export type OpeningsView = {
   year: number;
@@ -242,10 +243,12 @@ export const monthlyBalancesAPI = {
     month: number,
     items: { account_uid: string; balance: string }[],
     docId?: number,
+    carryToOpening?: boolean,
   ) =>
     put<any>(`/api/monthly-balances?year=${year}&month=${month}`, {
       items,
       doc_id: docId ?? null,
+      carry_to_opening: carryToOpening ?? false,
     }),
 };
 
