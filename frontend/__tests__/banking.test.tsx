@@ -73,4 +73,12 @@ describe('BankingPage', () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].provider).toBe('qonto');
   });
+
+  test("la carte rappro porte l'ancre visée par le lien du dashboard", async () => {
+    const { container } = render(<BankingPage />);
+    await waitFor(() => expect(container.querySelector('#rappro-mensuel')).not.toBeNull());
+    // scroll-margin : la barre de nav mobile fixe (Nav.tsx) ne doit pas recouvrir
+    // la carte à l'arrivée sur l'ancre.
+    expect(container.querySelector('#rappro-mensuel')).toHaveClass('scroll-mt-20');
+  });
 });

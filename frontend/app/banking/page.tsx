@@ -413,8 +413,12 @@ export default function BankingPage() {
             )}
           </Card>
 
-          {/* Rapprochement mensuel officiel */}
-          <MonthlyReconcileCard year={new Date().getFullYear()} />
+          {/* Rapprochement mensuel officiel — cible du lien « Déposer un relevé → »
+              de la carte Soldes bancaires du dashboard. `scroll-mt-20` dégage la
+              barre de nav mobile fixe (Nav.tsx) à l'arrivée sur l'ancre. */}
+          <div id="rappro-mensuel" className="scroll-mt-20">
+            <MonthlyReconcileCard year={new Date().getFullYear()} />
+          </div>
 
           {/* Import CSV — historique bancaire */}
           <div>
