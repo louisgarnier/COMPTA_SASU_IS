@@ -35,10 +35,13 @@ jest.mock('@/api/client', () => ({
 // findByText (singulier), qui échouerait avec « Found multiple elements ».
 
 test('ouvre sur l’onglet Soldes à une date', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
   render(<BankBalancesCard year={2025} />);
   expect((await screen.findAllByText('11 626,90 €')).length).toBeGreaterThan(0);
   // L'onglet rappro n'est pas monté tant qu'on ne clique pas.
   expect(screen.queryByText(/Couverture/)).not.toBeInTheDocument();
+  // Preuve directe : aucun appel réseau du rappro tant qu'on n'a pas cliqué.
+  expect(monthlyBalancesAPI.reconciliation).not.toHaveBeenCalled();
 });
 
 test('la pilule bascule sur le rapprochement mensuel', async () => {
@@ -46,7 +49,7 @@ test('la pilule bascule sur le rapprochement mensuel', async () => {
   render(<BankBalancesCard year={2025} />);
   await screen.findAllByText('11 626,90 €');
 
-  fireEvent.click(screen.getByRole('button', { name: /Rapprochement mensuel/i }));
+  fireEvent.click(screen.getByRole('tab', { name: /Rapprochement mensuel/i }));
   expect(await screen.findByText('4/12')).toBeInTheDocument();
   expect(await screen.findByText(/Déc 2025/)).toBeInTheDocument();
   expect(monthlyBalancesAPI.reconciliation).toHaveBeenCalled();
@@ -55,10 +58,50 @@ test('la pilule bascule sur le rapprochement mensuel', async () => {
 test('la pilule revient sur les soldes', async () => {
   render(<BankBalancesCard year={2025} />);
   await screen.findAllByText('11 626,90 €');
-  fireEvent.click(screen.getByRole('button', { name: /Rapprochement mensuel/i }));
+  fireEvent.click(screen.getByRole('tab', { name: /Rapprochement mensuel/i }));
   await screen.findByText('4/12');
 
-  fireEvent.click(screen.getByRole('button', { name: /Soldes à une date/i }));
+  fireEvent.click(screen.getByRole('tab', { name: /Soldes à une date/i }));
   expect((await screen.findAllByText('11 626,90 €')).length).toBeGreaterThan(0);
   expect(screen.queryByText('4/12')).not.toBeInTheDocument();
+});
+
+test('la pilule expose la sémantique ARIA tablist/tab avec aria-selected suivant l’onglet actif', async () => {
+  render(<BankBalancesCard year={2025} />);
+  await screen.findAllByText('11 626,90 €');
+
+  expect(screen.getByRole('tablist')).toBeInTheDocument();
+  const soldesTab = screen.getByRole('tab', { name: /Soldes à une date/i });
+  const rapproTab = screen.getByRole('tab', { name: /Rapprochement mensuel/i });
+
+  expect(soldesTab).toHaveAttribute('aria-selected', 'true');
+  expect(rapproTab).toHaveAttribute('aria-selected', 'false');
+  expect(soldesTab).toHaveAttribute('tabIndex', '0');
+  expect(rapproTab).toHaveAttribute('tabIndex', '-1');
+
+  fireEvent.click(rapproTab);
+  await screen.findByText('4/12');
+
+  expect(soldesTab).toHaveAttribute('aria-selected', 'false');
+  expect(rapproTab).toHaveAttribute('aria-selected', 'true');
+  expect(soldesTab).toHaveAttribute('tabIndex', '-1');
+  expect(rapproTab).toHaveAttribute('tabIndex', '0');
+});
+
+test('les flèches gauche/droite naviguent entre les onglets et changent le panneau actif', async () => {
+  render(<BankBalancesCard year={2025} />);
+  await screen.findAllByText('11 626,90 €');
+
+  const soldesTab = screen.getByRole('tab', { name: /Soldes à une date/i });
+  const rapproTab = screen.getByRole('tab', { name: /Rapprochement mensuel/i });
+
+  fireEvent.keyDown(soldesTab, { key: 'ArrowRight' });
+  expect(await screen.findByText('4/12')).toBeInTheDocument();
+  expect(rapproTab).toHaveAttribute('aria-selected', 'true');
+  expect(rapproTab).toHaveFocus();
+
+  fireEvent.keyDown(rapproTab, { key: 'ArrowLeft' });
+  expect((await screen.findAllByText('11 626,90 €')).length).toBeGreaterThan(0);
+  expect(soldesTab).toHaveAttribute('aria-selected', 'true');
+  expect(soldesTab).toHaveFocus();
 });

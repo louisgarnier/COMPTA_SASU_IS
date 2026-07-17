@@ -120,9 +120,10 @@ describe('DashboardPage', () => {
     expect(await screen.findByText(/D'où vient ma trésorerie/)).toBeInTheDocument();
     expect(screen.getByText(/Dividendes \/ distribution dirigeant/)).toBeInTheDocument();
     expect(screen.getByText(/Frais & écarts FX \(résiduel\)/)).toBeInTheDocument();
-    // Carte soldes bancaires : la pilule et le total de l'onglet par défaut.
-    expect(screen.getByRole('button', { name: /Soldes à une date/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Rapprochement mensuel/i })).toBeInTheDocument();
+    // Carte soldes bancaires : la pilule (role="tab", sémantique ARIA tabs) et
+    // le total de l'onglet par défaut.
+    expect(screen.getByRole('tab', { name: /Soldes à une date/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Rapprochement mensuel/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Date des soldes')).toBeInTheDocument();
     expect(await screen.findByText('Invoice Timeline')).toBeInTheDocument();
     // Factures ouvertes : équivalent EUR approx. affiché à côté du natif.
