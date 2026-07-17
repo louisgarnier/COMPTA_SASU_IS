@@ -103,3 +103,29 @@ def test_list_years_includes_saved_and_current(session):
     ob.set_openings(session, 2025, [{"account_uid": "eur-1", "balance": "500"}], today=TODAY)
     years = ob.list_years(session, today=TODAY)
     assert 2025 in years and 2026 in years
+
+
+def _make_account(db, account_uid, currency="EUR"):
+    acc = models.BankAccount(provider="revolut", account_uid=account_uid, currency=currency,
+                             iban_masked="FR76****000", name="LGC", balance=Decimal("0"))
+    db.add(acc)
+    db.commit()
+    return acc
+
+
+def test_set_openings_persists_note(session):
+    _make_account(session, "acc-eur", currency="EUR")
+    ob.set_openings(session, 2026,
+                    [{"account_uid": "acc-eur", "balance": "500.00", "note": "relevé déc. 2025"}])
+    row = (session.query(models.OpeningBalance)
+          .filter_by(account_uid="acc-eur", year=2026).one())
+    assert row.note == "relevé déc. 2025"
+
+
+def test_get_openings_returns_note(session):
+    _make_account(session, "acc-eur", currency="EUR")
+    ob.set_openings(session, 2026,
+                    [{"account_uid": "acc-eur", "balance": "500.00", "note": "relevé déc. 2025"}])
+    view = ob.get_openings(session, 2026)
+    row = next(r for r in view["accounts"] if r["account_uid"] == "acc-eur")
+    assert row["note"] == "relevé déc. 2025"

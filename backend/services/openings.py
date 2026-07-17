@@ -152,6 +152,7 @@ def get_openings(db: Session, year: int, today: Optional[date_type] = None) -> d
                 "current_balance": _q2(current_native),
                 "rate": rate_for(rates, cur),
                 "control": control,
+                "note": (ob.note if ob is not None else ""),
             }
         )
 
@@ -199,6 +200,7 @@ def set_openings(
         if uid not in valid_uids:
             continue
         balance = Decimal(str(it.get("balance", "0")))
+        note = it.get("note")
         row = (
             db.query(models.OpeningBalance)
             .filter(
@@ -208,10 +210,13 @@ def set_openings(
             .one_or_none()
         )
         if row is None:
-            row = models.OpeningBalance(account_uid=uid, year=year, balance=balance)
+            row = models.OpeningBalance(account_uid=uid, year=year, balance=balance,
+                                        note=note or "")
             db.add(row)
         else:
             row.balance = balance
+            if note is not None:
+                row.note = note
         saved += 1
     db.commit()
 

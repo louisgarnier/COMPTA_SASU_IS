@@ -1,12 +1,14 @@
 from decimal import Decimal
 from datetime import date
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
-from backend.db.base import Base
+from backend.db.base import Base, get_db
 from backend.db import models
 from backend.services import monthly_reconcile as mr
+from backend.api.main import app
 
 
 @pytest.fixture()
@@ -141,3 +143,83 @@ def test_month_ok_only_when_all_active_accounts_reconciled():
     db.commit()
     jan = mr.monthly_reconciliation(db, 2025)["months"][0]
     assert jan["status"] == "ok"
+
+
+# --------------------------------------------------------------------------- #
+# Report décembre → ouverture N+1 (route PUT /api/monthly-balances)           #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def db_session():
+    engine = create_engine("sqlite:///:memory:", future=True,
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, future=True)()
+    db.add(models.Settings(id=1))
+    db.commit()
+    yield db
+    db.close()
+
+
+@pytest.fixture()
+def client(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def _make_account(db, account_uid, currency="EUR"):
+    acc = models.BankAccount(provider="revolut", account_uid=account_uid, currency=currency,
+                             iban_masked="FR76****000", name="LGC", balance=Decimal("0"))
+    db.add(acc)
+    db.commit()
+    return acc
+
+
+def test_carry_december_to_next_year_opening(client, db_session):
+    """Valider décembre avec carry_to_opening écrit l'ouverture de l'année suivante."""
+    _make_account(db_session, "acc-eur", currency="EUR")
+    r = client.put(
+        "/api/monthly-balances?year=2025&month=12",
+        json={"items": [{"account_uid": "acc-eur", "balance": "11626.90"}],
+              "carry_to_opening": True},
+    )
+    assert r.status_code == 200
+    ob = (db_session.query(models.OpeningBalance)
+          .filter_by(account_uid="acc-eur", year=2026).one())
+    assert ob.balance == Decimal("11626.90")
+    assert "2025" in ob.note  # note d'origine mentionne l'exercice source
+
+
+def test_carry_ignored_when_not_december(client, db_session):
+    """Le report est ignoré pour un mois ≠ décembre, même si le drapeau est vrai."""
+    _make_account(db_session, "acc-eur", currency="EUR")
+    client.put("/api/monthly-balances?year=2025&month=11",
+               json={"items": [{"account_uid": "acc-eur", "balance": "999.00"}],
+                     "carry_to_opening": True})
+    assert (db_session.query(models.OpeningBalance)
+            .filter_by(account_uid="acc-eur", year=2026).one_or_none()) is None
+
+
+def test_carry_overwrites_existing_opening(client, db_session):
+    """Le report écrase une ouverture N+1 déjà saisie (le front avertit avant)."""
+    _make_account(db_session, "acc-eur", currency="EUR")
+    db_session.add(models.OpeningBalance(account_uid="acc-eur", year=2026,
+                                         balance=Decimal("1.00"), note="manuel"))
+    db_session.commit()
+    client.put("/api/monthly-balances?year=2025&month=12",
+               json={"items": [{"account_uid": "acc-eur", "balance": "11626.90"}],
+                     "carry_to_opening": True})
+    ob = (db_session.query(models.OpeningBalance)
+          .filter_by(account_uid="acc-eur", year=2026).one())
+    assert ob.balance == Decimal("11626.90")
+
+
+def test_no_carry_by_default(client, db_session):
+    """Sans le drapeau, aucune ouverture n'est écrite."""
+    _make_account(db_session, "acc-eur", currency="EUR")
+    client.put("/api/monthly-balances?year=2025&month=12",
+               json={"items": [{"account_uid": "acc-eur", "balance": "11626.90"}]})
+    assert (db_session.query(models.OpeningBalance)
+            .filter_by(account_uid="acc-eur", year=2026).one_or_none()) is None

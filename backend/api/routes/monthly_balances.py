@@ -24,6 +24,7 @@ from backend.db import models
 from backend.db.base import get_db
 from backend.logging_config import get_logger
 from backend.services import monthly_reconcile, statement_extract
+from backend.services import openings as openings_service
 
 logger = get_logger("monthly_balances", channel="api")
 
@@ -38,6 +39,7 @@ class MonthlyItem(BaseModel):
 class MonthlyUpsert(BaseModel):
     items: list[MonthlyItem] = Field(default_factory=list)
     doc_id: Optional[int] = None
+    carry_to_opening: bool = False
 
 
 @router.post("/extract")
@@ -98,6 +100,19 @@ def upsert(payload: MonthlyUpsert, year: int = Query(...), month: int = Query(..
             row.source_doc_id = payload.doc_id
     db.commit()
     logger.info("📤 [MonthlyBalances] upsert: %d-%02d, %d compte(s) ✅", year, month, len(payload.items))
+
+    # Report décembre → ouverture de l'exercice suivant (le solde 31/12/N = 01/01/N+1).
+    # Garde dure : uniquement pour décembre, jamais un autre mois.
+    if payload.carry_to_opening and month == 12:
+        note = f"relevé déc. {year}"
+        openings_service.set_openings(
+            db, year + 1,
+            [{"account_uid": it.account_uid, "balance": str(it.balance), "note": note}
+             for it in payload.items],
+        )
+        logger.info("📤 [MonthlyBalances] report ouverture %d : %d compte(s)",
+                    year + 1, len(payload.items))
+
     return monthly_reconcile.monthly_reconciliation(db, year)
 
 
