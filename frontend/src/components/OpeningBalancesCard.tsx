@@ -152,7 +152,14 @@ export function OpeningBalancesCard() {
                 {view.accounts.map((a) => (
                   <tr key={a.account_uid} className="border-t border-[var(--border)]">
                     <td className="py-2 pr-3">
-                      <div className="font-medium">{a.name || a.provider}</div>
+                      <div className="font-medium">
+                        {a.name || a.provider}
+                        {a.note && (
+                          <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-[var(--muted)]">
+                            {a.note}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-[var(--muted)]">
                         …{a.account_uid.slice(-8)}
                       </div>

@@ -55,4 +55,21 @@ describe('OpeningBalancesCard', () => {
     // Le nouvel exercice 2024 apparaît comme onglet sélectionnable.
     expect(await screen.findByRole('button', { name: '2024' })).toBeInTheDocument();
   });
+
+  it('affiche un badge d’origine quand la ligne porte une note', async () => {
+    const { openingsAPI } = require('@/api/client');
+    openingsAPI.get = jest.fn().mockResolvedValue({
+      year: 2026,
+      accounts: [{
+        account_uid: 'acc', name: 'Revolut Main', provider: 'revolut', currency: 'EUR',
+        balance: '11626.90', current_balance: '11626.90', rate: '1', control: null,
+        note: 'relevé déc. 2025',
+      }],
+      tie_out: { opening_eur: '11626.90', current_eur: '11626.90', reconciles: true },
+    });
+    openingsAPI.years = jest.fn().mockResolvedValue({ years: [2026] });
+
+    render(<OpeningBalancesCard />);
+    expect(await screen.findByText(/relevé déc\. 2025/i)).toBeInTheDocument();
+  });
 });
