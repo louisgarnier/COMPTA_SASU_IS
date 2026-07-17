@@ -257,3 +257,17 @@ Décision produit : **on duplique la consultation, pas l'ingestion**. La carte B
 **Données** : les 2 tx du trou import→synchro (Revolut EUR, −8,00 « Yen Grandes Hall » 01/01 + −15,00 « 500 Degres » 02/01 = **−23,00 €**) sont **en base** — `scripts/backfill_gap_2026_revolut_eur.py` (idempotent, vérifie l'`external_id`) a déjà tourné.
 
 **Reste (non bloquant)** : `MonthlyReconcileCard` (Banques) garde la race condition et l'absence d'état d'erreur corrigées sur sa sœur — le container de fetch reste dupliqué entre les deux cartes (candidat `useMonthlyReconciliation`) · `badgeFor` exporté sans consommateur · état de la date perdu à la bascule d'onglet (prix du rendu conditionnel) · `aria-controls` pointe un id absent tant que le panneau n'est pas monté · eslint non configurable dans `frontend/` (aucun `eslint.config.*`, préexistant).
+
+## 2026-07-17 — EPIC-8 : report décembre → ouverture de l'exercice suivant (fin de la double saisie)
+
+**Le problème** (remarqué par l'utilisateur) : le solde de clôture du 31/12 (carte « Rapprochement mensuel ») et l'ouverture du 01/01 suivant (Réglages « Soldes d'ouverture ») sont le **même chiffre**, saisi à deux endroits. Maquette variante A validée (ui-mockup), plan `docs/superpowers/plans/2026-07-17-report-decembre-ouverture.md`, exécution subagent-driven 3 tâches + revue par tâche + revue finale opus.
+
+Décision : on **ne supprime ni carte ni saisie manuelle** (la carte Réglages reste le seul point d'entrée pour amorcer un historique importé sans relevés). On **branche** l'une sur l'autre — valider décembre pré-remplit l'ouverture N+1.
+
+- **Backend** : `PUT /api/monthly-balances` gagne `carry_to_opening: bool`. Si vrai **et `month == 12`** (double garde front + back), après l'écriture des `MonthlyBalance`, reporte les soldes vers `OpeningBalance(year+1)` via `openings.set_openings`, en posant une note d'origine `« relevé déc. N »`. `set_openings` accepte désormais un `note` optionnel par ligne ; `get_openings` le renvoie. Report en **devise native**, montants `Decimal` (roundtrip `str`, aucun `float`).
+- **Frontend** : sur la carte rappro, quand le mois validé est **décembre**, une case **cochée par défaut** « Reporter comme ouverture de l'exercice N+1 » ; avertissement ambre si une ouverture N+1 existe déjà (pré-check `openingsAPI.get(year+1)`, avec garde anti-race) ; le drapeau ne part QUE pour décembre coché ; libellé du bouton adapté. Dans les Réglages, **badge d'origine** « relevé déc. N » sur les lignes reportées.
+- **Provenance honnête** (constat de la revue finale, corrigé) : une **saisie manuelle** des ouvertures **efface** la note d'origine — sinon le badge « relevé déc. N » aurait menti après édition à la main du montant.
+
+**Preuves** : **311 backend** + **64 front** verts, `tsc` propre. E2E réel sur la vraie base (chemin backend du bouton) : `carry_to_opening` décembre 2025 → ouverture 2026 remplie **au centime** (11 626,90 · 80 381,99 · 40 320,00 · 5 580,00 · 26,78) + note posée. Base restaurée à l'identique après le test (les ouvertures 2026 égalaient déjà la clôture décembre ; notes remises à vide, montants inchangés).
+
+**Reste (follow-up non bloquant)** : report = 2 `db.commit()` successifs (jugé acceptable — SQLite local mono-user, idempotent, 500 si échec du 2e) · `_make_account` dupliqué entre 2 fichiers de test · pas de test du chemin « case décochée en décembre → drapeau false » · le service `set_openings` reste générique (un futur appelant en saisie manuelle devrait penser à envoyer `note: ""`).
