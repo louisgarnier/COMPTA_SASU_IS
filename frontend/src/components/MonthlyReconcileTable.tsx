@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useState } from 'react';
-import { balanceDocsAPI, type MonthlyReconView, type ReconStatus } from '@/api/client';
+import { Fragment, useEffect, useState } from 'react';
+import { balanceDocsAPI, monthlyBalancesAPI, type MonthlyReconView, type ReconStatus } from '@/api/client';
 import { Badge } from '@/components/ui';
 import { eur, money } from '@/lib/format';
 
@@ -15,34 +15,90 @@ export const badgeFor = (s: ReconStatus) =>
   : <Badge tone="neutral">manquant</Badge>;
 
 /**
- * Tableau 12 mois du rapprochement officiel — présentationnel, aucun fetch.
- * Partagé entre la carte Banques (`selectable` : cases à cocher pour l'envoi
- * groupé) et l'onglet lecture seule du dashboard (sans sélection).
- * Le dépliage du détail par compte est un état interne : les deux vues le veulent.
+ * Tableau 12 mois du rapprochement officiel — présentationnel côté fetch (le
+ * `view` est fourni par le parent), mais propriétaire de son état de
+ * sélection quand `selectable` est vrai : cases à cocher, barre d'action
+ * (téléchargement groupé + stub mail) et dépliage du détail par compte.
+ * Partagé entre la carte Banques et l'onglet lecture seule du dashboard —
+ * les deux veulent la sélection, seule la carte Banques ajoute par-dessus la
+ * dropzone de dépôt et la proposition de soldes éditable.
  */
 export function MonthlyReconcileTable({
   view,
   selectable = false,
-  selected,
-  onToggleMonth,
-  onToggleAll,
-  allSelected = false,
-  hasSelectableMonths = false,
 }: {
   view: MonthlyReconView;
   selectable?: boolean;
-  selected?: Set<number>;
-  onToggleMonth?: (m: number) => void;
-  onToggleAll?: () => void;
-  allSelected?: boolean;
-  hasSelectableMonths?: boolean;
 }) {
   const [open, setOpen] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const cols = selectable ? 6 : 5;
 
+  // la sélection ne doit pas survivre à un changement d'exercice affiché
+  useEffect(() => {
+    setSelected(new Set());
+  }, [view.year]);
+
+  // mois qui ont au moins un relevé archivé (sélectionnables)
+  const monthsWithDocs = view.months.filter((m) => m.docs.length > 0);
+  const allSelected = monthsWithDocs.length > 0 && monthsWithDocs.every((m) => selected.has(m.month));
+
+  const toggleMonth = (mth: number) => {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(mth)) next.delete(mth);
+      else next.add(mth);
+      return next;
+    });
+  };
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(monthsWithDocs.map((m) => m.month)));
+
+  // relevés (doc ids) des mois cochés
+  const selectedDocIds = view.months
+    .filter((m) => selected.has(m.month))
+    .flatMap((m) => m.docs.map((d) => d.id));
+
+  const downloadSelected = () => {
+    if (selectedDocIds.length === 0) return;
+    window.open(monthlyBalancesAPI.archiveUrl(selectedDocIds), '_blank');
+  };
+  const mailSelected = () => {
+    // Envoi par mail à configurer ultérieurement (SMTP + destinataire).
+    alert(
+      `Envoi par mail à configurer.\n${selectedDocIds.length} relevé(s) seront joints ` +
+        `(${selected.size} mois sélectionné(s)).`,
+    );
+  };
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div>
+      {selectable && selected.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+          <span className="text-sm font-semibold text-blue-700">
+            {selected.size} mois sélectionné{selected.size > 1 ? 's' : ''}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={downloadSelected}
+              disabled={selectedDocIds.length === 0}
+              className="inline-flex items-center gap-1 rounded border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            >
+              ⬇ Télécharger les relevés ({selectedDocIds.length})
+            </button>
+            <button
+              type="button"
+              onClick={mailSelected}
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+            >
+              ✉ Envoyer par mail
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--muted)]">
             {selectable && (
@@ -50,8 +106,8 @@ export function MonthlyReconcileTable({
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={onToggleAll}
-                  disabled={!hasSelectableMonths}
+                  onChange={toggleAll}
+                  disabled={monthsWithDocs.length === 0}
                   aria-label="Tout sélectionner"
                 />
               </th>
@@ -68,7 +124,7 @@ export function MonthlyReconcileTable({
             <Fragment key={m.month}>
               <tr
                 className={`cursor-pointer border-b border-[var(--border)] last:border-0 ${
-                  selected?.has(m.month) ? 'bg-blue-50' : 'hover:bg-black/[0.02]'
+                  selected.has(m.month) ? 'bg-blue-50' : 'hover:bg-black/[0.02]'
                 }`}
                 onClick={() => setOpen(open === m.month ? null : m.month)}
               >
@@ -77,8 +133,8 @@ export function MonthlyReconcileTable({
                     {m.docs.length > 0 && (
                       <input
                         type="checkbox"
-                        checked={selected?.has(m.month) ?? false}
-                        onChange={() => onToggleMonth?.(m.month)}
+                        checked={selected.has(m.month)}
+                        onChange={() => toggleMonth(m.month)}
                         aria-label={`Sélectionner ${MOIS[m.month - 1]} ${view.year}`}
                       />
                     )}
@@ -140,6 +196,7 @@ export function MonthlyReconcileTable({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

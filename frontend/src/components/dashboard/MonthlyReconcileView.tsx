@@ -6,9 +6,12 @@ import { monthlyBalancesAPI, type MonthlyReconView } from '@/api/client';
 import { MonthlyReconcileTable } from '@/components/MonthlyReconcileTable';
 
 /**
- * Onglet « Rapprochement mensuel » du dashboard — consultation seule
- * (maquette variante A, validée 2026-07-17). Le dépôt de relevé, la sélection
- * et l'envoi restent sur la page Banques : ici on regarde, on n'écrit pas.
+ * Onglet « Rapprochement mensuel » du dashboard — lecture seule côté écriture
+ * (maquette variante A, validée 2026-07-17) : le dépôt de relevé et la
+ * proposition de soldes éditable restent exclusivement sur la page Banques,
+ * ici on ne modifie jamais la base. La sélection multi-mois et le
+ * téléchargement groupé, eux, sont partagés via `MonthlyReconcileTable`
+ * (`selectable`) — même barre d'action que sur la page Banques.
  *
  * L'année est pilotée par le sélecteur global du dashboard (prop `year`) —
  * pas de sélecteur local ici, pour éviter que l'en-tête du dashboard et ce
@@ -50,7 +53,7 @@ export function MonthlyReconcileView({ year }: { year: number }) {
 
       {error && <p className="text-xs text-red-600">❌ {error}</p>}
       {view ? (
-        <MonthlyReconcileTable view={view} />
+        <MonthlyReconcileTable view={view} selectable />
       ) : !error ? (
         <p className="text-sm text-[var(--muted)]">Chargement…</p>
       ) : null}

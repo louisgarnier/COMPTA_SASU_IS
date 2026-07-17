@@ -9,6 +9,7 @@ jest.mock('next/link', () => ({
 jest.mock('@/api/client', () => ({
   balanceDocsAPI: { downloadUrl: (id: number) => `/api/balance-docs/${id}/download` },
   monthlyBalancesAPI: {
+    archiveUrl: (ids: number[]) => `/api/monthly-balances/docs-archive?ids=${ids.join(',')}`,
     reconciliation: jest.fn().mockResolvedValue({
       year: 2025,
       coverage: '4/12',
@@ -37,12 +38,25 @@ test('affiche la couverture et le tableau des mois', async () => {
   expect(await screen.findByText(/Déc 2025/)).toBeInTheDocument();
 });
 
-test('lecture seule : aucune case à cocher, aucun dépôt de relevé', async () => {
+test('lecture seule côté écriture : aucun dépôt de relevé, aucune proposition éditable', async () => {
   render(<MonthlyReconcileView year={2025} />);
   await screen.findByText('4/12');
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   expect(screen.queryByLabelText(/Déposer un relevé/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Soldes proposés/i)).not.toBeInTheDocument();
+  // pas encore de mois coché → pas de barre d'action
   expect(screen.queryByRole('button', { name: /Envoyer par mail/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Télécharger les relevés/i })).not.toBeInTheDocument();
+});
+
+test('la sélection multi-mois est disponible sur le dashboard : cocher un mois affiche la barre d’action', async () => {
+  render(<MonthlyReconcileView year={2025} />);
+  await screen.findByText('4/12');
+  const cb = await screen.findByLabelText(/Sélectionner Oct 2025/i);
+  fireEvent.click(cb);
+  expect(await screen.findByText(/1 mois sélectionné/)).toBeInTheDocument();
+  // 1 relevé lié à octobre → bouton "Télécharger les relevés (1)"
+  expect(await screen.findByRole('button', { name: /Télécharger les relevés \(1\)/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Envoyer par mail/ })).toBeInTheDocument();
 });
 
 test('le lien « Déposer un relevé » pointe sur la carte de la page Banques', async () => {

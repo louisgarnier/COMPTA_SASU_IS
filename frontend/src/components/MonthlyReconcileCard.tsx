@@ -19,44 +19,10 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
   const [provider, setProvider] = useState<'revolut' | 'qonto'>('revolut');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     monthlyBalancesAPI.reconciliation(year).then(setView).catch(() => setView(null));
-    setSelected(new Set());
   }, [year]);
-
-  // mois qui ont au moins un relevé archivé (sélectionnables)
-  const monthsWithDocs = (view?.months ?? []).filter((m) => m.docs.length > 0);
-  const allSelected = monthsWithDocs.length > 0 && monthsWithDocs.every((m) => selected.has(m.month));
-
-  const toggleMonth = (mth: number) => {
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(mth)) next.delete(mth);
-      else next.add(mth);
-      return next;
-    });
-  };
-  const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(monthsWithDocs.map((m) => m.month)));
-
-  // relevés (doc ids) des mois cochés
-  const selectedDocIds = (view?.months ?? [])
-    .filter((m) => selected.has(m.month))
-    .flatMap((m) => m.docs.map((d) => d.id));
-
-  const downloadSelected = () => {
-    if (selectedDocIds.length === 0) return;
-    window.open(monthlyBalancesAPI.archiveUrl(selectedDocIds), '_blank');
-  };
-  const mailSelected = () => {
-    // Envoi par mail à configurer ultérieurement (SMTP + destinataire).
-    alert(
-      `Envoi par mail à configurer.\n${selectedDocIds.length} relevé(s) seront joints ` +
-        `(${selected.size} mois sélectionné(s)).`,
-    );
-  };
 
   const onDrop = async (files: FileList | null) => {
     if (!files?.[0]) return;
@@ -224,39 +190,7 @@ export function MonthlyReconcileCard({ year: initialYear }: { year: number }) {
           </div>
         </div>
       )}
-      {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-          <span className="text-sm font-semibold text-blue-700">
-            {selected.size} mois sélectionné{selected.size > 1 ? 's' : ''}
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={downloadSelected}
-              disabled={selectedDocIds.length === 0}
-              className="inline-flex items-center gap-1 rounded border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-            >
-              ⬇ Télécharger les relevés ({selectedDocIds.length})
-            </button>
-            <button
-              type="button"
-              onClick={mailSelected}
-              className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-            >
-              ✉ Envoyer par mail
-            </button>
-          </div>
-        </div>
-      )}
-      <MonthlyReconcileTable
-        view={view}
-        selectable
-        selected={selected}
-        onToggleMonth={toggleMonth}
-        onToggleAll={toggleAll}
-        allSelected={allSelected}
-        hasSelectableMonths={monthsWithDocs.length > 0}
-      />
+      <MonthlyReconcileTable view={view} selectable />
     </Card>
   );
 }
