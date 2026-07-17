@@ -10,14 +10,16 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 
-from backend.db.base import Base
+from backend.db.base import Base, get_db
 from backend.db import models
 from backend.services import openings as ob
 from backend.services.treasury import consolidated_treasury
+from backend.api.main import app
 
 
 @pytest.fixture()
@@ -129,3 +131,51 @@ def test_get_openings_returns_note(session):
     view = ob.get_openings(session, 2026)
     row = next(r for r in view["accounts"] if r["account_uid"] == "acc-eur")
     assert row["note"] == "relevé déc. 2025"
+
+
+# --------------------------------------------------------------------------- #
+# Provenance du badge : une saisie manuelle depuis Réglages efface la note    #
+# d'origine (ex. report décembre) — sinon le badge ment sur la provenance.    #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture()
+def client(session):
+    app.dependency_overrides[get_db] = lambda: session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_manual_save_via_settings_route_clears_origin_note(session, client):
+    """PUT /api/opening-balances (saisie manuelle Réglages) efface la note d'origine."""
+    _make_account(session, "acc-eur", currency="EUR")
+    # Simule un report décembre préalable : la ligne porte une note d'origine.
+    session.add(models.OpeningBalance(account_uid="acc-eur", year=2026,
+                                      balance=Decimal("500.00"), note="relevé déc. 2025"))
+    session.commit()
+
+    r = client.put(
+        "/api/opening-balances?year=2026",
+        json={"items": [{"account_uid": "acc-eur", "balance": "600.00"}]},
+    )
+    assert r.status_code == 200
+
+    row = (session.query(models.OpeningBalance)
+          .filter_by(account_uid="acc-eur", year=2026).one())
+    assert row.balance == Decimal("600.00")
+    assert row.note == ""
+
+
+def test_manual_save_via_settings_route_leaves_no_note_on_creation(session, client):
+    """Une saisie manuelle sur une ligne inexistante ne crée jamais de note."""
+    _make_account(session, "acc-eur", currency="EUR")
+
+    r = client.put(
+        "/api/opening-balances?year=2026",
+        json={"items": [{"account_uid": "acc-eur", "balance": "500.00"}]},
+    )
+    assert r.status_code == 200
+
+    row = (session.query(models.OpeningBalance)
+          .filter_by(account_uid="acc-eur", year=2026).one())
+    assert row.note == ""

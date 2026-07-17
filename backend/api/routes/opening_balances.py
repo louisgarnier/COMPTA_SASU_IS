@@ -69,8 +69,20 @@ def put_openings(
     year: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Upsert des soldes d'ouverture de l'exercice et retourne la vue à jour."""
+    """
+    Upsert des soldes d'ouverture de l'exercice et retourne la vue à jour.
+
+    Chemin saisie manuelle (carte Réglages) : la note d'origine est explicitement
+    effacée (`note: ""`) sur chaque ligne enregistrée. Le montant n'est plus une
+    reprise de relevé (ex. report décembre) mais une valeur saisie à la main — le
+    badge de provenance ne doit pas survivre à une correction manuelle, sinon il
+    ment sur l'origine du solde. Le report décembre (route monthly-balances) pose
+    sa propre note explicitement et n'est pas affecté par ce chemin.
+    """
     y = year if year is not None else _current_year()
-    items = [it.model_dump() for it in payload.items]
+    items = [
+        {"account_uid": it.account_uid, "balance": str(it.balance), "note": ""}
+        for it in payload.items
+    ]
     logger.info("📥 [Openings] put: exercice=%d, %d saisie(s)", y, len(items))
     return openings_service.set_openings(db, y, items)

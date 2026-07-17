@@ -214,6 +214,7 @@ def test_carry_overwrites_existing_opening(client, db_session):
     ob = (db_session.query(models.OpeningBalance)
           .filter_by(account_uid="acc-eur", year=2026).one())
     assert ob.balance == Decimal("11626.90")
+    assert "2025" in ob.note  # la note d'origine est aussi écrasée par le nouveau report
 
 
 def test_no_carry_by_default(client, db_session):
