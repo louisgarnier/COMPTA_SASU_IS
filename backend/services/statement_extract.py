@@ -162,6 +162,40 @@ def extract_qonto_month_end(csv_text: str, year: int, month: int) -> list[dict]:
     return [{k: v for k, v in item.items() if k != "_marker"} for item in last_by_account.values()]
 
 
+def extract_qonto_pdf_month_end(text: str) -> list[dict]:
+    """Solde de clôture depuis un relevé mensuel PDF Qonto.
+
+    Le PDF porte l'en-tête « Du JJ/MM/AAAA au JJ/MM/AAAA » puis deux lignes
+    « Solde au JJ/MM » : l'ouverture (1er du mois) et la clôture (dernier jour).
+    On retient la clôture, identifiée par la date de fin de période — jamais
+    l'ouverture, qui a le même libellé. Un seul compte (EUR) par relevé.
+    """
+    period = re.search(r"[Dd]u\s+\d{2}/\d{2}/\d{4}\s+au\s+(\d{2})/(\d{2})/\d{4}", text)
+    if not period:
+        return []
+    end_dd, end_mm = period.group(1), period.group(2)
+    m = re.search(
+        rf"Solde au\s+{end_dd}/{end_mm}\s*([+-])\s*([\d   ]+[.,]\d{{2}})\s*([A-Z]{{3}})",
+        text,
+    )
+    if not m:
+        return []
+    amount = _to_decimal(m.group(2).replace(",", "."))
+    if m.group(1) == "-":
+        amount = -amount
+    iban_m = re.search(r"IBAN\s*:?\s*([A-Z]{2}[\d   ]+)", text)
+    iban_last4 = None
+    if iban_m:
+        digits = re.sub(r"\D", "", iban_m.group(1))
+        iban_last4 = digits[-4:] if len(digits) >= 4 else (digits or None)
+    return [{
+        "account_name": "Compte principal",
+        "iban_last4": iban_last4,
+        "currency": (m.group(3) or "EUR").upper(),
+        "amount": amount,
+    }]
+
+
 def pdf_to_text(data: bytes) -> str:
     """Extrait le texte d'un PDF (pypdf). Chaîne vide si illisible."""
     from pypdf import PdfReader
@@ -174,11 +208,18 @@ def pdf_to_text(data: bytes) -> str:
 
 
 def _iban_tail(iban_masked: Optional[str]) -> Optional[str]:
-    """4 derniers chiffres d'un IBAN masqué type « FR76****527 » (ou None)."""
+    """Chiffres significatifs de fin d'un IBAN masqué type « FR76****27 » (ou None).
+
+    Seuls les chiffres APRÈS le masque `****` sont significatifs : « FR76****27 »
+    → « 27 ». On ne doit pas prendre les derniers chiffres de toute la chaîne, sinon
+    on ré-agrège le « 76 » du préfixe FR76 (bug : « 7627 »[-3:] = « 627 »).
+    Un IBAN non masqué (sans `*`) retombe sur ses 4 derniers chiffres.
+    """
     if not iban_masked:
         return None
-    digits = re.sub(r"\D", "", iban_masked)
-    return digits[-3:] if digits else None  # masqué → souvent 3 chiffres visibles
+    tail = iban_masked.rsplit("*", 1)[-1] if "*" in iban_masked else iban_masked
+    digits = re.sub(r"\D", "", tail)
+    return digits[-4:] if digits else None
 
 
 def map_to_accounts(db: Session, extracted: list[dict]) -> list[dict]:

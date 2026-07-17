@@ -187,3 +187,87 @@ def test_map_unmatched_currency_flagged():
     out = se.map_to_accounts(db, extracted)
     assert out[0]["matched"] is False
     assert out[0]["account_uid"] is None
+
+
+QONTO_PDF_TEXT = """Relevés de compte
+Du 01/01/2025 au 31/01/2025
+LGC
+IBAN: FR76 1695 8000 0110 7882 4351 453
+BIC: QNTOFRP1XXX
+Solde au 01/01 + 315.48 EUR
+Entrées + 4000.00 EUR
+Sorties - 296.39 EUR
+Solde au 31/01 + 4019.09 EUR
+Date de valeur Transactions Débit Crédit
+"""
+
+
+def test_qonto_pdf_takes_closing_balance_not_opening():
+    out = se.extract_qonto_pdf_month_end(QONTO_PDF_TEXT)
+    assert len(out) == 1
+    # clôture 31/01, pas l'ouverture 01/01 (315.48)
+    assert out[0]["amount"] == Decimal("4019.09")
+    assert out[0]["currency"] == "EUR"
+    assert out[0]["iban_last4"] == "1453"
+
+
+def test_qonto_pdf_negative_balance():
+    text = QONTO_PDF_TEXT.replace("Solde au 31/01 + 4019.09 EUR", "Solde au 31/01 - 12.50 EUR")
+    out = se.extract_qonto_pdf_month_end(text)
+    assert out[0]["amount"] == Decimal("-12.50")
+
+
+def test_qonto_pdf_empty_when_no_period():
+    assert se.extract_qonto_pdf_month_end("un texte sans en-tête de période") == []
+
+
+def test_iban_tail_ignores_fr76_prefix_on_two_digit_mask():
+    # Régression : les IBAN Enable Banking réels sont masqués à 2 chiffres
+    # « FR76****27 ». _iban_tail doit rendre « 27 » (chiffres après le masque),
+    # pas « 627 » (bug : derniers chiffres de « 7627 » ré-agrégeant le préfixe).
+    assert se._iban_tail("FR76****27") == "27"
+    assert se._iban_tail("FR76****527") == "527"
+    assert se._iban_tail("") is None
+    assert se._iban_tail(None) is None
+
+
+def _db_live_masks():
+    """Structure réelle : masque 2 chiffres, plusieurs comptes par devise, IBAN Revolut partagé."""
+    engine = create_engine("sqlite:///:memory:", future=True,
+                           connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, future=True)()
+    db.add_all([
+        models.BankAccount(provider="qonto", account_uid="q-eur", currency="EUR",
+                           iban_masked="FR76****53", name="lgc"),
+        models.BankAccount(provider="revolut", account_uid="r-eur", currency="EUR",
+                           iban_masked="FR76****27", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="r-usd", currency="USD",
+                           iban_masked="FR76****27", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="r-gbp", currency="GBP",
+                           iban_masked="FR76****27", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="r-usd2", currency="USD",
+                           iban_masked="FR76****84", name="LGC"),
+        models.BankAccount(provider="revolut", account_uid="r-eur2", currency="EUR",
+                           iban_masked="", name="LGC"),
+    ])
+    db.commit()
+    return db
+
+
+def test_map_two_digit_mask_shared_iban_maps_to_primary_account():
+    # Tous les sous-comptes Revolut partagent l'IBAN « …527 » (last4 « 3527 ») ;
+    # le mapping doit viser le compte principal « ****27 » de chaque devise,
+    # malgré plusieurs comptes de même devise (repli « unique » impossible).
+    db = _db_live_masks()
+    extracted = [
+        {"name": "Main", "currency": "EUR", "iban_last4": "3527", "amount": Decimal("117013.40")},
+        {"name": "Main", "currency": "USD", "iban_last4": "3527", "amount": Decimal("17280.00")},
+        {"name": "Main", "currency": "GBP", "iban_last4": "3527", "amount": Decimal("0.00")},
+    ]
+    out = se.map_to_accounts(db, extracted)
+    assert all(r["matched"] for r in out), out
+    by_uid = {r["account_uid"]: r["amount"] for r in out}
+    assert by_uid["r-eur"] == Decimal("117013.40")
+    assert by_uid["r-usd"] == Decimal("17280.00")  # pas r-usd2 (****84)
+    assert by_uid["r-gbp"] == Decimal("0.00")
