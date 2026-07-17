@@ -90,6 +90,23 @@ export default function BankingPage() {
     };
   }, []);
 
+  // Scroll vers l'ancre visée par l'URL une fois le chargement terminé.
+  // Sur une navigation client-side (ex: lien du dashboard vers /banking#rappro-mensuel),
+  // Next.js tente de scroller vers l'ancre immédiatement après la navigation — trop tôt,
+  // le contenu est encore sous la garde `loading` et l'élément n'existe pas dans le DOM.
+  // Cet effet reprend le scroll une fois le contenu réellement monté.
+  useEffect(() => {
+    if (loading) return;
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (!hash || hash.length <= 1) return;
+    const id = decodeURIComponent(hash.slice(1));
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView();
+    }
+  }, [loading]);
+
   const handleConnect = async (name: string) => {
     setConnecting(name);
     setAuthUrl('');

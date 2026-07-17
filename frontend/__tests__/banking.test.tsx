@@ -81,4 +81,42 @@ describe('BankingPage', () => {
     // la carte à l'arrivée sur l'ancre.
     expect(container.querySelector('#rappro-mensuel')).toHaveClass('scroll-mt-20');
   });
+
+  describe('scroll vers l’ancre après chargement', () => {
+    const setHash = (hash: string) => {
+      window.history.replaceState(null, '', hash ? `/banking${hash}` : '/banking');
+    };
+
+    let scrollIntoViewMock: jest.Mock;
+
+    beforeEach(() => {
+      scrollIntoViewMock = jest.fn();
+      Element.prototype.scrollIntoView = scrollIntoViewMock;
+    });
+
+    afterEach(() => {
+      setHash('');
+    });
+
+    it('scrolle vers l’élément désigné par le hash une fois le chargement terminé', async () => {
+      setHash('#rappro-mensuel');
+      const { container } = render(<BankingPage />);
+
+      await waitFor(() => expect(container.querySelector('#rappro-mensuel')).not.toBeNull());
+      await waitFor(() => expect(scrollIntoViewMock).toHaveBeenCalledTimes(1));
+
+      const target = container.querySelector('#rappro-mensuel');
+      expect(scrollIntoViewMock.mock.instances[0]).toBe(target);
+    });
+
+    it("n'appelle pas scrollIntoView quand il n'y a pas de hash", async () => {
+      setHash('');
+      render(<BankingPage />);
+
+      await screen.findByRole('heading', { name: 'Banques' });
+      // Laisse le temps à un éventuel effet de se déclencher avant d'affirmer l'absence d'appel.
+      await waitFor(() => expect(bankingAPI.connections).toHaveBeenCalled());
+      expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    });
+  });
 });
