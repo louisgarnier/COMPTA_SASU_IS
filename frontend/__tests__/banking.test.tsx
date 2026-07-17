@@ -119,4 +119,46 @@ describe('BankingPage', () => {
       expect(scrollIntoViewMock).not.toHaveBeenCalled();
     });
   });
+
+  describe('carte « Connecter une banque » repliable', () => {
+    beforeEach(() => localStorage.clear());
+
+    // NB : viser le BOUTON « Qonto », pas le texte — « Qonto » apparaît aussi
+    // comme <option> du sélecteur de banque de la carte rappro, qui elle ne se
+    // replie pas. `queryByText` attraperait cette option et ne prouverait rien.
+    const bankButton = () => screen.queryByRole('button', { name: 'Qonto' });
+
+    it('est dépliée par défaut et se replie au clic', async () => {
+      render(<BankingPage />);
+      const toggle = await screen.findByRole('button', { name: /Connecter une banque/i });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await waitFor(() => expect(bankButton()).toBeInTheDocument());
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      // Le corps disparaît : plus de bouton de banque ni de champ de code.
+      expect(bankButton()).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText('code…')).not.toBeInTheDocument();
+    });
+
+    it('mémorise le repli — la carte reste fermée au retour sur la page', async () => {
+      const first = render(<BankingPage />);
+      fireEvent.click(await screen.findByRole('button', { name: /Connecter une banque/i }));
+      expect(bankButton()).not.toBeInTheDocument();
+      first.unmount();
+
+      render(<BankingPage />);
+      const toggle = await screen.findByRole('button', { name: /Connecter une banque/i });
+      await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'false'));
+      expect(bankButton()).not.toBeInTheDocument();
+    });
+
+    it('le reste de la page survit au repli', async () => {
+      render(<BankingPage />);
+      fireEvent.click(await screen.findByRole('button', { name: /Connecter une banque/i }));
+      // La carte rappro (et son ancre) restent montées.
+      expect(document.querySelector('#rappro-mensuel')).not.toBeNull();
+      expect(screen.getByRole('heading', { name: 'Banques' })).toBeInTheDocument();
+    });
+  });
 });

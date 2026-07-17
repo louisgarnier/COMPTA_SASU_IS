@@ -8,6 +8,8 @@ import { MonthlyReconcileCard } from '@/components/MonthlyReconcileCard';
 import { PageTitle, Card, Badge, Empty } from '@/components/ui';
 import { money, dateFR } from '@/lib/format';
 
+const CONNECT_OPEN_KEY = 'lgc.banking.connectOpen';
+
 type Status = { live: boolean; message: string };
 type Aspsp = { name: string; country?: string };
 type Connection = {
@@ -53,6 +55,24 @@ export default function BankingPage() {
   // Étape de sélection : comptes disponibles après échange du code.
   const [available, setAvailable] = useState<AccountPreview[] | null>(null);
   const [chosen, setChosen] = useState<Record<string, boolean>>({});
+
+  // Repli de la carte « Connecter une banque ». Mémorisé : une fois les banques
+  // rattachées, la carte ne resservira qu'exceptionnellement — sans persistance
+  // elle se rouvrirait à chaque visite et le repli ne servirait à rien.
+  // Départ déplié : le premier rendu doit être identique côté serveur (pas de
+  // localStorage au SSR), l'état réel est lu juste après le montage.
+  const [connectOpen, setConnectOpen] = useState(true);
+
+  useEffect(() => {
+    setConnectOpen(localStorage.getItem(CONNECT_OPEN_KEY) !== 'false');
+  }, []);
+
+  const toggleConnect = useCallback(() => {
+    setConnectOpen((open) => {
+      localStorage.setItem(CONNECT_OPEN_KEY, String(!open));
+      return !open;
+    });
+  }, []);
   const [attaching, setAttaching] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
@@ -255,11 +275,23 @@ export default function BankingPage() {
             )}
           </Card>
 
-          {/* Connexion d'une banque */}
+          {/* Connexion d'une banque — repliable : une fois les banques rattachées,
+              cette carte ne sert plus qu'exceptionnellement. */}
           <Card>
-            <div className="mb-3 text-sm font-semibold">
-              Connecter une banque
-            </div>
+            <button
+              type="button"
+              onClick={toggleConnect}
+              aria-expanded={connectOpen}
+              aria-controls="connect-bank-body"
+              className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold"
+            >
+              <span>Connecter une banque</span>
+              <span aria-hidden className="text-xs text-[var(--muted)]">
+                {connectOpen ? '▾' : '▸'}
+              </span>
+            </button>
+            {connectOpen && (
+            <div id="connect-bank-body" className="mt-3">
             {aspsps.length === 0 ? (
               <Empty>Aucune banque disponible.</Empty>
             ) : (
@@ -371,6 +403,8 @@ export default function BankingPage() {
                   </button>
                 </div>
               </div>
+            )}
+            </div>
             )}
           </Card>
 
