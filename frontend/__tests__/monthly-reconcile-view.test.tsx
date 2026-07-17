@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MonthlyReconcileView } from '@/components/dashboard/MonthlyReconcileView';
 
 jest.mock('next/link', () => ({
@@ -66,4 +66,57 @@ test('les montants par compte restent en devise native', async () => {
   fireEvent.click(await screen.findByText(/Oct 2025/));
   expect(await screen.findByText(/80 381,99\s*\$US/)).toBeInTheDocument();
   expect(screen.queryByText(/80 381,99\s*€/)).not.toBeInTheDocument();
+});
+
+test('une réponse tardive après changement d’année n’écrase pas la sélection courante (race condition)', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  let resolve2025: (v: unknown) => void = () => {};
+  let resolve2024: (v: unknown) => void = () => {};
+  monthlyBalancesAPI.reconciliation
+    .mockImplementationOnce(() => new Promise((r) => { resolve2025 = r; }))
+    .mockImplementationOnce(() => new Promise((r) => { resolve2024 = r; }));
+
+  render(<MonthlyReconcileView year={2025} />);
+  fireEvent.click(await screen.findByRole('button', { name: '2024' }));
+
+  // La réponse 2024 arrive en premier (rapide) ; on flushe explicitement via
+  // act() pour être sûr que l'état a bien été committé avant d'enchaîner.
+  await act(async () => {
+    resolve2024({ year: 2024, coverage: '2/12', months: [] });
+    await Promise.resolve();
+  });
+  expect(screen.getByText('2/12')).toBeInTheDocument();
+
+  // La réponse 2025, lancée avant mais arrivée après, est désormais obsolète :
+  // elle ne doit pas écraser l'affichage de 2024.
+  await act(async () => {
+    resolve2025({ year: 2025, coverage: '4/12', months: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(screen.getByText('2/12')).toBeInTheDocument();
+  expect(screen.queryByText('4/12')).not.toBeInTheDocument();
+});
+
+test('affiche une erreur réseau au lieu de rester bloqué sur « Chargement… »', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  monthlyBalancesAPI.reconciliation.mockRejectedValueOnce(new Error('Erreur réseau'));
+
+  render(<MonthlyReconcileView year={2025} />);
+  expect(await screen.findByText(/❌/)).toBeInTheDocument();
+  expect(screen.queryByText('Chargement…')).not.toBeInTheDocument();
+});
+
+test('une erreur après un chargement réussi efface le tableau périmé au lieu de le laisser affiché', async () => {
+  const { monthlyBalancesAPI } = require('@/api/client');
+  monthlyBalancesAPI.reconciliation
+    .mockResolvedValueOnce({ year: 2025, coverage: '4/12', months: [] })
+    .mockRejectedValueOnce(new Error('Erreur réseau'));
+
+  render(<MonthlyReconcileView year={2025} />);
+  await screen.findByText('4/12');
+
+  fireEvent.click(await screen.findByRole('button', { name: '2024' }));
+  expect(await screen.findByText(/❌/)).toBeInTheDocument();
+  expect(screen.queryByText('4/12')).not.toBeInTheDocument();
 });

@@ -15,9 +15,25 @@ export function MonthlyReconcileView({ year: initialYear }: { year: number }) {
   const currentYear = new Date().getFullYear();
   const yearOptions = [currentYear - 2, currentYear - 1, currentYear];
   const [view, setView] = useState<MonthlyReconView | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    monthlyBalancesAPI.reconciliation(year).then(setView).catch(() => setView(null));
+    let cancelled = false;
+    monthlyBalancesAPI
+      .reconciliation(year)
+      .then((v) => {
+        if (cancelled) return;
+        setView(v);
+        setError('');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setView(null);
+        setError((e as Error).message || 'Erreur réseau');
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [year]);
 
   return (
@@ -42,11 +58,12 @@ export function MonthlyReconcileView({ year: initialYear }: { year: number }) {
         </span>
       </div>
 
+      {error && <p className="text-xs text-red-600">❌ {error}</p>}
       {view ? (
         <MonthlyReconcileTable view={view} />
-      ) : (
+      ) : !error ? (
         <p className="text-sm text-[var(--muted)]">Chargement…</p>
-      )}
+      ) : null}
 
       <div className="mt-3 border-t border-[var(--border)] pt-2.5">
         <Link href="/banking#rappro-mensuel" className="text-xs font-semibold text-[var(--accent)] hover:underline">
