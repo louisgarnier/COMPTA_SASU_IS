@@ -30,12 +30,13 @@ export function StatCard({ label, value, tone = 'neutral' }: { label: string; va
   );
 }
 
-export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'pos' | 'neg' | 'warn' }) {
+export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'pos' | 'neg' | 'warn' | 'info' }) {
   const map = {
     neutral: 'bg-gray-100 text-gray-700',
     pos: 'bg-green-100 text-green-700',
     neg: 'bg-red-100 text-red-700',
     warn: 'bg-amber-100 text-amber-700',
+    info: 'bg-blue-100 text-blue-700',
   } as const;
   return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${map[tone]}`}>{children}</span>;
 }

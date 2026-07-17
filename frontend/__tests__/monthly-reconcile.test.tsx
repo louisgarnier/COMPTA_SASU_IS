@@ -5,8 +5,10 @@ jest.mock('next/navigation', () => ({ usePathname: () => '/banking' }));
 jest.mock('@/api/client', () => ({
   balanceDocsAPI: {
     upload: jest.fn(),
+    downloadUrl: (id: number) => `/api/balance-docs/${id}/download`,
   },
   monthlyBalancesAPI: {
+    archiveUrl: (ids: number[]) => `/api/monthly-balances/docs-archive?ids=${ids.join(',')}`,
     reconciliation: jest.fn().mockResolvedValue({
       year: 2025, coverage: '1/12',
       months: [
@@ -16,10 +18,11 @@ jest.mock('@/api/client', () => ({
               reconstructed: '1500.00', diff: '-50.00', status: 'warn' },
             { account_uid: 'acc-usd', currency: 'USD', official: '80381.99',
               reconstructed: '80400.00', diff: '-18.01', status: 'warn' },
-          ] },
+          ],
+          docs: [{ id: 7, name: 'Revolut', filename: 'statement-of-balances_31-Jan-2025.pdf' }] },
         ...Array.from({ length: 11 }, (_, i) => ({
           month: i + 2, status: 'missing', total_eur_official: '0.00', total_eur_diff: '0.00',
-          per_account: [],
+          per_account: [], docs: [],
         })),
       ],
     }),
@@ -42,6 +45,22 @@ test('affiche les 12 mois, la couverture, et déplie le détail par compte', asy
   // Le compte USD doit être formaté en devise native ($US), pas en euros.
   expect(await screen.findByText(/80 381,99\s*\$US/)).toBeInTheDocument();
   expect(screen.queryByText(/80 381,99\s*€/)).not.toBeInTheDocument();
+});
+
+test('lien direct de téléchargement du relevé sur la ligne du mois', async () => {
+  render(<MonthlyReconcileCard year={2025} />);
+  const link = await screen.findByRole('link', { name: /Revolut/i });
+  expect(link).toHaveAttribute('href', '/api/balance-docs/7/download');
+});
+
+test('cocher un mois affiche la barre d’action avec le nombre de relevés', async () => {
+  render(<MonthlyReconcileCard year={2025} />);
+  const cb = await screen.findByLabelText(/Sélectionner Janv 2025/i);
+  fireEvent.click(cb);
+  expect(await screen.findByText(/1 mois sélectionné/)).toBeInTheDocument();
+  // 1 relevé lié à janvier → bouton "Télécharger les relevés (1)"
+  expect(await screen.findByRole('button', { name: /Télécharger les relevés \(1\)/ })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Envoyer par mail/ })).toBeInTheDocument();
 });
 
 test('un sélecteur d’année permet de changer l’exercice affiché', async () => {

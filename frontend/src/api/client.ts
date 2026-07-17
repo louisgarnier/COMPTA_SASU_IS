@@ -208,19 +208,24 @@ export const balanceDocsAPI = {
   remove: (id: number) => del(`/api/balance-docs/${id}`),
 };
 
+export type ReconStatus = 'ok' | 'warn' | 'partial' | 'missing' | 'empty';
+export type MonthlyDoc = { id: number; name: string; filename: string };
 export type MonthlyAccountRow = {
   account_uid: string; currency: string;
-  official: string | null; reconstructed: string; diff: string | null; status: string;
+  official: string | null; reconstructed: string; diff: string | null; status: ReconStatus;
 };
 export type MonthlyMonth = {
-  month: number; status: 'ok' | 'warn' | 'missing';
+  month: number; status: ReconStatus;
   total_eur_official: string; total_eur_diff: string; per_account: MonthlyAccountRow[];
+  docs: MonthlyDoc[];
 };
 export type MonthlyReconView = { year: number; coverage: string; months: MonthlyMonth[] };
 
 export const monthlyBalancesAPI = {
   reconciliation: (year: number) =>
     get<MonthlyReconView>(`/api/monthly-balances/reconciliation?year=${year}`),
+  archiveUrl: (docIds: number[]) =>
+    `${API_BASE_URL}/api/monthly-balances/docs-archive?ids=${docIds.join(',')}`,
   extract: async (form: FormData) => {
     const res = await fetch(`${API_BASE_URL}/api/monthly-balances/extract`, {
       method: 'POST',
