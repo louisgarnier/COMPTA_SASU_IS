@@ -29,7 +29,7 @@ const panelId = (id: Tab) => `bank-balances-panel-${id}`;
 export function BankBalancesCard({ year }: { year?: number }) {
   const [tab, setTab] = useState<Tab>('soldes');
   const curYear = new Date().getFullYear();
-  const selYear = year && year <= curYear ? year : curYear;
+  const displayYear = year ?? curYear;
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ soldes: null, rappro: null });
 
   const focusTab = (id: Tab) => {
@@ -47,7 +47,7 @@ export function BankBalancesCard({ year }: { year?: number }) {
 
   return (
     <Card>
-      <div role="tablist" className="mb-3 inline-flex gap-1 rounded-xl bg-gray-100 p-1">
+      <div role="tablist" aria-label="Soldes bancaires" className="mb-3 inline-flex gap-1 rounded-xl bg-gray-100 p-1">
         {TABS.map((t, index) => {
           const active = tab === t.id;
           return (
@@ -81,7 +81,7 @@ export function BankBalancesCard({ year }: { year?: number }) {
         </div>
       ) : (
         <div role="tabpanel" id={panelId('rappro')} aria-labelledby={tabId('rappro')}>
-          <MonthlyReconcileView year={selYear} />
+          <MonthlyReconcileView year={displayYear} />
         </div>
       )}
     </Card>

@@ -9,16 +9,20 @@ import { MonthlyReconcileTable } from '@/components/MonthlyReconcileTable';
  * Onglet « Rapprochement mensuel » du dashboard — consultation seule
  * (maquette variante A, validée 2026-07-17). Le dépôt de relevé, la sélection
  * et l'envoi restent sur la page Banques : ici on regarde, on n'écrit pas.
+ *
+ * L'année est pilotée par le sélecteur global du dashboard (prop `year`) —
+ * pas de sélecteur local ici, pour éviter que l'en-tête du dashboard et ce
+ * tableau affichent deux années différentes en même temps. Si le sélecteur
+ * global pointe sur une année future, la vue peut légitimement être vide :
+ * un relevé officiel n'existe que pour le passé.
  */
-export function MonthlyReconcileView({ year: initialYear }: { year: number }) {
-  const [year, setYear] = useState(initialYear);
-  const currentYear = new Date().getFullYear();
-  const yearOptions = [currentYear - 2, currentYear - 1, currentYear];
+export function MonthlyReconcileView({ year }: { year: number }) {
   const [view, setView] = useState<MonthlyReconView | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
+    setError('');
     monthlyBalancesAPI
       .reconciliation(year)
       .then((v) => {
@@ -39,20 +43,6 @@ export function MonthlyReconcileView({ year: initialYear }: { year: number }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="inline-flex overflow-hidden rounded-lg border border-[var(--border)]">
-          {yearOptions.map((y) => (
-            <button
-              key={y}
-              type="button"
-              onClick={() => setYear(y)}
-              className={`border-r border-[var(--border)] px-3 py-1 text-xs font-semibold last:border-r-0 ${
-                y === year ? 'bg-[var(--accent)] text-white' : 'bg-white text-[var(--text)] hover:bg-gray-50'
-              }`}
-            >
-              {y}
-            </button>
-          ))}
-        </div>
         <span className="text-xs text-[var(--muted)]">
           Couverture <strong className="text-[var(--text)]">{view?.coverage ?? '—'}</strong> mois
         </span>

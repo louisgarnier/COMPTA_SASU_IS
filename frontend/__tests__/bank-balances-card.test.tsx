@@ -66,6 +66,13 @@ test('la pilule revient sur les soldes', async () => {
   expect(screen.queryByText('4/12')).not.toBeInTheDocument();
 });
 
+test('la pilule expose un nom accessible (« Soldes bancaires ») sur le tablist', async () => {
+  render(<BankBalancesCard year={2025} />);
+  await screen.findAllByText('11 626,90 €');
+
+  expect(screen.getByRole('tablist', { name: /Soldes bancaires/i })).toBeInTheDocument();
+});
+
 test('la pilule expose la sémantique ARIA tablist/tab avec aria-selected suivant l’onglet actif', async () => {
   render(<BankBalancesCard year={2025} />);
   await screen.findAllByText('11 626,90 €');
